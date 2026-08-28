@@ -618,6 +618,18 @@ Lemma own_value_doshort_not_boundary (ctab : Collections.NodeMap.t (option TR.Co
   (H' : BN.resolution_object_view r' = Some (BN.SourceObject org')) :
   own_value ctab r <> VUnmet (ReqValueMeaning r' org' H').
 Proof. rewrite (own_value_doshort ctab r n Hn sn Hres). discriminate. Qed.
+(* §9.3 discrimination: a DOBinder source object is exactly the ReqValueMeaning boundary, not the VNonconst case *)
+Lemma own_value_dobinder_boundary (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (b : BN.BinderRef idx)
+  (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOBinder b))) :
+  own_value ctab r = VUnmet (ReqValueMeaning (BN.resolve bp r n) (BN.DOBinder b) Hres).
+Proof.
+  rewrite (own_value_at ctab r (Index.Model.VName n) Hn). cbn [own_value_body].
+  rewrite (convoy_at (BN.resolution_object_view (BN.resolve bp r n))
+                     (own_value_res_body r n (BN.resolve bp r n))
+                     (Some (BN.SourceObject (BN.DOBinder b))) Hres).
+  reflexivity.
+Qed.
 
 (* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
 Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
@@ -3172,6 +3184,68 @@ Lemma nvfr_kind (n : NonconstValueFactRef) : frr_kind (nvfr_rowref n) = ValueKin
 Proof. unfold frr_kind; rewrite (nvfr_is n); reflexivity. Qed.
 Lemma nvfr_frr_site (n : NonconstValueFactRef) : frr_site (nvfr_rowref n) = nvfr_site n.
 Proof. unfold frr_site; rewrite (nvfr_is n); reflexivity. Qed.
+(* Step 6 the Result-owned short-origin value ref: a name use resolving to DOShort, with its retained VNonconst row *)
+Record ShortOriginValueRef : Type := mk_sovr {
+  sovr_site   : Index.NodeRef (res_index res) ;
+  sovr_name   : Names.OrdinaryIdentifier ;
+  sovr_view   : Index.node_view sovr_site = Index.Model.VName sovr_name ;
+  sovr_sn     : BN.ShortNewRef (res_index res) ;
+  sovr_res    : BN.resolution_object_view (BN.resolve (res_binds res) sovr_site sovr_name)
+                  = Some (BN.SourceObject (BN.DOShort sovr_sn)) ;
+  sovr_row    : NonconstValueFactRef ;
+  sovr_at     : nvfr_site sovr_row = sovr_site ;
+  sovr_lookup : fact_row_for sovr_site ValueKind = Some (nvfr_rowref sovr_row)
+}.
+(* §9.4 retained row round trip: the ref's row is exactly the retained VNonconst Value fact at its use site *)
+Lemma sovr_row_is (sovr : ShortOriginValueRef) :
+  frr_row (nvfr_rowref (sovr_row sovr)) = OFValue (sovr_site sovr) VNonconst.
+Proof. rewrite (nvfr_is (sovr_row sovr)), (sovr_at sovr). reflexivity. Qed.
+Lemma sovr_round_trip (sovr : ShortOriginValueRef) :
+  fact_row_for (sovr_site sovr) ValueKind = Some (nvfr_rowref (sovr_row sovr))
+  /\ frr_row (nvfr_rowref (sovr_row sovr)) = OFValue (sovr_site sovr) VNonconst.
+Proof. split; [ exact (sovr_lookup sovr) | exact (sovr_row_is sovr) ]. Qed.
+(* §9.5 cross-origin rejection: the use's exact resolution is provably neither a binder nor a func source origin *)
+Lemma sovr_not_dobinder (sovr : ShortOriginValueRef) (b : BN.BinderRef (res_index res)) :
+  BN.resolution_object_view (BN.resolve (res_binds res) (sovr_site sovr) (sovr_name sovr))
+    <> Some (BN.SourceObject (BN.DOBinder b)).
+Proof. rewrite (sovr_res sovr). discriminate. Qed.
+Lemma sovr_not_dofunc (sovr : ShortOriginValueRef) (f : BN.FunctionDeclRef (res_index res)) :
+  BN.resolution_object_view (BN.resolve (res_binds res) (sovr_site sovr) (sovr_name sovr))
+    <> Some (BN.SourceObject (BN.DOFunc f)).
+Proof. rewrite (sovr_res sovr). discriminate. Qed.
+(* §9.5 origin uniqueness: the same use site and spelling force the same DOShort origin — resolution is deterministic *)
+Lemma sovr_origin_unique (sovr1 sovr2 : ShortOriginValueRef)
+  (Hsite : sovr_site sovr1 = sovr_site sovr2) (Hname : sovr_name sovr1 = sovr_name sovr2) :
+  sovr_sn sovr1 = sovr_sn sovr2.
+Proof.
+  pose proof (sovr_res sovr1) as H1. pose proof (sovr_res sovr2) as H2.
+  rewrite Hsite, Hname in H1. rewrite H1 in H2. injection H2 as H2. exact H2.
+Qed.
+(* §9.6 origin projections: the retained DOShort origin projects to its exact short statement, lhs index, and edge *)
+Definition sovr_origin_stmt (sovr : ShortOriginValueRef) : Index.Refs.ShortStmtRef (res_index res) :=
+  BN.snr_stmt (sovr_sn sovr).
+Definition sovr_origin_ix (sovr : ShortOriginValueRef) : nat := BN.snr_ix (sovr_sn sovr).
+Definition sovr_origin_edge (sovr : ShortOriginValueRef)
+  : Index.Edges.ShortLhsEdge (sovr_origin_stmt sovr) (sovr_origin_ix sovr) := BN.snr_edge (sovr_sn sovr).
+(* Step 6 construction: a value-position DOShort use yields the ref, its row the one canonical builder's *)
+Lemma short_origin_value_construct (fr : Index.FileRef (res_index res))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
+  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr)
+  (n : Names.OrdinaryIdentifier) (Hview : Index.node_view e = Index.Model.VName n)
+  (sn : BN.ShortNewRef (res_index res))
+  (Hres : BN.resolution_object_view (BN.resolve (res_binds res) e n) = Some (BN.SourceObject (BN.DOShort sn))) :
+  exists sovr : ShortOriginValueRef, sovr_site sovr = e /\ sovr_name sovr = n /\ sovr_sn sovr = sn.
+Proof.
+  assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst)
+    by exact (own_value_doshort (res_binds res) (const_table (res_binds res) fr) e n Hview sn Hres).
+  assert (Hret : retains_value_fact e = true) by (unfold retains_value_fact; rewrite Hview; reflexivity).
+  destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr e He Hret Hown)) as [row [Hin Hrow]].
+  assert (Hlk : fact_row_for e ValueKind = Some row)
+    by (apply fact_row_for_complete;
+        [ exact Hin | unfold frr_site; rewrite Hrow; reflexivity | unfold frr_kind; rewrite Hrow; reflexivity ]).
+  exists (mk_sovr e n Hview sn Hres (mk_nvfr row e Hrow) eq_refl Hlk).
+  split; [ reflexivity | split; reflexivity ].
+Qed.
 (* §11 the Result-owned RHS-meaning boundary: parent fact, RHS edge, and the exact retained VNonconst child row *)
 Record ShortRhsMeaningRef : Type := mk_srmr {
   srmr_parent : ShortStatementFactRef ;
