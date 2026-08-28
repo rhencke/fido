@@ -3285,6 +3285,11 @@ Lemma group_rows_enumerated :
   group_rows = map (fun rr => DRedeclaredGroup (projT2 rr)) (BN.redeclaration_roots (res_binds res)).
 Proof. reflexivity. Qed.
 
+(* the diagnostics and boundaries over a given row enumeration, so result_issues can bind and share it once *)
+Definition result_diagnostic_rows (rows : list (FactRowRef res)) : list (Diagnostic res) :=
+  collision_rows ++ main_rows ++ group_rows ++ flat_map occ_diag_rows rows.
+Definition result_boundary_rows (rows : list (FactRowRef res)) : list (Boundary res) :=
+  flat_map occ_bound_rows rows.
 (* occurrence diagnostics/boundaries derive FROM the exact retained rows (fact_rows res), not from standalone facts *)
 Definition occ_diags : list (Diagnostic res) := flat_map occ_diag_rows (fact_rows res).
 
@@ -3606,7 +3611,8 @@ Arguments IBound {p r} _.
 
 (* the one canonical issue sequence: every diagnostic then every boundary, each kept in its own source order *)
 Definition result_issues {p} (r : Result p) : list (Issue r) :=
-  map IDiag (result_diagnostics r) ++ map IBound (result_boundaries r).
+  let rows := fact_rows r in
+  map IDiag (result_diagnostic_rows r rows) ++ map IBound (result_boundary_rows r rows).
 
 Section IssueIdentity.
 Context {p : Syntax.Program}.
