@@ -3034,6 +3034,27 @@ Proof.
       destruct (short_usage_construct ssfr Hdup Hcount Hblk Hnew Hneg Hfind Hmix) as [sur Hpar].
       exists sur. exact Hpar.
 Qed.
+(* §20 result-level reachability: every short statement reaches its exact retained fact and its exact case ref *)
+Lemma short_case_for (st : Index.Refs.ShortStmtRef (res_index res)) :
+  exists ssfr : ShortStatementFactRef, ssfr_stmt ssfr = st
+    /\ ( (exists ifr : InvalidFactRef res, ifr_rowref ifr = ssfr_row ssfr)
+       \/ (exists dfr : DependentFactRef res, dfr_rowref dfr = ssfr_row ssfr)
+       \/ (exists srmr : ShortRhsMeaningRef, srmr_parent srmr = ssfr)
+       \/ (exists srtr : ShortRedeclarationTypesRef, srtr_parent srtr = ssfr)
+       \/ (exists sur : ShortUsageRef, sur_parent sur = ssfr) ).
+Proof.
+  destruct (short_statement_fact st) as [ssfr|] eqn:E;
+    [ | exfalso; exact (short_statement_fact_complete st E) ].
+  exists ssfr. split; [ exact (short_statement_fact_stmt st ssfr E) | ].
+  destruct (short_fact_case_total ssfr) as [Hi | [Hd | Hu]].
+  - left. exact Hi.
+  - right; left. exact Hd.
+  - right; right. destruct Hu as [ufr Hufr].
+    destruct (short_unmet_refines ssfr ufr Hufr) as [Hm | [Hr | Hg]].
+    + left. exact Hm.
+    + right; left. exact Hr.
+    + right; right. exact Hg.
+Qed.
 End FactRowLaws.
 Arguments frr_key {p res} ref.
 Arguments nfr_class {p res child_row} _.
