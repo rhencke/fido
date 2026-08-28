@@ -270,5 +270,28 @@ Definition fix_short_rhs_meaning_view (srmr : AN.ShortRhsMeaningRef r) : RP.Shor
   := RP.short_rhs_meaning_view srmr.
 Definition fix_short_redecl_view (srtr : AN.ShortRedeclarationTypesRef r) : RP.ShortRedeclView (AN.res_index r)
   := RP.short_redecl_view srtr.
+(* §15 short-origin value: a value-position DOShort use is the exact Result-owned ShortOriginValueRef *)
+Definition fix_short_origin_construct (fr : Index.FileRef (AN.res_index r))
+  (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (AN.res_surface r))))
+  (e : Index.NodeRef (AN.res_index r)) (He : Index.nr_file e = fr)
+  (n : Names.OrdinaryIdentifier) (Hview : Index.node_view e = Index.Model.VName n)
+  (sn : BN.ShortNewRef (AN.res_index r))
+  (Hres : BN.resolution_object_view (BN.resolve (AN.res_binds r) e n) = Some (BN.SourceObject (BN.DOShort sn)))
+  : exists sovr : AN.ShortOriginValueRef r, AN.sovr_site sovr = e /\ AN.sovr_name sovr = n /\ AN.sovr_sn sovr = sn
+  := AN.short_origin_value_construct r fr Hfr e He n Hview sn Hres.
+(* §9.4 the ref's retained Value row is exactly VNonconst, found by fact_row_for at the use site *)
+Definition fix_short_origin_round_trip (sovr : AN.ShortOriginValueRef r) := AN.sovr_round_trip r sovr.
+(* §9.5 cross-origin rejection: the exact resolution of a short-origin use is never a binder origin *)
+Definition fix_short_origin_not_binder (sovr : AN.ShortOriginValueRef r) (b : BN.BinderRef (AN.res_index r))
+  : BN.resolution_object_view (BN.resolve (AN.res_binds r) (AN.sovr_site sovr) (AN.sovr_name sovr))
+      <> Some (BN.SourceObject (BN.DOBinder b))
+  := AN.sovr_not_dobinder r sovr b.
+(* §15.2 origin uniqueness: the same use site and spelling cannot carry two different short origins *)
+Definition fix_short_origin_unique (s1 s2 : AN.ShortOriginValueRef r)
+  (Hsite : AN.sovr_site s1 = AN.sovr_site s2) (Hname : AN.sovr_name s1 = AN.sovr_name s2)
+  : AN.sovr_sn s1 = AN.sovr_sn s2 := AN.sovr_origin_unique r s1 s2 Hsite Hname.
+(* Step 8 the bp-free source-variable view is projectable from the exact ref *)
+Definition fix_source_variable_view (sovr : AN.ShortOriginValueRef r) : RP.SourceVariableView (AN.res_index r)
+  := RP.source_variable_view sovr.
 
 End ChildPrereq.

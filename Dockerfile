@@ -1097,6 +1097,28 @@ typefail neg_branch_cert_as_result "a Compilable branch certificate coerced back
   'Definition forged (p : Syntax.Program) (cp : CP.Program p) : AN.Result p := cp.'
 typefail neg_analyze_eq_as_result "an equality to analyze used as the Result authority constructor" \
   'Definition forged (p : Syntax.Program) (r : AN.Result p) (H : r = AN.analyze p) : AN.Result p := H.'
+# — §16 short-origin source value: a source-variable value use is the exact ShortOriginValueRef — a use site whose
+#   exact resolution is DOShort, the DOShort ShortNewRef origin, and the retained VNonconst Value row; a raw name,
+#   a bare ShortNewRef, a foreign origin, a cross-Result ref, a binder/func origin at the positive theorem, and a
+#   Report source-variable view standing in for a ResolutionRef / FactRowRef each fail to TYPECHECK —
+typefail neg_sovr_from_name "a raw name string accepted as a source-variable value authority" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (n : Names.OrdinaryIdentifier) : AN.ShortOriginValueRef r := n.'
+typefail neg_sovr_from_shortnewref "a bare ShortNewRef accepted as a source-value ref without its exact resolution" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (sn : BN.ShortNewRef (AN.res_index r)) : AN.ShortOriginValueRef r := sn.'
+typefail neg_sovr_cross_result "a short-origin value ref of Result A used at Result B" \
+  'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (s : AN.ShortOriginValueRef rA) : AN.ShortOriginValueRef rB := s.'
+typefail neg_sovr_foreign_origin "a foreign ShortNewRef substituted for the resolution exact origin" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (e : IX.NodeRef (AN.res_index r)) (nm : Names.OrdinaryIdentifier) (Hv : IX.node_view e = Index.Model.VName nm) (sn_real sn_bad : BN.ShortNewRef (AN.res_index r)) (Hres : BN.resolution_object_view (BN.resolve (AN.res_binds r) e nm) = Some (BN.SourceObject (BN.DOShort sn_real))) (row : AN.NonconstValueFactRef r) (Hat : AN.nvfr_site row = e) (Hlk : AN.fact_row_for r e AN.ValueKind = Some (AN.nvfr_rowref row)) : AN.ShortOriginValueRef r := AN.mk_sovr e nm Hv sn_bad Hres row Hat Hlk.'
+typefail neg_dobinder_positive "a DOBinder origin passed to the short-origin positive theorem" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d : BN.PhaseData sf) (bp : BN.BindingPhase sf d) (fr : IX.FileRef (IX.index_program p)) (u : IX.NodeRef (IX.index_program p)) (nm : Names.OrdinaryIdentifier) (Hn : IX.node_view u = Index.Model.VName nm) (sn : BN.ShortNewRef (IX.index_program p)) (b : BN.BinderRef (IX.index_program p)) (Hb : BN.resolution_object_view (BN.resolve bp u nm) = Some (BN.SourceObject (BN.DOBinder b))) : AN.own_value bp (AN.const_table bp fr) u = AN.VNonconst := AN.own_value_doshort bp (AN.const_table bp fr) u nm Hn sn Hb.'
+typefail neg_dofunc_positive "a DOFunc origin passed to the short-origin positive theorem" \
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) (d : BN.PhaseData sf) (bp : BN.BindingPhase sf d) (fr : IX.FileRef (IX.index_program p)) (u : IX.NodeRef (IX.index_program p)) (nm : Names.OrdinaryIdentifier) (Hn : IX.node_view u = Index.Model.VName nm) (sn : BN.ShortNewRef (IX.index_program p)) (f : BN.FunctionDeclRef (IX.index_program p)) (Hf : BN.resolution_object_view (BN.resolve bp u nm) = Some (BN.SourceObject (BN.DOFunc f))) : AN.own_value bp (AN.const_table bp fr) u = AN.VNonconst := AN.own_value_doshort bp (AN.const_table bp fr) u nm Hn sn Hf.'
+typefail neg_sovr_view_as_resolution "a Report source-variable view accepted as an exact ResolutionRef" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (v : RP.SourceVariableView (AN.res_index r)) (u : IX.NodeRef (AN.res_index r)) (nm : Names.OrdinaryIdentifier) : BN.ResolutionRef (BN.use_env (AN.res_binds r) u) nm := v.'
+typefail neg_sovr_view_as_factrow "a Report source-variable view accepted as an exact retained fact-row ref" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (v : RP.SourceVariableView (AN.res_index r)) : AN.FactRowRef r := v.'
+typefail neg_sovr_fabricated_row "a fabricated VNonconst value row whose retention proof is a bare reflexivity" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (rr : AN.FactRowRef r) (e : IX.NodeRef (AN.res_index r)) : AN.NonconstValueFactRef r := AN.mk_nvfr rr e eq_refl.'
 typefail_run
 SH
 # The repository-absence and reachability/positive controls run in a THIRD prover-stage RUN over the SAME _build
