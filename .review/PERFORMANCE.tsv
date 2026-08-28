@@ -1,32 +1,10 @@
-# status: historical
-# source_commit: d9a91dc1ffdbe2b33874ca4d4b928fc30e8224e6
-# source_tree: 11e2a7ea6b86807ffc5a6a41342d95c6e61addd1
-# not_gate_authority: true
-# These numbers were measured on the source_commit above (c4 delta 6), NOT on the current candidate; they are
-# historical evidence for shape only, never live gate authority. The repository-owned complete-path 120s budget
-# is the sole performance gate. Do not relabel these as candidate-bound.
-# command: make -j1 check
-# builder: fido-perf-v1; BuildKit max-parallelism=1
-# cold: one forced prover in prove, one forced emit in e2e; the final artifact comparison reuses
-#       that generated module; stable image/toolchain layers primed on this builder
-# hot: immediate repeat, same source and builder
-# clock: /proc/uptime, 10ms resolution; elapsed_ms is cumulative from that run start
-mode	checkpoint	elapsed_ms
-cold	start	0
-cold	pytools	160
-cold	hostpython	2410
-cold	diet	3840
-cold	mutants	10230
-cold	ledger	11470
-cold	prove	76620
-cold	e2e	141120
-cold	check	145000
-hot	start	0
-hot	pytools	160
-hot	hostpython	2500
-hot	diet	3950
-hot	mutants	9850
-hot	ledger	11220
-hot	prove	12280
-hot	e2e	13370
-hot	check	16480
+# Candidate-bound performance evidence (new format). Rows are bound to the performance-input digest
+# (tools/performance-input-digest.sh over every tracked non-evidence byte). tooling-baseline rows are the
+# §22.1 basis measured on this tooling-only state; final-candidate rows (added at the freeze) must carry the
+# then-current digest. The prior 89s/29s/23-109s numbers on d9a91dc are historical (see git history), not candidate-bound.
+# open-material opportunities current here: PERF-COMP-FAST-DISPOSITION PERF-ORCH-ONE-VERIFICATION-DAG
+#   PERF-INCR-ANALYSIS-DECISION-EVIDENCE-SPLIT PERF-CACHE-FRESH-BUILDER-RECOVERY PERF-COMP-WITNESS-CHUNKING
+scenario	relation	digest	command	cores	memory	boundary	toolchain	cache	exit	wall_s	complete	dominant	notes
+COLD_COMPLETE	tooling-baseline	3855d30229779acfed81ebd083f311a7d9ff10c99117c31d836b672236098b3c	make check BUILDER=fido-cold-probe	4	15GB	container	sha256:3e43c422	builder=disposable;project=cold;dune-build=cold;dune-cache=off;buildkit=cold;base=warm;prior=none	0	99	yes	emit+prove	fresh disposable builder, primed toolchain layer only
+WARM_COMPLETE	tooling-baseline	3855d30229779acfed81ebd083f311a7d9ff10c99117c31d836b672236098b3c	make check	4	15GB	container	sha256:3e43c422	builder=fido-builder;project=warm;dune-build=warm;dune-cache=off;buildkit=warm;base=warm;prior=cold-run	0	30	yes	policy-gates	immediate rerun after the cold run, same builder
+STAGED_PRE_COMMIT	tooling-baseline	3855d30229779acfed81ebd083f311a7d9ff10c99117c31d836b672236098b3c	.githooks/pre-commit	4	15GB	container	sha256:3e43c422	builder=fido-builder;project=warm;dune-build=warm;dune-cache=off;buildkit=warm;base=warm;prior=make-check	0	30	yes	prover+emit	staged hook on the exported index; single pass under budget

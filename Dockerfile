@@ -1845,7 +1845,7 @@ echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 # own output tree (ev-*, e2e-neg, diff/*, none).  On a multi-core builder they compile CONCURRENTLY; the slow one
 # (WitnessReject's per-program compile matrix) then overlaps the other three instead of running after them.  Each
 # is waited on individually so a producer failure is reported as itself, and every output check runs after the
-# barrier.  See PERFORMANCE-HANDOFF.md for the remaining emit-stage cost and the bp-free disposition-tag lever.
+# barrier.  See .review/PERFORMANCE_OPPORTUNITIES.tsv for the remaining emit-stage cost and the fast-disposition lever.
 rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEvidence.v   > /tmp/emit-ev.log     2>&1 & p_ev=$!
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessNeg.v        > /tmp/emit-neg.log    2>&1 & p_neg=$!

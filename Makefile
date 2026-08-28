@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants ledger profile perf pytools hostpython go-probe toolchain
+        diet mutants ledger perf-evidence profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -82,7 +82,7 @@ check:
 	    [ -z "$$FIDO_CHECK_TEST_SLEEP" ] || sleep "$$FIDO_CHECK_TEST_SLEEP"; \
 	    s=$$(date +%s); $(MAKE) --no-print-directory builder pytools || return $$?; \
 	    echo "fido: [check stage] builder+tools = $$(( $$(date +%s) - s ))s"; \
-	    s=$$(date +%s); $(MAKE) --no-print-directory hostpython diet mutants ledger || return $$?; \
+	    s=$$(date +%s); $(MAKE) --no-print-directory hostpython diet mutants ledger perf-evidence || return $$?; \
 	    echo "fido: [check stage] policy gates = $$(( $$(date +%s) - s ))s"; \
 	    s=$$(date +%s); $(MAKE) --no-print-directory prove || return $$?; \
 	    echo "fido: [check stage] prove = $$(( $$(date +%s) - s ))s"; \
@@ -196,6 +196,15 @@ ledger: pytools
 	@$(PYRUN) tools/ledger-validate.py --self-test
 	@$(PYRUN) tools/ledger-validate.py
 	$(call fido_mark,ledger)
+
+# The candidate-bound performance-evidence gate: STRUCTURAL + currentness only, never a benchmark rerun
+# (measurement is `make perf` and the manual scenario runs).  The performance-input digest is a host Git
+# computation (the host boundary owns Git); the validator runs in the pinned image and receives it by argument,
+# so no interpreter runs on the host and the slim image needs no Git.
+perf-evidence: pytools
+	@$(PYRUN) tools/perf-evidence-validate.py --self-test
+	@d=$$(sh tools/performance-input-digest.sh); $(PYRUN) tools/perf-evidence-validate.py --digest $$d
+	$(call fido_mark,perf-evidence)
 
 # The one diagnostic timing aid.  It runs the exact `make -j1 check` path once project-cold and once hot on
 # a dedicated serial builder, records cumulative elapsed milliseconds at a few real target completions, and
