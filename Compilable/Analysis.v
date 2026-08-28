@@ -3013,6 +3013,23 @@ Lemma srtr_new_rows_ord_nodup (srtr : ShortRedeclarationTypesRef) : NoDup (map (
 Proof. apply BN.short_rows_where_ord_nodup. Qed.
 Lemma srtr_new_rows_nodup (srtr : ShortRedeclarationTypesRef) : NoDup (srtr_new_rows srtr).
 Proof. apply BN.short_rows_where_nodup. Qed.
+(* the mixed boundary's own count-equality over its event's statement, read back from its exact requirement *)
+Lemma srtr_count (srtr : ShortRedeclarationTypesRef) :
+  Index.Refs.sh_names (BN.se_stmt (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr))))
+  = Index.Refs.sh_values (BN.se_stmt (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))).
+Proof.
+  rewrite (BN.short_event_subject (res_binds res) (ssfr_stmt (srtr_parent srtr))).
+  pose proof (srtr_req srtr) as Hreq. rewrite (ssfr_is_short_decl (srtr_parent srtr)) in Hreq.
+  apply ofstmt_outcome_inj in Hreq.
+  destruct (short_decl_decision_redecl_complete (res_binds res)
+    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
+      (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))) (ssfr_stmt (srtr_parent srtr)) Hreq)
+    as [_ [Hcount _]]. exact Hcount.
+Qed.
+(* §14 the mixed boundary's existing-variable pairs: each retained ExistingVariable row with its exact RHS edge *)
+Definition srtr_existing_pairs (srtr : ShortRedeclarationTypesRef)
+  : list (BN.ShortRowRhsRef (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr)))) :=
+  BN.short_existing_variable_pairs (BN.short_event (res_binds res) (ssfr_stmt (srtr_parent srtr))) (srtr_count srtr).
 (* §17 total classification: every retained short statement fact is exactly an invalid, dependent or unmet row *)
 Lemma short_fact_case_total (ssfr : ShortStatementFactRef) :
   (exists ifr : InvalidFactRef res, ifr_rowref ifr = ssfr_row ssfr)
