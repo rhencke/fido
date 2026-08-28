@@ -303,6 +303,11 @@ Definition pmeaning (n : Names.PredeclaredName) : PMeaning :=
       end
   end.
 
+(* a dependent match on a scrutinee reduces to the arm a known equation picks: destruct H fires (rhs a bound var) *)
+Lemma convoy_at {A : Type} {Ba : Type} (a : A) (g : forall x : A, a = x -> Ba) (v : A) (H : a = v) :
+  g a eq_refl = g v H.
+Proof. destruct H. reflexivity. Qed.
+
 Section OverPhase.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
@@ -480,37 +485,42 @@ Proof.
       solve [ left; reflexivity | right; left; reflexivity ].
 Qed.
 
+(* §6 the value-of-a-name decision, factored over the resolution so convoy_at reduces it at the known resolved object *)
+Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (r0 : BN.ResolutionRef (BN.use_env bp r) n)
+  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov) : ValueOutcome bp r :=
+  match ov as ov' return BN.resolution_object_view r0 = ov' -> ValueOutcome bp r with
+  | Some o => fun Hov =>
+      match o as o' return o = o' -> ValueOutcome bp r with
+      | BN.PredeclaredObject pn => fun Ho =>
+          let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
+          match pmeaning pn with
+          | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end
+          | PMInvalidId => VInvalid (InvalidIdentity r0 pn Hpre)
+          | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
+          end
+      | BN.SourceObject org => fun Ho =>
+          let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
+          match org as org' return org = org' -> ValueOutcome bp r with
+          | BN.DOBinder _ => fun _ => VUnmet (ReqValueMeaning r0 org Hsrc)
+          | BN.DOShort _ => fun _ => VNonconst
+          | BN.DOFunc f => fun Horg =>
+              if is_app_head r then VNonconst
+              else VUnmet (ReqMainUse r0 f (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
+          end eq_refl
+      end eq_refl
+  | None => fun Hov =>
+      match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
+      | Some root => fun Hrr => VDependent (DepRedeclaredNameV r0 root Hrr)
+      | None => fun Hrv => VInvalid (UnresolvedNameV r0 Hov Hrv)
+      end eq_refl
+  end H.
 Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
   (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : ValueOutcome bp r :=
   match nv as v return Index.node_view r = v -> ValueOutcome bp r with
   | Index.Model.VName n => fun _ =>
       let r0 := BN.resolve bp r n in
-      match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> ValueOutcome bp r with
-      | Some o => fun Hov =>
-          match o as o' return o = o' -> ValueOutcome bp r with
-          | BN.PredeclaredObject pn => fun Ho =>
-              let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
-              match pmeaning pn with
-              | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end
-              | PMInvalidId => VInvalid (InvalidIdentity r0 pn Hpre)
-              | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
-              end
-          | BN.SourceObject org => fun Ho =>
-              let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
-              match org as org' return org = org' -> ValueOutcome bp r with
-              | BN.DOBinder _ => fun _ => VUnmet (ReqValueMeaning r0 org Hsrc)
-              | BN.DOShort _ => fun _ => VUnmet (ReqValueMeaning r0 org Hsrc)
-              | BN.DOFunc f => fun Horg =>
-                  if is_app_head r then VNonconst
-                  else VUnmet (ReqMainUse r0 f (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
-              end eq_refl
-          end eq_refl
-      | None => fun Hov =>
-          match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
-          | Some root => fun Hrr => VDependent (DepRedeclaredNameV r0 root Hrr)
-          | None => fun Hrv => VInvalid (UnresolvedNameV r0 Hov Hrv)
-          end eq_refl
-      end eq_refl
+      own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl
   | Index.Model.VLiteral l => fun Hv =>
       match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
@@ -588,6 +598,26 @@ Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r 
 Lemma own_value_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
   (v : Index.Model.NodeView) (H : Index.node_view r = v) : own_value ctab r = own_value_body ctab r v H.
 Proof. unfold own_value. destruct H. reflexivity. Qed.
+(* §9.1 exact short-origin positive case: a name resolving to a DOShort source object is a lawful nonconstant value *)
+Lemma own_value_doshort (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (sn : BN.ShortNewRef idx)
+  (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOShort sn))) :
+  own_value ctab r = VNonconst.
+Proof.
+  rewrite (own_value_at ctab r (Index.Model.VName n) Hn). cbn [own_value_body].
+  rewrite (convoy_at (BN.resolution_object_view (BN.resolve bp r n))
+                     (own_value_res_body r n (BN.resolve bp r n))
+                     (Some (BN.SourceObject (BN.DOShort sn))) Hres).
+  reflexivity.
+Qed.
+(* §9.2 no generic boundary: the exact same case cannot be the ReqValueMeaning source boundary *)
+Lemma own_value_doshort_not_boundary (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (sn : BN.ShortNewRef idx)
+  (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOShort sn)))
+  (n' : Names.OrdinaryIdentifier) (r' : BN.ResolutionRef (BN.use_env bp r) n') (org' : BN.DeclOrigin idx)
+  (H' : BN.resolution_object_view r' = Some (BN.SourceObject org')) :
+  own_value ctab r <> VUnmet (ReqValueMeaning r' org' H').
+Proof. rewrite (own_value_doshort ctab r n Hn sn Hres). discriminate. Qed.
 
 (* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
 Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
@@ -737,10 +767,6 @@ Proof.
   pose proof (Eqdep_dec.eq_proofs_unicity_on nodeview_app_dec (eq_sym H1) (eq_sym H2)) as E.
   rewrite <- (eq_sym_involutive H1), <- (eq_sym_involutive H2), E. reflexivity.
 Qed.
-(* a dependent match on node_view r reduces to the arm a known equation picks: destruct H fires (rhs a bound var) *)
-Lemma convoy_at {A : Type} {Ba : Type} (a : A) (g : forall x : A, a = x -> Ba) (v : A) (H : a = v) :
-  g a eq_refl = g v H.
-Proof. destruct H. reflexivity. Qed.
 (* decidable node identity from the boolean equality, so a same-site outcome equality is inj_pair2-extractable *)
 Lemma noderef_eq_dec {p} {idx : Index.ProgramIndex p} (x y : Index.NodeRef idx) : {x = y} + {x <> y}.
 Proof.

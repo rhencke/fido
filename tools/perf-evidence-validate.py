@@ -49,7 +49,7 @@ def rows(text):
     return out
 
 
-def check_perf(text, digest, findings):
+def check_perf(text, digest, findings, mdigests):
     data = rows(text)
     if not data:
         findings.append(f'{PERF}: no measurement rows')
@@ -66,6 +66,8 @@ def check_perf(text, digest, findings):
             findings.append(f'{PERF}:{i}: unknown relation {row["relation"]!r}')
         if not HEX64.match(row['digest']):
             findings.append(f'{PERF}:{i}: digest is not a 64-hex performance-input digest')
+        else:
+            mdigests.add(row['digest'])
         if row['complete'] not in COMPLETE:
             findings.append(f'{PERF}:{i}: complete must be yes|no')
         # a failed or incomplete path may never be presented as a passing measurement
@@ -95,7 +97,7 @@ def check_perf(text, digest, findings):
         findings.append(f'{PERF}: no scenario/relation coverage')
 
 
-def check_opps(text, digest, findings, summary_ids):
+def check_opps(text, mdigests, findings, summary_ids):
     data = rows(text)
     ids = set()
     for i, r in enumerate(data, 1):
@@ -119,11 +121,12 @@ def check_opps(text, digest, findings, summary_ids):
             findings.append(f'{OPPS}:{i}: empty measurement basis')
         if row['status'] == 'IMPLEMENTED' and row['commit'] in ('', 'n/a'):
             findings.append(f'{OPPS}:{i}: IMPLEMENTED without an implementation commit')
-        # an OPEN_MATERIAL opportunity is a CURRENT assessment: a 64-hex basis must be the current digest
+        # a 64-hex opportunity basis must be a digest that actually appears in the measurement evidence, not a
+        # foreign one; OPEN_MATERIAL opportunities must additionally be named in the current measurement summary
+        if HEX64.match(row['basis']) and row['basis'] not in mdigests:
+            findings.append(f'{OPPS}:{i}: opportunity bound to a foreign digest (not in any measurement row)')
         if row['status'] == 'OPEN_MATERIAL':
             summary_ids.add(row['id'])
-            if HEX64.match(row['basis']) and row['basis'] != digest:
-                findings.append(f'{OPPS}:{i}: OPEN_MATERIAL opportunity bound to a foreign digest')
     if not ids:
         findings.append(f'{OPPS}: no opportunity rows')
 
@@ -138,9 +141,9 @@ def validate(root, digest):
             findings.append(f'{name}: missing required evidence file')
     if findings:
         return findings
-    summary_ids = set()
-    check_perf(open(perf_path, encoding='utf-8').read(), digest, findings)
-    check_opps(open(opp_path, encoding='utf-8').read(), digest, findings, summary_ids)
+    summary_ids, mdigests = set(), set()
+    check_perf(open(perf_path, encoding='utf-8').read(), digest, findings, mdigests)
+    check_opps(open(opp_path, encoding='utf-8').read(), mdigests, findings, summary_ids)
     # every OPEN_MATERIAL opportunity must be visible in the current summary block of the measurement file
     perf_text = open(perf_path, encoding='utf-8').read()
     for oid in sorted(summary_ids):
@@ -182,8 +185,9 @@ def self_test():
     def run(perf_body, opp_body, digest=DG):
         f = []
         summary = set()
-        check_perf(CLEAN_PERF + perf_body, digest, f)
-        check_opps(CLEAN_OPP + opp_body, digest, f, summary)
+        mds = set()
+        check_perf(CLEAN_PERF + perf_body, digest, f, mds)
+        check_opps(CLEAN_OPP + opp_body, mds, f, summary)
         for oid in summary:
             if oid not in (CLEAN_PERF + perf_body):
                 f.append(f'summary omits {oid}')
