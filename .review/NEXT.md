@@ -1,4 +1,4 @@
-# Active task: the C4 Sealed Analysis Result Authority candidate
+# Active task: the C4 Exact Short-Requirement Case Identity and Branch Reflection closure candidate
 
 Review: implementation
 
@@ -125,8 +125,18 @@ toolchain is the supported run). Governing truth held by this candidate:
 - Short-declaration structural legality is now decided exactly by one canonical `short_decl_decision` following the
   fixed precedence; a structurally valid short declaration carries an exact unmet `ReqShortUsage` and is
   `OutsideScope`, never a false diagnostic and never `SOK` (the generic `ReqDeclMeaningS` catch-all is deleted).
-  Whole-program acceptance stays blocked by exact local-variable usage analysis and mixed redeclaration by exact
-  source-variable type equality; both are honest temporary boundaries (decision `C4-SHORTDECL` in `DECISIONS.md`).
+- **Exact positive requirement-case identity and full branch reflection are now closed.** Each positive short
+  requirement is a Result-owned exact ref over retained rows — `ShortStatementFactRef` (the canonical retained
+  statement fact, unique by site), `ShortRhsMeaningRef` (the first `VNonconst` RHS Value row and its exact child),
+  `ShortRedeclarationTypesRef` (the aligned existing-variable pair list and New rows), `ShortUsageRef` (the canonical
+  New rows) — never a raw list or a caller-supplied payload. `short_decl_decision_cases` reflects the one decision as
+  exactly nine fixed-order cases (duplicate / count / blocker-nonvar / blocker-ambiguous / no-new / negative-RHS /
+  RHS-meaning / redeclaration / usage), each with its exact retained outcome, discharged branch-by-branch by the
+  per-case sound and completeness lemmas over free `bp`/`r`, with source-order firstness certificates and the
+  result-level `short_case_for` projection; the decision is never `SOK` and no second evaluator exists.
+- **Short-origin source-value meaning remains the next slice**; whole-program acceptance stays blocked by exact
+  local-variable usage analysis, and mixed redeclaration by exact source-variable type equality — both honest
+  temporary boundaries (decision `C4-SHORTDECL` in `DECISIONS.md`). No C4 completion is claimed.
 - The live classifications are exactly the Result-indexed diagnostics, boundaries and issues plus Compilable's
   three-way `Compiled`/`Rejected`/`OutsideScope` verdict; there is **no** separate Analysis summary algebra. The
   former dead five-way `Analysis.Disposition` summary and its whole-program projection were deleted this slice
