@@ -1589,6 +1589,108 @@ Proof.
     destruct (Bool.bool_dec (existsb BN.is_existing_var_row
       (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true); discriminate Heq.
 Qed.
+(* §18.9 whole-decision: exactly one of the nine fixed-order cases holds, each paired with its exact outcome *)
+Lemma short_decl_decision_cases (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+  (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
+  let st := Index.Refs.mkShortStmtRef r nn nv Hv in
+  let se := BN.short_event bp st in
+  let dec := short_decl_decision va r nn nv Hv in
+  (exists n H, BN.short_dup_decision_name (BN.short_duplicate_decision se) = Some n
+     /\ dec = SInvalid (ShortDuplicate (BN.short_duplicate_decision se) n eq_refl H eq_refl))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st <> Index.Refs.sh_values st
+     /\ exists H, dec = SInvalid (ShortCountMismatch st eq_refl H))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ exists i row m Hrow, BN.short_blocker_decision se = BN.ShortBlockNonvar i row m Hrow
+        /\ dec = SInvalid (ShortReusesNonVariable st i row m Hrow eq_refl))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ exists i row a b Hrow, BN.short_blocker_decision se = BN.ShortBlockAmbiguous i row a b Hrow
+        /\ dec = SDependent (DepShortAmbiguous st i row a b Hrow eq_refl))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ BN.short_blocker_decision se = BN.ShortNoBlocker
+     /\ exists Hnew : existsb BN.is_new_row (BN.se_rows se) = false,
+          dec = SInvalid (ShortNoNewName st Hnew eq_refl))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ BN.short_blocker_decision se = BN.ShortNoBlocker
+     /\ existsb BN.is_new_row (BN.se_rows se) = true
+     /\ exists out, short_rhs_neg va st = Some out /\ dec = out)
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ BN.short_blocker_decision se = BN.ShortNoBlocker
+     /\ existsb BN.is_new_row (BN.se_rows se) = true
+     /\ short_rhs_neg va st = None
+     /\ exists j edge, find_rhs_vnonconst va st = Some (existT _ j edge)
+        /\ dec = SUnmet (ReqShortRhsMeaning st j edge eq_refl))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ BN.short_blocker_decision se = BN.ShortNoBlocker
+     /\ existsb BN.is_new_row (BN.se_rows se) = true
+     /\ short_rhs_neg va st = None
+     /\ find_rhs_vnonconst va st = None
+     /\ existsb BN.is_existing_var_row (BN.se_rows se) = true
+     /\ dec = SUnmet (ReqShortRedeclarationTypes st eq_refl))
+  \/ (BN.short_dup_decision_name (BN.short_duplicate_decision se) = None
+     /\ Index.Refs.sh_names st = Index.Refs.sh_values st
+     /\ BN.short_blocker_decision se = BN.ShortNoBlocker
+     /\ existsb BN.is_new_row (BN.se_rows se) = true
+     /\ short_rhs_neg va st = None
+     /\ find_rhs_vnonconst va st = None
+     /\ existsb BN.is_existing_var_row (BN.se_rows se) = false
+     /\ dec = SUnmet (ReqShortUsage st eq_refl)).
+Proof.
+  cbv zeta.
+  (* each guard case-split is isolated so the outcome goal is never abstracted; one sound lemma per leaf *)
+  assert (Hdcase : (exists n, BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = Some n)
+                \/ BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
+    by (destruct (BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) as [n|]; [ left; exists n | right ]; reflexivity).
+  assert (Hbcase : BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortNoBlocker
+                \/ (exists i row m Hrow, BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortBlockNonvar i row m Hrow)
+                \/ (exists i row a b Hrow, BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)) = BN.ShortBlockAmbiguous i row a b Hrow))
+    by (destruct (BN.short_blocker_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) as [|i row m Hrow|i row a b Hrow];
+        [ left | right; left; exists i, row, m, Hrow | right; right; exists i, row, a, b, Hrow ]; reflexivity).
+  assert (Hncase : existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = true
+                \/ existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = false)
+    by (destruct (existsb BN.is_new_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))); [ left | right ]; reflexivity).
+  assert (Hgcase : (exists out, short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) = Some out)
+                \/ short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv) = None)
+    by (destruct (short_rhs_neg va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [out|]; [ left; exists out | right ]; reflexivity).
+  assert (Hfcase : (exists j edge, find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) = Some (existT _ j edge))
+                \/ find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv) = None)
+    by (destruct (find_rhs_vnonconst va (Index.Refs.mkShortStmtRef r nn nv Hv)) as [[j edge]|]; [ left; exists j, edge | right ]; reflexivity).
+  destruct Hdcase as [[n Hdup] | Hdup].
+  { destruct (short_decl_decision_dup_sound va r nn nv Hv n Hdup) as [H Heq].
+    left. exists n, H. split; [ exact Hdup | exact Heq ]. }
+  destruct (Nat.eq_dec (Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv))
+    (Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))) as [Hcount | Hnec].
+  2:{ destruct (short_decl_decision_count_sound va r nn nv Hv Hdup Hnec) as [H Heq].
+      right; left. split; [ exact Hdup | split; [ exact Hnec | exists H; exact Heq ] ]. }
+  destruct Hbcase as [Hblk | [ [i [row [m [Hrow Hblk]]]] | [i [row [a [b [Hrow Hblk]]]]] ]].
+  2:{ right; right; left. split; [ exact Hdup | split; [ exact Hcount | exists i, row, m, Hrow;
+        split; [ exact Hblk | exact (short_decl_decision_blocker_nonvar_sound va r nn nv Hv Hdup Hcount i row m Hrow Hblk) ] ] ]. }
+  2:{ right; right; right; left. split; [ exact Hdup | split; [ exact Hcount | exists i, row, a, b, Hrow;
+        split; [ exact Hblk | exact (short_decl_decision_blocker_ambiguous_sound va r nn nv Hv Hdup Hcount i row a b Hrow Hblk) ] ] ]. }
+  destruct Hncase as [Hnew | Hnew].
+  2:{ right; right; right; right; left. split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk |
+        exists Hnew; exact (short_decl_decision_nonew_sound va r nn nv Hv Hdup Hcount Hblk Hnew) ] ] ]. }
+  destruct Hgcase as [[out Hneg] | Hneg].
+  { right; right; right; right; right; left. split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk |
+      split; [ exact Hnew | exists out; split; [ exact Hneg | exact (short_decl_decision_rhsneg_sound va r nn nv Hv Hdup Hcount Hblk Hnew out Hneg) ] ] ] ] ]. }
+  destruct Hfcase as [[j [edge Hfind]] | Hfind].
+  { right; right; right; right; right; right; left. split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk |
+      split; [ exact Hnew | split; [ exact Hneg | exists j, edge; split; [ exact Hfind |
+      exact (short_decl_decision_rhsmeaning_sound va r nn nv Hv j edge Hdup Hcount Hblk Hnew Hneg Hfind) ] ] ] ] ] ]. }
+  destruct (Bool.bool_dec (existsb BN.is_existing_var_row (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true) as [Hmix | Hmix].
+  { right; right; right; right; right; right; right; left. split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk |
+      split; [ exact Hnew | split; [ exact Hneg | split; [ exact Hfind | split; [ exact Hmix |
+      exact (short_decl_decision_redecl_sound_st va (Index.Refs.mkShortStmtRef r nn nv Hv) Hdup Hcount Hblk Hnew Hneg Hfind Hmix) ] ] ] ] ] ] ]. }
+  { right; right; right; right; right; right; right; right. split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk |
+      split; [ exact Hnew | split; [ exact Hneg | split; [ exact Hfind | split; [ exact (Bool.not_true_is_false _ Hmix) |
+      exact (short_decl_decision_usage_sound_st va (Index.Refs.mkShortStmtRef r nn nv Hv) Hdup Hcount Hblk Hnew Hneg Hfind (Bool.not_true_is_false _ Hmix)) ] ] ] ] ] ] ]. }
+Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
