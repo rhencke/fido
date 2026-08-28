@@ -1248,7 +1248,7 @@ Definition edge_prog : Syntax.Program :=
       nil)).
 Definition eidx := Index.index_program edge_prog.
 Definition efr : Index.FileRef eidx.
-Proof. destruct (Index.all_files eidx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Proof. let v := eval vm_compute in (Index.all_files eidx) in lazymatch v with cons ?fr _ => exact fr | _ => fail 0 "empty" end. Defined.
 Definition enode (pos : nat) (H : pos < Index.occ_count efr) : Index.NodeRef eidx := Index.noderef_at_pos efr pos H.
 Definition e_app : Index.Refs.AppRef eidx := Index.Refs.mkAppRef (enode 20 ltac:(vm_compute; lia)) ltac:(vm_compute; reflexivity).
 Definition e_head := Index.Edges.app_head e_app.
@@ -1402,7 +1402,7 @@ Definition p1_kinds : map (fun tr => map ev_kind (BN.trow_evs tr)) (BN.bp_traces
 Definition p1_adds : trace_add_counts p1bp = cons (cons 1 (cons 0 (cons 0 nil))) nil
   := ltac:(vm_compute; reflexivity).
 Definition p1fr : Index.FileRef p1idx.
-Proof. destruct (Index.all_files p1idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Proof. let v := eval vm_compute in (Index.all_files p1idx) in lazymatch v with cons ?fr _ => exact fr | _ => fail 0 "empty" end. Defined.
 Lemma p1_traces_ne : BN.bp_traces p1bp <> nil.
 Proof. intro H. pose proof p1_kinds as Hk. rewrite H in Hk. discriminate Hk. Qed.
 Definition p1_br : Index.Refs.BlockRef p1idx :=
@@ -1478,7 +1478,7 @@ Definition p5_redecl_group :
       (BN.redeclaration_roots p5bp)
   = cons ("x"%string, 2) nil := ltac:(vm_compute; reflexivity).
 Definition p5fr : Index.FileRef p5idx.
-Proof. destruct (Index.all_files p5idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Proof. let v := eval vm_compute in (Index.all_files p5idx) in lazymatch v with cons ?fr _ => exact fr | _ => fail 0 "empty" end. Defined.
 (* the later use of x resolves to the exact phase-owned redeclaration root, binding no source object *)
 Definition p5_use_redeclared :
   match name_use_in p5fr idx_ with
@@ -1508,7 +1508,7 @@ Definition p7_prog : Syntax.Program :=
 Definition p7idx := Index.index_program p7_prog.
 Definition p7bp := BN.bindings (PI.package_surface p7idx).
 Definition p7fr : Index.FileRef p7idx.
-Proof. destruct (Index.all_files p7idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Proof. let v := eval vm_compute in (Index.all_files p7idx) in lazymatch v with cons ?fr _ => exact fr | _ => fail 0 "empty" end. Defined.
 Definition p7_rhs_unbound :
   match name_use_in p7fr idq_ with
   | Some u => match BN.resolution_object_view (BN.resolve p7bp u idq_) with Some _ => false | None => match BN.resolution_redecl_root (BN.resolve p7bp u idq_) with Some _ => false | None => true end end
@@ -1552,7 +1552,7 @@ Definition p10_distinct_blocks :
   end = true := ltac:(vm_compute; reflexivity).
 Definition p10surf := PI.package_surface p10idx.
 Definition p10pr : PI.PackageRef p10surf.
-Proof. destruct (PI.packages p10surf) as [|pr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact pr ]. Defined.
+Proof. let v := eval vm_compute in (PI.packages p10surf) in lazymatch v with cons ?pr _ => exact pr | _ => fail 0 "empty" end. Defined.
 (* the fixed main declared twice: the package-scope main group carries two exact function establishments *)
 Definition p10_main_group :
   Datatypes.length (BN.bg_members (BN.binding_group p10bp (BN.PackageScope p10pr) idmain_)) = 2
@@ -1574,7 +1574,7 @@ Definition p11_prog : Syntax.Program :=
 Definition p11idx := Index.index_program p11_prog.
 Definition p11bp := BN.bindings (PI.package_surface p11idx).
 Definition p11fr : Index.FileRef p11idx.
-Proof. destruct (Index.all_files p11idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Proof. let v := eval vm_compute in (Index.all_files p11idx) in lazymatch v with cons ?fr _ => exact fr | _ => fail 0 "empty" end. Defined.
 Definition p11_forward_visible :
   match name_use_in p11fr idx_ with
   | Some u => match BN.resolution_object_view (BN.resolve p11bp u idx_) with
@@ -1597,7 +1597,7 @@ Definition p13_prog : Syntax.Program :=
 Definition p13idx := Index.index_program p13_prog.
 Definition p13bp := BN.bindings (PI.package_surface p13idx).
 Definition p13fr : Index.FileRef p13idx.
-Proof. destruct (Index.all_files p13idx) as [|fr rest] eqn:E; [ exfalso; vm_compute in E; discriminate E | exact fr ]. Defined.
+Proof. let v := eval vm_compute in (Index.all_files p13idx) in lazymatch v with cons ?fr _ => exact fr | _ => fail 0 "empty" end. Defined.
 Definition p13_intra_visible :
   match name_use_in p13fr ida_ with
   | Some u => match BN.resolution_object_view (BN.resolve p13bp u ida_) with
