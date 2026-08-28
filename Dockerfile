@@ -878,6 +878,33 @@ typefail neg_short_usage_no_valid "a usage requirement forged without the struct
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (nr : list { i : nat & BN.ShortDecisionRowRef (BN.short_event bp st) i }) (Hne : nr <> nil) (Hf : Forall (fun x => exists n, BN.row_decision (projT2 x) = BN.ShortNewData n) nr) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Requirement bp (IX.Refs.sh_node st) AN.StatementKind := AN.ReqShortUsage st nr Hne Hf Hs.'
 typefail neg_short_reqdeclmeanings_absent "the deleted broad short declaration-meaning requirement" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (st : IX.Refs.ShortStmtRef (IX.index_program p)) (Hs : IX.Refs.sh_node st = IX.Refs.sh_node st) : AN.Requirement bp (IX.Refs.sh_node st) AN.StatementKind := AN.ReqDeclMeaningS st Hs.'
+# — §22 short-declaration case-ref unforgeability: the exact short case refs come ONLY from their canonical
+#   builders; a raw occurrence, a foreign-Result ref, a raw minimal-tag requirement, or a descriptive Report
+#   view cannot inhabit one, and no cross-case coercion turns one exact case ref into another —
+typefail neg_short_occfact_as_ssfr "§22.2 a raw OccFact accepted as a ShortStatementFactRef" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (o : AN.OccFact (AN.res_binds r)) : AN.ShortStatementFactRef r := o.'
+typefail neg_short_ssfr_cross_result "§22.2 a short statement fact for Result r1 accepted for Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (s : AN.ShortStatementFactRef r1) : AN.ShortStatementFactRef r2 := s.'
+typefail neg_short_req_as_usage_ref "§22.5 a raw statement requirement accepted as an exact ShortUsageRef" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (st : IX.Refs.ShortStmtRef (AN.res_index r)) (q : AN.Requirement (AN.res_binds r) (IX.Refs.sh_node st) AN.StatementKind) : AN.ShortUsageRef r := q.'
+typefail neg_short_req_as_redecl_ref "§22.4 a raw statement requirement accepted as an exact ShortRedeclarationTypesRef" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (st : IX.Refs.ShortStmtRef (AN.res_index r)) (q : AN.Requirement (AN.res_binds r) (IX.Refs.sh_node st) AN.StatementKind) : AN.ShortRedeclarationTypesRef r := q.'
+typefail neg_short_req_as_rhsmeaning_ref "§22.3 a raw statement requirement accepted as an exact ShortRhsMeaningRef" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (st : IX.Refs.ShortStmtRef (AN.res_index r)) (q : AN.Requirement (AN.res_binds r) (IX.Refs.sh_node st) AN.StatementKind) : AN.ShortRhsMeaningRef r := q.'
+typefail neg_short_usage_cross_result "§22.5 a usage ref for Result r1 accepted for Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (u : AN.ShortUsageRef r1) : AN.ShortUsageRef r2 := u.'
+typefail neg_short_redecl_cross_result "§22.4 a mixed-redeclaration ref for Result r1 accepted for Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (m : AN.ShortRedeclarationTypesRef r1) : AN.ShortRedeclarationTypesRef r2 := m.'
+typefail neg_short_rhsmeaning_cross_result "§22.3 an RHS-meaning ref for Result r1 accepted for Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (m : AN.ShortRhsMeaningRef r1) : AN.ShortRhsMeaningRef r2 := m.'
+typefail neg_short_nvfr_cross_result "§22.3 a nonconstant Value child ref for Result r1 accepted for Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (n : AN.NonconstValueFactRef r1) : AN.NonconstValueFactRef r2 := n.'
+typefail neg_short_rhsmeaning_as_usage "§22.6 an RHS-meaning ref coerced to a usage ref" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (m : AN.ShortRhsMeaningRef r) : AN.ShortUsageRef r := m.'
+typefail neg_short_usage_as_redecl "§22.6 a usage ref coerced to a mixed-redeclaration ref" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (u : AN.ShortUsageRef r) : AN.ShortRedeclarationTypesRef r := u.'
+typefail neg_short_view_as_usage_ref "§22.5 a descriptive usage view accepted as an exact usage ref" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (v : RP.ShortUsageView (AN.res_index r)) : AN.ShortUsageRef r := v.'
 # — §17.2 CROSS-KIND: at one node where several fact kinds apply, a payload of one kind cannot inhabit another —
 typefail neg_xkind_value_in_app "a value cause placed in an application outcome at the same node" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.AppOutcome bp r := AN.AInvalid c.'
