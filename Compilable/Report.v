@@ -335,6 +335,29 @@ Lemma short_redecl_view_exact {p} {r : AN.Result p} (srtr : AN.ShortRedeclaratio
   /\ srdv_new_index (short_redecl_view srtr) = map (@projT1 _ _) (AN.srtr_new_rows srtr).
 Proof. repeat split; reflexivity. Qed.
 
+(* §9 bp-free source-variable view: the use site and spelling, and the origin short statement site and lhs index *)
+Record SourceVariableView {p} (idx : Index.ProgramIndex p) : Type := mk_svv {
+  svv_use_site     : Index.NodeRef idx ;
+  svv_name         : Names.OrdinaryIdentifier ;
+  svv_origin_site  : Index.NodeRef idx ;
+  svv_origin_index : nat
+}.
+Arguments mk_svv {p idx} _ _ _ _.
+Arguments svv_use_site {p idx} _. Arguments svv_name {p idx} _.
+Arguments svv_origin_site {p idx} _. Arguments svv_origin_index {p idx} _.
+(* one-way projection: exact use site + spelling off the ref, the origin short statement node and its lhs index *)
+Definition source_variable_view {p} {r : AN.Result p} (sovr : AN.ShortOriginValueRef r)
+  : SourceVariableView (AN.res_index r) :=
+  mk_svv (AN.sovr_site sovr) (AN.sovr_name sovr)
+    (Index.Refs.sh_node (AN.sovr_origin_stmt sovr)) (AN.sovr_origin_ix sovr).
+(* §9.6 the view projects exactly the use site, spelling, origin statement site, and lhs index, one-way *)
+Lemma source_variable_view_exact {p} {r : AN.Result p} (sovr : AN.ShortOriginValueRef r) :
+  svv_use_site (source_variable_view sovr) = AN.sovr_site sovr
+  /\ svv_name (source_variable_view sovr) = AN.sovr_name sovr
+  /\ svv_origin_site (source_variable_view sovr) = Index.Refs.sh_node (AN.sovr_origin_stmt sovr)
+  /\ svv_origin_index (source_variable_view sovr) = AN.sovr_origin_ix sovr.
+Proof. repeat split; reflexivity. Qed.
+
 (* abstract-bp law: view projects the exact predeclared name InvalidIdentity retains; bp free, kernel-cheap *)
 Lemma cause_view_invalid_id {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)

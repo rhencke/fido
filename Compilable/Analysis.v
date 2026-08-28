@@ -3536,6 +3536,10 @@ Arguments ssfr_stmt {p res} _. Arguments ssfr_row {p res} _. Arguments ssfr_site
 Arguments nvfr_rowref {p res} _. Arguments nvfr_site {p res} _. Arguments nvfr_is {p res} _. Arguments nvfr_kind {p res} _.
 Arguments srmr_parent {p res} _. Arguments srmr_j {p res} _. Arguments srmr_edge {p res} _. Arguments srmr_child {p res} _.
 Arguments srmr_req {p res} _. Arguments srmr_child_at {p res} _. Arguments srmr_lookup {p res} _.
+Arguments sovr_site {p res} _. Arguments sovr_name {p res} _. Arguments sovr_view {p res} _.
+Arguments sovr_sn {p res} _. Arguments sovr_res {p res} _. Arguments sovr_row {p res} _.
+Arguments sovr_at {p res} _. Arguments sovr_lookup {p res} _.
+Arguments sovr_origin_stmt {p res} _. Arguments sovr_origin_ix {p res} _. Arguments sovr_origin_edge {p res} _.
 Arguments sur_parent {p res} _. Arguments sur_req {p res} _. Arguments sur_new_rows {p res} _.
 Arguments srtr_parent {p res} _. Arguments srtr_req {p res} _.
 Arguments srtr_existing_rows {p res} _. Arguments srtr_new_rows {p res} _.
