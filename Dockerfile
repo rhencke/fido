@@ -1788,7 +1788,7 @@ export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 #     go.mod + recursive .go, NO .fido/lock/temp — what the `generated-module` layer + go-e2e VALIDATE with a
 #     fresh `go build ./...`.  The sink is exercised separately (sink_test), reached in production only via `make regenerate`. ---
 G=/workspace/generated
-if ! rocq c -Q _build/default/. Fido -time e2e/Witness.v > /tmp/emit.log 2>&1; then cat /tmp/emit.log; fail "Fido Materialize (witness) FAILED"; fi
+if ! rocq c -R e2e Fido -Q _build/default/. Fido -time e2e/Witness.v > /tmp/emit.log 2>&1; then cat /tmp/emit.log; fail "Fido Materialize (witness) FAILED"; fi
 cat /tmp/emit.log
 [ -f "$G/go.mod" ]  || fail "the materialized pristine has no rendered go.mod"
 [ -f "$G/main.go" ] || fail "the materialized pristine has no main.go"
@@ -1801,19 +1801,19 @@ grep -qx 'module fido.local/generated' "$G/go.mod" || { cat "$G/go.mod"; fail "r
 grep -qx 'go 1.23' "$G/go.mod" || { cat "$G/go.mod"; fail "rendered go.mod go directive unexpected"; }
 
 # differential witness: TWO main packages (root + sub/) + an empty file + the rendered go.mod
-if ! rocq c -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1; then cat /tmp/emit-multi.log; fail "Fido Materialize (multi-package) FAILED"; fi
+if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1; then cat /tmp/emit-multi.log; fail "Fido Materialize (multi-package) FAILED"; fi
 { [ -f /workspace/generated-multi/go.mod ] && [ -f /workspace/generated-multi/main.go ] && [ -f /workspace/generated-multi/extra.go ] && [ -f /workspace/generated-multi/sub/main.go ]; } || fail "multi-package pristine tree incomplete"
 echo "fido: multi-package pristine tree:"; ( cd /workspace/generated-multi && find . -type f | sort )
 
 # empty-program witness: a valid module with NO source files -> go.mod and zero .go
-if ! rocq c -Q _build/default/. Fido e2e/WitnessEmpty.v > /tmp/emit-empty.log 2>&1; then cat /tmp/emit-empty.log; fail "Fido Materialize (empty program) FAILED"; fi
+if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEmpty.v > /tmp/emit-empty.log 2>&1; then cat /tmp/emit-empty.log; fail "Fido Materialize (empty program) FAILED"; fi
 [ -f /workspace/generated-empty/go.mod ] || fail "empty program materialized no go.mod"
 [ -z "$(find /workspace/generated-empty -name '*.go')" ] || fail "empty program materialized a .go file"
 echo "fido: empty-program pristine tree:"; ( cd /workspace/generated-empty && find . -type f | sort )
 
 # boundary-byte string witness: a println of a string with bytes 0x00/0x1f/0x7f/0x80/0xff -> a separate
 # tree the go-e2e byte-exact oracle builds, runs, and compares (od hex) against the reviewed golden.
-if ! rocq c -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>&1; then cat /tmp/emit-bytes.log; fail "Fido Materialize (boundary bytes) FAILED"; fi
+if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>&1; then cat /tmp/emit-bytes.log; fail "Fido Materialize (boundary bytes) FAILED"; fi
 [ -f /workspace/generated-bytes/main.go ] || fail "boundary-byte witness materialized no main.go"
 echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && find . -type f | sort ); cat /workspace/generated-bytes/main.go
 
@@ -1821,7 +1821,7 @@ echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && fi
 # byte(0)/byte(255)/uint8(255)/rune(-2^31)/rune(2^31-1)/int32(...) -> a DISPOSABLE tree the go-e2e builds+runs
 # to confirm the pinned toolchain ACCEPTS the alias conversions (byte IS uint8, rune IS int32).  The REJECTED
 # alias endpoints are exercised through the go-e2e `rej_conv` matrix.  Never the canonical published image.
-if ! rocq c -Q _build/default/. Fido e2e/WitnessAlias.v > /tmp/emit-alias.log 2>&1; then cat /tmp/emit-alias.log; fail "Fido Materialize (byte/rune alias) FAILED"; fi
+if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessAlias.v > /tmp/emit-alias.log 2>&1; then cat /tmp/emit-alias.log; fail "Fido Materialize (byte/rune alias) FAILED"; fi
 [ -f /workspace/generated-alias/main.go ] || fail "byte/rune alias witness materialized no main.go"
 echo "fido: byte/rune alias pristine tree:"; ( cd /workspace/generated-alias && find . -type f | sort ); cat /workspace/generated-alias/main.go
 for spell in 'byte(0)' 'byte(255)' 'uint8(255)' 'rune(-2147483648)' 'rune(2147483647)' 'int32(-2147483648)' 'int32(2147483647)'; do
@@ -1840,31 +1840,33 @@ check_pristine /workspace/generated-bytes
 check_pristine /workspace/generated-alias
 echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 
-# evidence DAG: five images over ONE compiled root (base + evidence A/B + their aggregate + a derived object),
-# each through the real Fido Materialize path; all five produce byte-identical trees (transport is
-# evidence-independent), exercising the generic Emit.Image end to end with no placeholder or generic framework.
-if ! rocq c -Q _build/default/. Fido e2e/WitnessEvidence.v > /tmp/emit-ev.log 2>&1; then cat /tmp/emit-ev.log; fail "Fido Materialize (evidence DAG) FAILED"; fi
+# The four heavy Rocq proof fixtures below (evidence DAG, negative transport, static rejection matrix, §25
+# provenance) are mutually independent: each reads the same already-built read-only library and writes only its
+# own output tree (ev-*, e2e-neg, diff/*, none).  On a multi-core builder they compile CONCURRENTLY; the slow one
+# (WitnessReject's per-program compile matrix) then overlaps the other three instead of running after them.  Each
+# is waited on individually so a producer failure is reported as itself, and every output check runs after the
+# barrier.  See PERFORMANCE-HANDOFF.md for the remaining emit-stage cost and the bp-free disposition-tag lever.
+rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEvidence.v   > /tmp/emit-ev.log     2>&1 & p_ev=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessNeg.v        > /tmp/emit-neg.log    2>&1 & p_neg=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessReject.v     > /tmp/emit-reject.log 2>&1 & p_rej=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessProvenance.v > /tmp/emit-prov.log   2>&1 & p_prov=$!
+wait "$p_ev"   || { cat /tmp/emit-ev.log;     fail "Fido Materialize (evidence DAG) FAILED"; }
+wait "$p_neg"  || { cat /tmp/emit-neg.log;    fail "a forged raw transport was NOT rejected"; }
+wait "$p_rej"  || { cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; }
+wait "$p_prov" || { cat /tmp/emit-prov.log;   fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; }
+# evidence DAG: five images over ONE compiled root all materialize byte-identically (transport is evidence-independent)
 check_pristine /workspace/ev-base
 for d in ev-a ev-b ev-agg ev-der; do
   check_pristine "/workspace/$d"
   diff -r /workspace/ev-base "/workspace/$d" > /tmp/ev-diff.log 2>&1 || { cat /tmp/ev-diff.log; fail "evidence image $d did not materialize byte-identically to the base compiled image"; }
 done
 echo "fido: evidence DAG OK — base + A + B + aggregate + derived all materialize byte-identically through Fido Materialize"
-
-# provenance (1): a forged raw transport (not a Emit.Image) is rejected BEFORE any effect (Fail fixtures)
-if ! rocq c -Q _build/default/. Fido e2e/WitnessNeg.v > /tmp/emit-neg.log 2>&1; then cat /tmp/emit-neg.log; fail "a forged raw transport was NOT rejected"; fi
+# a forged raw transport (not a Emit.Image) is rejected BEFORE any effect (Fail fixtures)
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
-
-# static soundness: Compilable.compile returns Rejected for every representable pinned-Go-invalid shape in the
-# invalid-program matrix (unary/complex type mismatch, wrong arity, no-value/type-as-value, non-callable, illegal statement)
-# and Compiled for the paired positive cases — proved through compile itself, never a second mint.  The SAME file
-# also exports each formal-vs-Go differential case's pure-generated source into a disposable oracle bucket, so
-# the parent chain must exist first (Sink.materialize requires an existing parent and a fresh empty leaf).
-rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
-if ! rocq c -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1; then cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; fi
+# static soundness: compile returns Rejected for every representable pinned-Go-invalid shape and Compiled for the
+# paired positives, proved through compile itself; the same file exported each differential case into diff/*
 echo "fido: static rejection controls OK — the invalid-program matrix lands in Rejected through compile; positive unary cases Compiled"
-# §25 positive provenance: every resolution/const/short-derived Analysis payload is reachable with its exact refs
-if ! rocq c -Q _build/default/. Fido e2e/WitnessProvenance.v > /tmp/emit-prov.log 2>&1; then cat /tmp/emit-prov.log; fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; fi
 echo "fido: §25 positive provenance OK — unbound/type-as-value/not-callable/invalid-id/main-arity causes, source-bound requirement, redeclared + unbound dependencies, short-duplicate decision, exact use context, and Report group projection all reachable with exact refs"
 # the one-source differential cases were exported: one rendered tree per case (reject / compiled), each keyed
 # to the SAME Syntax.Program proven above; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope
@@ -1874,23 +1876,15 @@ for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/typ
 done
 echo "fido: differential oracle export OK — 15 one-source trees written for the pinned-Go formal-vs-Go differential"
 
-# R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They compile outside the Fido
-# path, so the audit's Fido-modpath seed cannot reach them here; recompile each under the Fido path (the Fido
-# Materialize lines stripped, since the pristine trees already exist and the materializer refuses an occupied
-# destination), require them all, and audit — an axiom or admit in ANY fixture proof is rejected as in the theory.
+# R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They were compiled ABOVE under
+# the Fido path (-R e2e Fido), so their .vo already carry the audited proofs in the Fido modpath; REQUIRING them
+# replays no Fido Materialize (a compiled vernacular command is not re-run on Require, so the materializer never
+# sees its occupied destination), and the audit loads them directly instead of recompiling each a SECOND time —
+# the redundant recompile of the whole proof matrix was the emit stage's co-dominant cost.  An axiom or admit in
+# ANY fixture proof is rejected exactly as in the whole-theory audit.
 mkdir -p /tmp/e2eaudit
-# these recompiles are independent (each writes its own .vo), so run them concurrently — one load's wall time
-audit_pids=''
-for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance; do
-  grep -vE '^Fido (Materialize|OracleExport)' e2e/$m.v > /tmp/e2eaudit/$m.v
-  rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/$m.v > /tmp/e2eaudit/$m.log 2>&1 &
-  audit_pids="$audit_pids $!"
-done
-audit_fail=0
-for pid in $audit_pids; do wait "$pid" || audit_fail=1; done
-[ "$audit_fail" = 0 ] || { for m in Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance; do echo "== $m =="; cat /tmp/e2eaudit/$m.log; done; fail "e2e audit: a witness did not recompile under the Fido path"; }
 printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
-if ! rocq c -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
+if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
 echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
 
