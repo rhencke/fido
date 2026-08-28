@@ -814,10 +814,28 @@ Definition va_value_nonconst (va : list (OccFact bp)) (e : Index.NodeRef idx) : 
   retains_value_fact e &&
   match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
   | Some (OFValue _ ov) => match ov with VNonconst => true | _ => false end | _ => false end.
+(* find returns the FIRST match: it splits its list at the match with every earlier element failing the test *)
+Lemma find_prefix_false {A} (f : A -> bool) (l : list A) (x : A) :
+  find f l = Some x -> exists l1 l2, l = l1 ++ x :: l2 /\ forallb (fun y => negb (f y)) l1 = true /\ f x = true.
+Proof.
+  induction l as [|a l IH]; cbn; [ discriminate | ]. destruct (f a) eqn:Ha; intro H.
+  - injection H as H; subst. exists nil, l. split; [ reflexivity | split; [ reflexivity | exact Ha ] ].
+  - destruct (IH H) as [l1 [l2 [Hl [Hf Hx]]]]. exists (a :: l1), l2.
+    split; [ cbn; f_equal; exact Hl | split; [ cbn; rewrite Ha; exact Hf | exact Hx ] ].
+Qed.
 (* the first source-ordered short RHS whose exact child value is nonconstant — its value meaning is not yet known *)
 Definition find_rhs_vnonconst (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
   : option { j : nat & Index.Edges.ShortRhsEdge st j } :=
   find (fun sig => va_value_nonconst va (Index.Edges.sr_child (projT2 sig))) (Index.Edges.short_rhs_edges st).
+(* §19 RHS-meaning firstness: the selected nonconstant RHS is the first — every earlier RHS child is not VNonconst *)
+Lemma find_rhs_vnonconst_first (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  (j : nat) (edge : Index.Edges.ShortRhsEdge st j) :
+  find_rhs_vnonconst va st = Some (existT _ j edge) ->
+  exists l1 l2, Index.Edges.short_rhs_edges st = l1 ++ (existT _ j edge) :: l2
+    /\ forallb (fun sig => negb (va_value_nonconst va (Index.Edges.sr_child (projT2 sig)))) l1 = true.
+Proof.
+  intro H. destruct (find_prefix_false _ _ _ H) as [l1 [l2 [Hl [Hf _]]]]. exists l1, l2. split; [ exact Hl | exact Hf ].
+Qed.
 (* the application-child branch at one RHS node, factored on the exact child view so a convoy step can invert it *)
 Definition rhs_app_neg_at (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (ve : Index.Model.NodeView)
@@ -841,6 +859,23 @@ Definition short_rhs_neg (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef 
   fold_right (fun sig acc => match sig with existT _ j edge =>
     match rhs_neg_at va st j edge with Some o => Some o | None => acc end end)
     None (Index.Edges.short_rhs_edges st).
+(* §19 negative-RHS firstness: the selected negative RHS is the first — every earlier RHS edge is non-negative *)
+Lemma short_rhs_neg_first (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+  (out : StmtOutcome bp (Index.Refs.sh_node st)) :
+  short_rhs_neg va st = Some out ->
+  exists l1 (sig : { j : nat & Index.Edges.ShortRhsEdge st j }) l2,
+    Index.Edges.short_rhs_edges st = l1 ++ sig :: l2
+    /\ (match sig with existT _ j edge => rhs_neg_at va st j edge end) = Some out
+    /\ forallb (fun s => match s with existT _ j edge =>
+         match rhs_neg_at va st j edge with Some _ => false | None => true end end) l1 = true.
+Proof.
+  unfold short_rhs_neg. induction (Index.Edges.short_rhs_edges st) as [|b l IH]; cbn; [ discriminate | ].
+  destruct b as [j edge]. destruct (rhs_neg_at va st j edge) as [o|] eqn:Hb; intro H.
+  - injection H as H; subst. exists nil, (existT _ j edge), l.
+    split; [ reflexivity | split; [ exact Hb | reflexivity ] ].
+  - destruct (IH H) as [l1 [sig [l2 [Hl [Hg Hf]]]]]. exists (existT _ j edge :: l1), sig, l2.
+    split; [ cbn; f_equal; exact Hl | split; [ exact Hg | cbn; rewrite Hb; exact Hf ] ].
+Qed.
 (* inverting the application branch: it fires only at an application child that is application-negative *)
 Lemma rhs_app_neg_at_inv (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (ve : Index.Model.NodeView)
