@@ -3307,6 +3307,26 @@ Proof.
     rewrite seq_nth in Ho; [| exact Hi ]. cbn in Ho. injection Ho as Ho. exact Ho. }
   destruct x as [j e]. cbn in Hj. subst j. exists e. reflexivity.
 Qed.
+(* §12 the exact RHS edge at a source index j, present under the count-equality that aligns RHS to LHS positions *)
+Lemma short_rhs_edge_at {p} {idx : Index.ProgramIndex p} (st : Index.Refs.ShortStmtRef idx) (j : nat) :
+  j < Index.Refs.sh_values st ->
+  { e : Index.Edges.ShortRhsEdge st j | nth_error (Index.Edges.short_rhs_edges st) j = Some (existT _ j e) }.
+Proof.
+  intro Hj.
+  assert (Hlen : length (Index.Edges.short_rhs_edges st) = Index.Refs.sh_values st).
+  { pose proof (Index.Edges.short_rhs_edges_ords st) as Ho.
+    apply (f_equal (@length _)) in Ho. rewrite length_map, length_seq in Ho. exact Ho. }
+  destruct (nth_error (Index.Edges.short_rhs_edges st) j) as [x|] eqn:Hx;
+    [| exfalso; apply nth_error_None in Hx; lia ].
+  assert (Hi : projT1 x = j).
+  { pose proof (Index.Edges.short_rhs_edges_ords st) as Ho.
+    apply (f_equal (fun l => nth_error l j)) in Ho.
+    rewrite nth_error_map, Hx in Ho. cbn in Ho.
+    rewrite (nth_error_nth' (seq 0 (Index.Refs.sh_values st)) 0) in Ho;
+      [| rewrite length_seq; exact Hj ].
+    rewrite seq_nth in Ho; [| exact Hj ]. cbn in Ho. injection Ho as Ho. exact Ho. }
+  destruct x as [k e]. cbn in Hi. subst k. exists e. reflexivity.
+Qed.
 
 (* a short left edge is positionally unique: any two edges at the same index are equal (ChildAt is unique) *)
 Lemma shortlhsedge_positional {p} {idx : Index.ProgramIndex p} {st : Index.Refs.ShortStmtRef idx} {i : nat}
@@ -3929,6 +3949,32 @@ Lemma short_rows_where_nodup {p} {idx : Index.ProgramIndex p} {s : PI.PackageSur
   (pred : ShortLeftDecisionData -> bool) :
   NoDup (short_rows_where se pred).
 Proof. rewrite short_rows_where_refs. apply NoDup_filter. apply short_row_refs_nodup. Qed.
+(* §12 the exact aligned row/RHS pair: an exact left row and the exact RHS edge at its same source index *)
+Record ShortRowRhsRef {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st) : Type := mk_srr {
+  srr_index : nat ;
+  srr_row   : ShortDecisionRowRef se srr_index ;
+  srr_edge  : Index.Edges.ShortRhsEdge (se_stmt se) srr_index ;
+  srr_at    : nth_error (Index.Edges.short_rhs_edges (se_stmt se)) srr_index = Some (existT _ srr_index srr_edge)
+}.
+Arguments mk_srr {p idx s d bp st se} _ _ _ _.
+Arguments srr_index {p idx s d bp st se} _. Arguments srr_row {p idx s d bp st se} _.
+Arguments srr_edge {p idx s d bp st se} _. Arguments srr_at {p idx s d bp st se} _.
+(* §12 the pair for a given row under count-equality: the RHS edge is exactly the one at the row's exact index *)
+Definition short_row_rhs_of {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (Hcount : Index.Refs.sh_names (se_stmt se) = Index.Refs.sh_values (se_stmt se))
+  {i : nat} (r : ShortDecisionRowRef se i) : ShortRowRhsRef se :=
+  match short_rhs_edge_at (se_stmt se) i
+    (eq_ind _ (fun n => i < n) (Index.Edges.sl_lt (sdr_edge r)) _ Hcount)
+  with exist _ e He => mk_srr i r e He end.
+(* §12 the RHS edge sits at exactly the row's source index: RHS-to-LHS alignment is definitional *)
+Lemma short_row_rhs_of_index {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (Hcount : Index.Refs.sh_names (se_stmt se) = Index.Refs.sh_values (se_stmt se))
+  {i : nat} (r : ShortDecisionRowRef se i) :
+  srr_index (short_row_rhs_of se Hcount r) = i.
+Proof. unfold short_row_rhs_of. destruct (short_rhs_edge_at _ _ _) as [e He]. reflexivity. Qed.
 
 (* the exact finite event site of a short event, derived from its retained trace/ordinal membership *)
 Lemma short_event_site_lt {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
@@ -3961,6 +4007,14 @@ Definition is_new_row (r : ShortLeftDecisionData) : bool :=
 (* whether a retained row reuses a prior same-block variable — a mixed redeclaration left *)
 Definition is_existing_var_row (r : ShortLeftDecisionData) : bool :=
   match r with ShortExistingVariableData _ => true | _ => false end.
+(* §12 the canonical aligned collections: every existing-variable row paired with its RHS edge, and the New rows *)
+Definition short_existing_variable_pairs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  (Hcount : Index.Refs.sh_names (se_stmt se) = Index.Refs.sh_values (se_stmt se)) : list (ShortRowRhsRef se) :=
+  map (fun x => short_row_rhs_of se Hcount (projT2 x)) (short_rows_where se is_existing_var_row).
+Definition short_new_row_refs {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
+  {d : PhaseData s} {bp : BindingPhase s d} {st : Index.Refs.ShortStmtRef idx} (se : ShortEventRef bp st)
+  : list { i : nat & ShortDecisionRowRef se i } := short_rows_where se is_new_row.
 
 (* the canonical addition ordinal of a short row: the count of New rows strictly before its exact left index *)
 Definition short_new_rank {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
