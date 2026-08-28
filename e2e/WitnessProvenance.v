@@ -243,4 +243,32 @@ Definition fix_cpr_parent_lt (cdfr : AN.ChildDependentFactRef r)
 Definition fix_cpr_parent_neq (cdfr : AN.ChildDependentFactRef r)
   : AN.cdfr_site cdfr <> AN.cdfr_edge_site cdfr := AN.cpr_parent_neq_child r cdfr.
 
+(* §23 abstract short-case fixtures: every Result-owned short case ref is constructible, projectable, viewable *)
+Definition fix_short_stmt_fact (st : Index.Refs.ShortStmtRef (AN.res_index r))
+  : AN.short_statement_fact r st <> None := AN.short_statement_fact_complete r st.
+Definition fix_short_fact_case (ssfr : AN.ShortStatementFactRef r)
+  : (exists ifr : AN.InvalidFactRef r, AN.ifr_rowref ifr = AN.ssfr_row ssfr)
+    \/ (exists dfr : AN.DependentFactRef r, AN.dfr_rowref dfr = AN.ssfr_row ssfr)
+    \/ (exists ufr : AN.UnmetFactRef r, AN.ufr_rowref ufr = AN.ssfr_row ssfr)
+  := AN.short_fact_case_total r ssfr.
+Definition fix_short_unmet_refines (ssfr : AN.ShortStatementFactRef r) (ufr : AN.UnmetFactRef r)
+  (Hu : AN.ufr_rowref ufr = AN.ssfr_row ssfr)
+  : (exists srmr : AN.ShortRhsMeaningRef r, AN.srmr_parent srmr = ssfr)
+    \/ (exists srtr : AN.ShortRedeclarationTypesRef r, AN.srtr_parent srtr = ssfr)
+    \/ (exists sur : AN.ShortUsageRef r, AN.sur_parent sur = ssfr)
+  := AN.short_unmet_refines r ssfr ufr Hu.
+Definition fix_short_usage_new_nonempty (sur : AN.ShortUsageRef r) : AN.sur_new_rows sur <> nil
+  := AN.sur_new_rows_nonempty r sur.
+Definition fix_short_usage_new_tags (sur : AN.ShortUsageRef r)
+  : Forall (fun x => BN.is_new_row (BN.row_decision (projT2 x)) = true) (AN.sur_new_rows sur)
+  := AN.sur_new_rows_forall r sur.
+Definition fix_short_redecl_existing_nonempty (srtr : AN.ShortRedeclarationTypesRef r)
+  : AN.srtr_existing_rows srtr <> nil := AN.srtr_existing_rows_nonempty r srtr.
+Definition fix_short_usage_view (sur : AN.ShortUsageRef r) : RP.ShortUsageView (AN.res_index r)
+  := RP.short_usage_view sur.
+Definition fix_short_rhs_meaning_view (srmr : AN.ShortRhsMeaningRef r) : RP.ShortRhsMeaningView (AN.res_index r)
+  := RP.short_rhs_meaning_view srmr.
+Definition fix_short_redecl_view (srtr : AN.ShortRedeclarationTypesRef r) : RP.ShortRedeclView (AN.res_index r)
+  := RP.short_redecl_view srtr.
+
 End ChildPrereq.
