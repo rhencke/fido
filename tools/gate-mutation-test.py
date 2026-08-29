@@ -28,9 +28,25 @@ from pathlib import Path
 DIET = 'tools/source-diet.py'
 HOSTPY = 'tools/host-python-gate.py'
 WORKTREE = 'tools/worktree-list.py'
+PERFEV = 'tools/perf-evidence-validate.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
+    (PERFEV, 'the incomplete-path rejection, so complete=no cannot satisfy required coverage',
+     "        if row['complete'] == 'no' and row['relation'] in RELATIONS:",
+     "        if False:",
+     ('incomplete path cannot satisfy required scenario coverage',)),
+
+    (PERFEV, 'the published-basis binding, so new evidence cannot claim a foreign basis',
+     "        elif evidence_changed:",
+     "        elif False:",
+     ('published final-candidate rows bound to a basis other than the one measured',)),
+
+    (PERFEV, 'the final-candidate coverage requirement, so a baseline-only file is not current evidence',
+     "    if not any(rl == 'final-candidate' for (_, rl) in seen):",
+     "    if False:",
+     ('baseline-only file passes as current evidence',)),
+
     (HOSTPY, 'the host-interpreter classification itself',
      "            if INTERPRETER_RE.match(bare) or bare.endswith('.py'):",
      "            if False:",

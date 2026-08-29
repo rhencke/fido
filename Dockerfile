@@ -1769,8 +1769,22 @@ if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fa
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 [ -f "$PROFILE_FILE" ] || fail "no such module: $PROFILE_FILE"
 echo "fido: profiler flags this rocq offers:$(rocq c --help 2>&1 | grep -oE '\-(time|profile)[a-z-]*' | sort -u | sed 's/^/ /' | tr -d '\n')"
+# an e2e file compiles under the e2e mapping; a WitnessReject chunk (or the aggregate) additionally needs the
+# shared prelude (and, for the aggregate, every chunk) compiled first — untimed, so the timed subject is alone
+EXTRA=""
+case "$PROFILE_FILE" in e2e/*) EXTRA="-R e2e Fido" ;; esac
+case "$PROFILE_FILE" in
+  e2e/WitnessReject[A-D].v)
+    rocq c -R e2e Fido -Q _build/default Fido e2e/WitnessRejectPrelude.v > /workspace/profile/deps.log 2>&1 \
+      || { tail -20 /workspace/profile/deps.log; fail "WitnessReject prelude precompile FAILED"; } ;;
+  e2e/WitnessReject.v)
+    for depf in WitnessRejectPrelude WitnessRejectA WitnessRejectB WitnessRejectC WitnessRejectD; do
+      rocq c -R e2e Fido -Q _build/default Fido "e2e/$depf.v" >> /workspace/profile/deps.log 2>&1 \
+        || { tail -20 /workspace/profile/deps.log; fail "WitnessReject dependency $depf precompile FAILED"; }
+    done ;;
+esac
 start=$(date +%s.%N)
-if ! rocq c -Q _build/default Fido -time "$PROFILE_FILE" > /workspace/profile/time.log 2>&1; then
+if ! rocq c $EXTRA -Q _build/default Fido -time "$PROFILE_FILE" > /workspace/profile/time.log 2>&1; then
   tail -40 /workspace/profile/time.log; fail "rocq c -time $PROFILE_FILE FAILED"
 fi
 end=$(date +%s.%N)

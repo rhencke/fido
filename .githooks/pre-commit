@@ -49,6 +49,16 @@ staged_all() {
   fido_py tools/source-diet.py --root /repo --snapshot --check || return $?
   fido_py tools/host-python-gate.py --root /repo --self-test || return $?
   fido_py tools/host-python-gate.py --root /repo || return $?
+  # (2a2) staged performance-evidence currentness: the digest of the exact STAGED INDEX, the committed HEAD
+  #       digest, and whether the proposed commit itself changes the evidence files — all fed to the STAGED
+  #       validator over the STAGED evidence bytes and the STAGED digest algorithm.  Malformed evidence, an
+  #       incomplete required row, missing final-candidate coverage, or newly published rows bound to any
+  #       basis but the staged one fail HERE, before proof/e2e publication.  No benchmark runs in the hook.
+  pd=$(sh "$ctx/tools/performance-input-digest.sh") || return $?
+  ph=$(sh "$ctx/tools/performance-input-digest.sh" --head) || return $?
+  pec=$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes)
+  fido_py tools/perf-evidence-validate.py --self-test || return $?
+  fido_py tools/perf-evidence-validate.py --digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
   # (2b) BUDGET-EDGE integrity (§7.5): one owner in check-budget.sh (no Make variable), and both make check and
   #      this hook route through it; the make check recipe times the complete path (no heavy prereq before t0).
   grep -qF 'BUDGET_SECONDS=120' "$ctx/tools/check-budget.sh" || { echo "fido: pre-commit — the one budget owner BUDGET_SECONDS=120 is missing from tools/check-budget.sh"; return 1; }

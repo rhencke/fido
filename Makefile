@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants ledger perf-evidence profile perf pytools hostpython go-probe toolchain
+        diet mutants ledger perf-evidence perf-attribution profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -203,8 +203,28 @@ ledger: pytools
 # so no interpreter runs on the host and the slim image needs no Git.
 perf-evidence: pytools
 	@$(PYRUN) tools/perf-evidence-validate.py --self-test
-	@d=$$(sh tools/performance-input-digest.sh); $(PYRUN) tools/perf-evidence-validate.py --digest $$d
+	@d=$$(sh tools/performance-input-digest.sh); h=$$(sh tools/performance-input-digest.sh --head); \
+	  c=$$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes); \
+	  $(PYRUN) tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c
 	$(call fido_mark,perf-evidence)
+
+# The detailed WitnessReject timing-attribution evidence: one pinned -time profile per fixture module, then the
+# deterministic committed classifier writes the full sentence/program/population/opportunity tables into
+# .review/perf/ (digest-excluded measurement evidence).  Diagnostic evidence generation, not a gate.
+WR_MODULES := WitnessRejectPrelude WitnessRejectA WitnessRejectB WitnessRejectC WitnessRejectD
+perf-attribution: pytools builder
+	@$(PYRUN) tools/witness-profile-attribution.py --self-test
+	@out=$${TMPDIR:-/tmp}/fido-attrib; rm -rf "$$out"; mkdir -p "$$out" .review/perf; \
+	  for f in $(WR_MODULES); do \
+	    echo "fido: perf-attribution — profiling e2e/$$f.v"; \
+	    $(MAKE) --no-print-directory profile FILE=e2e/$$f.v TOP=1 >/dev/null || exit $$?; \
+	    cp "$${TMPDIR:-/tmp}/fido-profile/time.log" "$$out/$$f.log" || exit $$?; \
+	  done; \
+	  d=$$(sh tools/performance-input-digest.sh); \
+	  docker run $(PYARGS) -v "$(CURDIR)":/repo:ro -v "$(CURDIR)/.review/perf":/perfout \
+	    -v "$$out":/logs:ro -w /repo $(PYTAG) python3 tools/witness-profile-attribution.py \
+	    $(foreach f,$(WR_MODULES),--source e2e/$(f).v --time-log /logs/$(f).log) \
+	    --basis $$d --outdir /perfout
 
 # The one diagnostic timing aid.  It runs the exact `make -j1 check` path once project-cold and once hot on
 # a dedicated serial builder, records cumulative elapsed milliseconds at a few real target completions, and

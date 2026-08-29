@@ -223,6 +223,36 @@ def build_tables(src_path, log_path, basis, expect_sentences):
     return records, total, rows, pops, progs
 
 
+def build_tables_multi(pairs, basis, expect_sentences):
+    """Attribute several (source, time-log) pairs — the chunked fixture matrix — into one merged table set."""
+    all_records, all_rows = [], []
+    pops = defaultdict(lambda: {'count': 0, 'secs': 0.0, 'largest': ('', 0.0)})
+    progs = defaultdict(lambda: {'count': 0, 'secs': 0.0, 'families': set(),
+                                 'vm_pairs': 0, 'largest': ('', 0.0)})
+    for src, log in pairs:
+        records, _, rows, p1, g1 = build_tables(src, log, basis, 0)
+        all_records += records
+        all_rows += rows
+        for k, v in p1.items():
+            pops[k]['count'] += v['count']
+            pops[k]['secs'] += v['secs']
+            if v['largest'][1] > pops[k]['largest'][1]:
+                pops[k]['largest'] = v['largest']
+        for k, v in g1.items():
+            progs[k]['count'] += v['count']
+            progs[k]['secs'] += v['secs']
+            progs[k]['families'] |= v['families']
+            progs[k]['vm_pairs'] += v['vm_pairs']
+            if v['largest'][1] > progs[k]['largest'][1]:
+                progs[k]['largest'] = v['largest']
+    if expect_sentences and len(all_records) < expect_sentences:
+        raise SystemExit(f'attribution: only {len(all_records)} sentences parsed across {len(pairs)} file(s) '
+                         f'but --expect-sentences {expect_sentences} — a truncated log set cannot pose as '
+                         'the full population')
+    total = sum(s for _, _, s in all_records)
+    return all_records, total, all_rows, pops, progs
+
+
 def reconcile(total, pops, tolerance=0.05):
     s = sum(p['secs'] for p in pops.values())
     if abs(s - total) > tolerance:
@@ -383,8 +413,8 @@ def self_test():
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument('--self-test', action='store_true')
-    ap.add_argument('--source')
-    ap.add_argument('--time-log')
+    ap.add_argument('--source', action='append', default=[])
+    ap.add_argument('--time-log', action='append', default=[])
     ap.add_argument('--basis')
     ap.add_argument('--outdir')
     ap.add_argument('--expect-sentences', type=int, default=500)
@@ -396,9 +426,12 @@ def main(argv):
         return self_test()
     if not (a.source and a.time_log and a.basis and a.outdir):
         ap.error('--source, --time-log, --basis, --outdir are required (or --self-test)')
+    if len(a.source) != len(a.time_log):
+        ap.error('each --source needs exactly one --time-log, in order')
     if not re.fullmatch(r'[0-9a-f]{64}', a.basis):
         raise SystemExit('attribution: --basis must be the 64-hex performance-input digest')
-    records, total, rows, pops, progs = build_tables(a.source, a.time_log, a.basis, a.expect_sentences)
+    records, total, rows, pops, progs = build_tables_multi(
+        list(zip(a.source, a.time_log)), a.basis, a.expect_sentences)
     reconcile(total, pops)
     write_tables(a.outdir, a.basis, total, rows, pops, progs,
                  a.chunk_wall_target, a.cold_entry, a.cold_target)
