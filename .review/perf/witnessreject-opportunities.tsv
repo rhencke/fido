@@ -1,7 +1,7 @@
 # opportunity reachability: a contract may not target an opportunity whose theoretical maximum cannot satisfy its own threshold
 opportunity	target_population	target_secs	target_share_pct	max_file_saving_s	max_complete_path_saving_s	expected_saving_s	baseline_end_to_end_s	projected_best_s	threshold	reachable_by_arithmetic	confidence_evidence
-PERF-COMP-WITNESS-CHUNKING	all proof populations	34.51	87.6	25.88	25.88	25.88	39.39	13.51	chunk wall <= 16.0s	yes	4-way ideal wall 13.5s = shared 4.9s + heavy 34.51s/4 (+ per-chunk library load measured separately)
-PERF-COMP-FAST-DISPOSITION	VERDICT_ONLY	1.56	4.0	1.56	1.56	1.56	39.39	37.83	WitnessReject <= 14s and 3x	no	rejected measured: max saving 1.56s leaves ~38s
-PERF-COMP-PER-PROGRAM-BUNDLES	multi-fixture program clusters	6.36	16.2	3.18	3.18	2.12	39.39	36.21	>=20% cluster improvement	yes	one vm_compute+Qed per bundle instead of two VM passes per fixture
-PERF-COMP-EVIDENCE-OBSERVATION	ISSUE_TABLE+CAUSE_VIEW+REQ_VIEW+GROUP_VIEW	24.10	61.2	24.10	24.10	19.28	39.39	20.11	future contract sets it	yes	theorem-backed projection of exact Analysis/Report authority; later slice
+PERF-COMP-WITNESS-CHUNKING	all proof populations	35.33	87.2	26.50	26.50	26.50	40.50	14.01	chunk wall <= 16.0s	yes	4-way ideal wall 14.0s = shared 5.2s + heavy 35.33s/4 (+ per-chunk library load measured separately)
+PERF-COMP-FAST-DISPOSITION	VERDICT_ONLY	1.65	4.1	1.65	1.65	1.65	40.50	38.86	WitnessReject <= 14s and 3x	no	rejected measured: max saving 1.65s leaves ~39s
+PERF-COMP-PER-PROGRAM-BUNDLES	multi-fixture program clusters	7.03	17.4	3.51	3.51	2.34	40.50	36.99	>=20% cluster improvement	yes	one vm_compute+Qed per bundle instead of two VM passes per fixture
+PERF-COMP-EVIDENCE-OBSERVATION	ISSUE_TABLE+CAUSE_VIEW+REQ_VIEW+GROUP_VIEW	24.39	60.2	24.39	24.39	19.51	40.50	20.99	future contract sets it	yes	theorem-backed projection of exact Analysis/Report authority; later slice
 COLD-COMPLETE-CONTEXT	whole complete path	166					166	140	cold median <= 145.0s and >= 12% better	yes	fixture stage saving projected onto the entry cold median
