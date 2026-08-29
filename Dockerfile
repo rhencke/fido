@@ -1136,7 +1136,7 @@ fi
 echo "fido: edge absence control OK — Bindings/Analysis name no deleted edge route, node_children, or position-guess path"
 # — §19 occurrence-topology absence: the pre-split phase-only cause/dep names and the second family classifier are
 #   GONE from every certified/e2e source; the exact fact kinds and one exact family projection are the sole route —
-if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' Compilable/Analysis.v Compilable/Report.v Compilable.v e2e/WitnessReject.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
+if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' Compilable/Analysis.v Compilable/Report.v Compilable.v e2e/WitnessReject*.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
   fail "occurrence-topology absence control — a pre-split phase-only payload name or the deleted occ_family classifier still exists"
 fi
 echo "fido: occurrence-topology absence control OK — no pre-split cause/dependency name, no second family classifier; site+kind fact refs are the sole route"
@@ -1862,21 +1862,38 @@ check_pristine /workspace/generated-bytes
 check_pristine /workspace/generated-alias
 echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 
-# The four heavy Rocq proof fixtures below (evidence DAG, negative transport, static rejection matrix, §25
-# provenance) are mutually independent: each reads the same already-built read-only library and writes only its
-# own output tree (ev-*, e2e-neg, diff/*, none).  On a multi-core builder they compile CONCURRENTLY; the slow one
-# (WitnessReject's per-program compile matrix) then overlaps the other three instead of running after them.  Each
-# is waited on individually so a producer failure is reported as itself, and every output check runs after the
-# barrier.  See .review/PERFORMANCE_OPPORTUNITIES.tsv for the remaining emit-stage cost and the fast-disposition lever.
+# The heavy Rocq proof fixtures compile in ONE bounded four-slot worker schedule (the builder has four cores;
+# no other heavy fixture workers run beside these waves).  Wave 1 is the WitnessReject prelude plus the three
+# short independent fixtures; wave 2 is the four cost-balanced WitnessReject chunks (each Requires the prelude
+# .vo); the aggregate then loads every chunk.  Every worker writes its own log and is waited on individually so
+# a producer failure is reported as itself; each timeline row makes the §4.4 critical path machine-readable.
 rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
+T0=$(date +%s)
+tl() { echo "fido-timeline: $1 t=$(( $(date +%s) - T0 ))s"; }
+tl "wave1-start prelude+evidence+neg+provenance"
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectPrelude.v > /tmp/emit-rejpre.log 2>&1 & p_pre=$!
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEvidence.v   > /tmp/emit-ev.log     2>&1 & p_ev=$!
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessNeg.v        > /tmp/emit-neg.log    2>&1 & p_neg=$!
-rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessReject.v     > /tmp/emit-reject.log 2>&1 & p_rej=$!
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessProvenance.v > /tmp/emit-prov.log   2>&1 & p_prov=$!
+wait "$p_pre"  || { cat /tmp/emit-rejpre.log; fail "the WitnessReject shared prelude FAILED"; }
 wait "$p_ev"   || { cat /tmp/emit-ev.log;     fail "Fido Materialize (evidence DAG) FAILED"; }
 wait "$p_neg"  || { cat /tmp/emit-neg.log;    fail "a forged raw transport was NOT rejected"; }
-wait "$p_rej"  || { cat /tmp/emit-reject.log; fail "a representable pinned-Go-invalid program was NOT rejected by Compilable.compile"; }
 wait "$p_prov" || { cat /tmp/emit-prov.log;   fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; }
+tl "wave1-done"
+tl "wave2-start chunks A-D"
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectA.v > /tmp/emit-rej-a.log 2>&1 & p_ca=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectB.v > /tmp/emit-rej-b.log 2>&1 & p_cb=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectC.v > /tmp/emit-rej-c.log 2>&1 & p_cc=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectD.v > /tmp/emit-rej-d.log 2>&1 & p_cd=$!
+wait "$p_ca" || { cat /tmp/emit-rej-a.log; fail "WitnessReject chunk A FAILED — a rejection-matrix fixture broke"; }
+wait "$p_cb" || { cat /tmp/emit-rej-b.log; fail "WitnessReject chunk B FAILED — a rejection-matrix fixture broke"; }
+wait "$p_cc" || { cat /tmp/emit-rej-c.log; fail "WitnessReject chunk C FAILED — a rejection-matrix fixture broke"; }
+wait "$p_cd" || { cat /tmp/emit-rej-d.log; fail "WitnessReject chunk D FAILED — a rejection-matrix fixture broke"; }
+tl "wave2-done (chunk wall is wave2-done minus wave2-start)"
+# the aggregate re-export loads every chunk .vo; the original module path stays valid for every consumer
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1 \
+  || { cat /tmp/emit-reject.log; fail "the WitnessReject aggregate re-export FAILED"; }
+tl "aggregate-done"
 # evidence DAG: five images over ONE compiled root all materialize byte-identically (transport is evidence-independent)
 check_pristine /workspace/ev-base
 for d in ev-a ev-b ev-agg ev-der; do
@@ -1905,10 +1922,37 @@ echo "fido: differential oracle export OK — 15 one-source trees written for th
 # the redundant recompile of the whole proof matrix was the emit stage's co-dominant cost.  An axiom or admit in
 # ANY fixture proof is rejected exactly as in the whole-theory audit.
 mkdir -p /tmp/e2eaudit
-printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias WitnessReject WitnessEvidence WitnessProvenance.\nFido Audit Assumptions.\n' > /tmp/e2eaudit/Check.v
+# the audit root set is DERIVED from the on-disk WitnessReject chunk file set, so a chunk cannot be silently
+# omitted: every e2e/WitnessReject*.v must appear in the Require line, and the adversary below proves the
+# coverage decision actually rejects a dropped chunk.
+REJECT_MODS=$(ls e2e/WitnessReject*.v | sed 's|e2e/||; s|\.v$||' | sort | tr '\n' ' ')
+for m in WitnessRejectPrelude WitnessRejectA WitnessRejectB WitnessRejectC WitnessRejectD WitnessReject; do
+  echo "$REJECT_MODS" | grep -qw "$m" || fail "e2e audit coverage: expected chunk module $m is not on disk"
+done
+printf 'From Fido Require Import Witness WitnessMulti WitnessEmpty WitnessBytes WitnessAlias %s WitnessEvidence WitnessProvenance.\nFido Audit Assumptions.\n' "$REJECT_MODS" > /tmp/e2eaudit/Check.v
+audit_covers() { # every on-disk WitnessReject*.v module must be Required by the audit root file
+  for f in e2e/WitnessReject*.v; do
+    m=$(basename "$f" .v)
+    grep -qw "$m" "$1" || return 1
+  done; return 0; }
+audit_covers /tmp/e2eaudit/Check.v || fail "e2e audit coverage: a WitnessReject chunk is missing from the audit root set"
+# omitted-chunk adversary: a Require line lacking one chunk must be REJECTED by the same coverage decision
+sed 's/WitnessRejectB //' /tmp/e2eaudit/Check.v > /tmp/e2eaudit/Dropped.v
+if audit_covers /tmp/e2eaudit/Dropped.v; then fail "omitted-chunk adversary: dropping WitnessRejectB from the audit root set was NOT rejected"; fi
+echo "fido: e2e audit chunk coverage OK — the audit root set is the on-disk chunk set; a dropped chunk is rejected (adversary exercised)"
 if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
 echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
+# fixture-inventory control: every entry fixture name in the tracked manifest must still resolve through the
+# aggregate module path (Fido.WitnessReject re-exports the chunk surface); a lost or renamed fixture fails here.
+n=0
+printf 'From Fido Require Import WitnessReject.\n' > /tmp/e2eaudit/Inventory.v
+for nm in $(grep -v '^#' e2e/WitnessRejectInventory.txt); do
+  printf 'Definition __probe_%d := %s.\n' "$n" "$nm" >> /tmp/e2eaudit/Inventory.v; n=$((n+1)); done
+[ "$n" -ge 120 ] || fail "fixture inventory: only $n entry fixture names found in the tracked manifest (expected >= 120)"
+if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Inventory.v > /tmp/e2eaudit/inventory.log 2>&1; then
+  cat /tmp/e2eaudit/inventory.log; fail "fixture inventory: an entry fixture name no longer resolves through the WitnessReject aggregate"; fi
+echo "fido: fixture inventory OK — all $n entry fixture names resolve through the aggregate (none deleted, renamed, or stranded)"
 
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
 # transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The axiom/variable fixtures
