@@ -1904,6 +1904,11 @@ wait "$p_cb" || { cat /tmp/emit-rej-b.log; fail "WitnessReject chunk B FAILED �
 wait "$p_cc" || { cat /tmp/emit-rej-c.log; fail "WitnessReject chunk C FAILED — a rejection-matrix fixture broke"; }
 wait "$p_cd" || { cat /tmp/emit-rej-d.log; fail "WitnessReject chunk D FAILED — a rejection-matrix fixture broke"; }
 tl "wave2-done (chunk wall is wave2-done minus wave2-start)"
+# worker-failure adversary: the wave schedule reports failure through `wait "$pid"`; a failing background
+# worker must fail its wave, never be masked — exercised here on a stub so the mechanism is proven live
+( exit 7 ) & p_bad=$!
+if wait "$p_bad"; then fail "worker-failure adversary: a failing background worker was reported as success"; fi
+echo "fido: worker-failure adversary OK — a failing worker's exit status is observed and fails its wave"
 # the aggregate re-export loads every chunk .vo; the original module path stays valid for every consumer
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1 \
   || { cat /tmp/emit-reject.log; fail "the WitnessReject aggregate re-export FAILED"; }
