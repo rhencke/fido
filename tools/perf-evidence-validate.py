@@ -24,7 +24,15 @@ import argparse, os, re, sys
 PERF = '.review/PERFORMANCE.tsv'
 OPPS = '.review/PERFORMANCE_OPPORTUNITIES.tsv'
 
-SCENARIOS = ('COLD_COMPLETE', 'WARM_COMPLETE', 'STAGED_PRE_COMMIT')
+# every valid scenario name; STAGED_PRE_COMMIT is the historical single staged scenario the tooling
+# baseline was measured under, split since into the project-cold and immediate-warm staged scenarios
+SCENARIOS = ('COLD_COMPLETE', 'WARM_COMPLETE', 'STAGED_PRE_COMMIT',
+             'PROJECT_COLD_STAGED_PRE_COMMIT', 'IMMEDIATE_WARM_STAGED_PRE_COMMIT')
+# required coverage per relation: the baseline keeps its historical trio; a final candidate must cover
+# cold, warm, and BOTH staged scenarios
+REQUIRED_OF = {'tooling-baseline': ('COLD_COMPLETE', 'WARM_COMPLETE', 'STAGED_PRE_COMMIT'),
+               'final-candidate': ('COLD_COMPLETE', 'WARM_COMPLETE',
+                                   'PROJECT_COLD_STAGED_PRE_COMMIT', 'IMMEDIATE_WARM_STAGED_PRE_COMMIT')}
 RELATIONS = ('tooling-baseline', 'final-candidate')
 COMPLETE = ('yes', 'no')
 OPP_CLASS = ('COMPUTATIONAL', 'INCREMENTAL', 'ORCHESTRATION', 'CACHE', 'RETAINED_SPACE', 'SCALING')
@@ -102,8 +110,15 @@ def check_perf(text, digest, findings, mdigests, head_digest='', notices=None, e
     # final-candidate relation is REQUIRED: a baseline-only file cannot pass as current evidence
     for rel in RELATIONS:
         present = {sc for (sc, rl) in seen if rl == rel}
-        if present and present != set(SCENARIOS):
-            findings.append(f'{PERF}: {rel} is missing scenarios {sorted(set(SCENARIOS) - present)}')
+        required = set(REQUIRED_OF[rel])
+        # inherited HISTORICAL final rows are judged by the coverage model they were measured under (the
+        # legacy trio); current or newly published final rows must cover the full split-scenario set
+        if rel == 'final-candidate' and present and not (evidence_changed or (final_bases == {digest})):
+            if not {'COLD_COMPLETE', 'WARM_COMPLETE'} <= present or not any('STAGED' in sc for sc in present):
+                findings.append(f'{PERF}: historical final-candidate rows are missing basic scenario coverage')
+            continue
+        if present and not required <= present:
+            findings.append(f'{PERF}: {rel} is missing scenarios {sorted(required - present)}')
     if not any(rl == 'final-candidate' for (_, rl) in seen):
         findings.append(f'{PERF}: no successful complete final-candidate rows — '
                         'a baseline-only file cannot pass as current evidence')
@@ -236,8 +251,9 @@ def self_test():
 
     # the clean fixture: all three scenarios present for BOTH required relations (a baseline-only file is
     # itself a defect), the OPEN_MATERIAL opportunity named in a summary comment
-    clean_perf = ('\n'.join(_perf_row(scenario=s) for s in SCENARIOS) + '\n'
-                  + '\n'.join(_perf_row(scenario=s, relation='final-candidate') for s in SCENARIOS)
+    clean_perf = ('\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n'
+                  + '\n'.join(_perf_row(scenario=s, relation='final-candidate')
+                               for s in REQUIRED_OF['final-candidate'])
                   + '\n# summary: PERF-COMP-X\n')
     cf, cn = run(clean_perf, _opp_row() + '\n')
     if cf:
@@ -257,12 +273,12 @@ def self_test():
 
     cases = [
         ('incomplete path cannot satisfy required scenario coverage',
-         '\n'.join(_perf_row(scenario=x, relation='final-candidate') for x in SCENARIOS)
+         '\n'.join(_perf_row(scenario=x, relation='final-candidate') for x in REQUIRED_OF['final-candidate'])
          + '\n' + _perf_row(scenario='COLD_COMPLETE', relation='final-candidate', exit='0', complete='no')
-         + '\n' + '\n'.join(_perf_row(scenario=x) for x in SCENARIOS) + '\n# summary: PERF-COMP-X\n',
+         + '\n' + '\n'.join(_perf_row(scenario=x) for x in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
          _opp_row() + '\n'),
         ('baseline-only file passes as current evidence',
-         '\n'.join(_perf_row(scenario=s) for s in SCENARIOS) + '\n# summary: PERF-COMP-X\n',
+         '\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
          _opp_row() + '\n'),
         ('missing scenario (only COLD)', _perf_row(scenario='COLD_COMPLETE') + '\n', _opp_row(status='IMPLEMENTED', commit='deadbeef') + '\n'),
         ('unknown scenario', _perf_row(scenario='NOPE') + '\n', _opp_row(status='IMPLEMENTED', commit='deadbeef') + '\n'),
@@ -273,8 +289,9 @@ def self_test():
         ('missing machine identity', _perf_row(scenario='COLD_COMPLETE', memory='') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('failed path presented as passing', _perf_row(scenario='COLD_COMPLETE', exit='1', complete='yes') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('published final-candidate rows bound to a basis other than the one measured',
-         '\n'.join(_perf_row(scenario=x, relation='final-candidate', digest='b' * 64) for x in SCENARIOS)
-         + '\n' + '\n'.join(_perf_row(scenario=x) for x in SCENARIOS) + '\n# summary: PERF-COMP-X\n',
+         '\n'.join(_perf_row(scenario=x, relation='final-candidate', digest='b' * 64)
+                    for x in REQUIRED_OF['final-candidate'])
+         + '\n' + '\n'.join(_perf_row(scenario=x) for x in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
          _opp_row(basis='b' * 64) + '\n', dict(changed=True)),
         ('malformed digest', _perf_row(scenario='COLD_COMPLETE', digest='xyz') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('IMPLEMENTED without commit', clean_perf, _opp_row(status='IMPLEMENTED', commit='n/a') + '\n'),

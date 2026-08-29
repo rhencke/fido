@@ -10,8 +10,8 @@ override PLATFORM := linux/amd64
 # invocation forced `emit` a second time there, after e2e had already built and consumed it, and the total
 # was still called one cold pass.  Each root is forced exactly where it is intentionally forced, and nowhere
 # else.
-PERF_PROVER_NC := $(if $(FIDO_PERF_COLD),--no-cache-filter prover,)
-PERF_EMIT_NC   := $(if $(FIDO_PERF_COLD),--no-cache-filter emit,)
+PERF_PROVER_NC := $(if $(FIDO_PERF_COLD),--no-cache-filter theory-built --no-cache-filter prover,)
+PERF_EMIT_NC   := $(if $(FIDO_PERF_COLD),--no-cache-filter theory-built --no-cache-filter emit,)
 
 # ── The Python boundary ───────────────────────────────────────────────────────
 # Project Python never runs on the host.  This block is the whole boundary: every Python-consuming recipe
@@ -86,7 +86,7 @@ check:
 	    echo "fido: [check stage] policy gates = $$(( $$(date +%s) - s ))s"; \
 	    s=$$(date +%s); tmp=$$(mktemp -d); \
 	    sh tools/build-verified-artifact.sh --builder $(BUILDER) --platform $(PLATFORM) \
-	      --context . --output "$$tmp/pristine"; rc=$$?; \
+	      $(if $(FIDO_PERF_COLD),--project-cold,) --context . --output "$$tmp/pristine"; rc=$$?; \
 	    echo "fido: [check stage] verification-solve = $$(( $$(date +%s) - s ))s (one BuildKit DAG: theory-built -> proof-audit + emit -> go-e2e -> verified join -> artifact)"; \
 	    if [ $$rc -eq 0 ]; then \
 	      s=$$(date +%s); tree="$$tmp/tree"; mkdir -p "$$tree"; \

@@ -76,7 +76,7 @@ staged_all() {
   #     the proof-audit and fresh-build markers, so a failed branch fails this one solve.
   rm -rf "$tmp/pristine"
   sh "$ctx/tools/build-verified-artifact.sh" --builder "$FIDO_BUILDER" --platform linux/amd64 \
-    --context "$ctx" --output "$tmp/pristine" || return $?
+    ${FIDO_PERF_COLD:+--project-cold} --context "$ctx" --output "$tmp/pristine" || return $?
   # (4) byte-compare the STAGED generated sources against the exact exported pristine artifact.
   sh "$ctx/tools/staged-generated-compare.sh" "$ctx" "$tmp/pristine" || return $?
 }
