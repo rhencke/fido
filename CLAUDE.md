@@ -102,13 +102,13 @@ Review: implementation  review the exact canonical formal implementation and the
 
 A blocking review returns every finding in one pass. Findings live in the review conversation — they are
 never committed as repair documents. Fix the current files directly and ask for implementation review again.
-A day-to-day `Review:` runs against the current ref; the exhaustive review — the acceptance gate — runs over an
-immutable frozen source archive, identified by its ZIP-comment commit and archive SHA-256, not the live `HEAD`.
+A day-to-day `Review:` runs against the current ref; the exhaustive review — the acceptance gate — runs over
+the supplied frozen source ZIP, which is the authoritative review object (its comment commit may be
+sanity-checked against the branch tip).
 
-The exhaustive review is the archive-authoritative sixteen-pass Wirth protocol: sixteen criterion-isolated pass
-agents each grade one whole-system question over that one archive and freeze one findings report, the final
-grade is the weakest of the sixteen, and a separate seventeenth synthesis role reads all sixteen and produces
-one dependency-ordered implementation contract. The archive carries Rob's trusted attestation that its required
+In the exhaustive review, every registered criterion is graded independently over that one archive, the final
+grade is the weakest criterion, and one synthesis reads all the criterion reports and produces one
+dependency-ordered implementation contract. The archive carries Rob's trusted attestation that its required
 gates passed before handoff, so reviewers inspect gate definitions and retained artifacts but never rerun the
 pinned toolchain. Rob alone accepts. `ARCHITECTURE.md` §1 "Review and acceptance" owns the rule; `life.md` is
 outside it and outside every actor's authority.
@@ -128,7 +128,9 @@ make regen-guard  proves `sync` is unbuildable when go-e2e validation fails
 make diet         the permanent .v comment law
 make hostpython   the permanent no-host-Python boundary
 make fmt          the .editorconfig whitespace report (reports, never rewrites)
-make perf         one serial diagnostic timing into .review/PERFORMANCE.tsv
+make perf-evidence      verifies the basis registry against Git, regenerates + byte-compares the work/span
+                        and reachability summaries, and validates the measurement + opportunity ledgers
+make perf-attribution   raw per-declaration profile classification only (no derived accounting)
 make prove-errors just the Rocq File/Error lines, which Buildx otherwise buries
 make install-hooks
 ```

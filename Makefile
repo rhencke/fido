@@ -178,7 +178,11 @@ ledger: pytools
 perf-evidence: pytools
 	@$(PYRUN) tools/perf-evidence-validate.py --self-test
 	@$(PYRUN) tools/perf-work-span.py --self-test
-	@$(PYRUN) tools/perf-work-span.py --root /repo
+	@$(PYRUN) tools/witness-profile-attribution.py --self-test
+	@sh tools/verify-performance-bases.sh --self-test
+	@sh tools/verify-performance-bases.sh
+	@docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3 \
+	  tools/perf-work-span.py --root /repo --check-generated
 	@d=$$(sh tools/performance-input-digest.sh); h=$$(sh tools/performance-input-digest.sh --head); \
 	  c=$$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes); \
 	  $(PYRUN) tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c
@@ -189,8 +193,9 @@ graph-gate: pytools
 	@$(PYRUN) tools/build-graph-gate.py --root /repo
 
 # The detailed WitnessReject timing-attribution evidence: one pinned -time profile per fixture module, then the
-# deterministic committed classifier writes the full sentence/program/population/opportunity tables into
-# .review/perf/ (digest-excluded measurement evidence).  Diagnostic evidence generation, not a gate.
+# deterministic committed classifier writes the raw sentence/program/population classification tables into
+# .review/perf/ (digest-excluded measurement evidence).  Every derived judgment — work, span, critical path,
+# reachability — is owned by tools/perf-work-span.py.  Diagnostic evidence generation, not a gate.
 WR_MODULES := WitnessRejectPrelude WitnessRejectA WitnessRejectB WitnessRejectC WitnessRejectD
 perf-attribution: pytools builder
 	@$(PYRUN) tools/witness-profile-attribution.py --self-test

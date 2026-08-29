@@ -1,0 +1,7 @@
+# The verified measurement-basis registry: every raw event/profile row's basis must be registered here,
+# and every row's basis_digest is verified in the gate as performance-input-digest --commit source_commit.
+# Exactly one CURRENT basis exists (the latest frozen candidate); everything else is HISTORICAL.
+basis_digest	source_commit	topology_id	status	purpose	notes
+cb7e58105b784a0ff047a43bb53e927d12938281c73b26e4e18a9d16ff4223a6	c13e3d574b8f5a4e46a11f6fb7b01117b47170b0	THREE_SOLVE_POST_CHUNKING_V1	HISTORICAL	the instrumented 148s three-solve entry run (the DAG contract's entry candidate; post-chunking fixtures)	verified from Git history: the run predated any DAG edit; scenario median across runs was 151s, range 148-159; the retained run is the fastest (lower-bound comparisons)
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	82a2a864d5cb3ace98951fc96da3f62d567bea74	ONE_DAG_V1	HISTORICAL	the first one-DAG freeze (103s-median scenario measurements)	its retained final-cold-1 event run lacks per-worker intervals; superseded for reachability by the current basis
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	899be3bb9ad3a0a5b3dc8511ce196afa18b45ec0	ONE_DAG_V1	CURRENT	the accounting-truth-closure freeze (the latest frozen candidate)	the current sentence/program/population profile is bound here; current cold event runs with worker intervals land at this slice's freeze

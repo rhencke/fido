@@ -8,8 +8,10 @@ analyzes, and writes four TSV evidence tables:
 
     witnessreject-sentences.tsv      every profiled sentence (never a top-N selection)
     witnessreject-programs.tsv       fixtures grouped by the exact program they analyze
-    witnessreject-populations.tsv    population attribution with maximum savings
-    witnessreject-opportunities.tsv  opportunity reachability arithmetic
+    witnessreject-populations.tsv    population attribution
+
+RAW CLASSIFICATION ONLY: every derived judgment — reachability, maximum savings, critical paths,
+optimization recommendations — is owned by the one accounting engine (tools/perf-work-span.py)
 
 Fail-closed checks: the parsed sentence count must meet --expect-sentences (so a top-N
 log cannot pose as the full population), population totals must reconcile with the full
@@ -32,23 +34,6 @@ DECL = re.compile(r'^\s*(?:Global\s+|Local\s+|Program\s+|#\[[^\]]*\]\s*)*'
 POPULATIONS = ('VERDICT_ONLY', 'ISSUE_TABLE', 'CAUSE_VIEW', 'REQ_VIEW', 'GROUP_VIEW',
                'RAW_FACT_READER', 'EXACT_PROVENANCE', 'EXACT_READER', 'COEXISTENCE',
                'SHARED_PROGRAM_OR_HELPER', 'OTHER', 'UNCLASSIFIED')
-
-# population -> the opportunity IDs whose target set contains it
-OPPS_OF = {
-    'VERDICT_ONLY': 'PERF-COMP-WITNESS-CHUNKING',
-    'ISSUE_TABLE': 'PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION',
-    'CAUSE_VIEW': 'PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION',
-    'REQ_VIEW': 'PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION',
-    'GROUP_VIEW': 'PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION',
-    'RAW_FACT_READER': 'PERF-COMP-WITNESS-CHUNKING',
-    'EXACT_PROVENANCE': 'PERF-COMP-WITNESS-CHUNKING',
-    'EXACT_READER': 'PERF-COMP-WITNESS-CHUNKING',
-    'COEXISTENCE': 'PERF-COMP-WITNESS-CHUNKING',
-    'SHARED_PROGRAM_OR_HELPER': '',
-    'OTHER': 'PERF-COMP-WITNESS-CHUNKING',
-    'UNCLASSIFIED': '',
-}
-
 
 def line_starts(data):
     starts, pos = [0], data.find(b'\n')
@@ -195,7 +180,6 @@ def build_tables(src_path, log_path, basis, expect_sentences):
                      'line_end': d.end_line, 'name': d.name, 'kind': d.kind,
                      'secs': round(d.secs, 3), 'tactic': tactic_shape(d),
                      'goal_head': goal_head(d), 'program_key': pk, 'population': pop,
-                     'opportunities': OPPS_OF[pop],
                      'notes': ('also result_req_views' if pop == 'CAUSE_VIEW'
                                and 'result_req_views' in ' '.join(d.text) else '')})
 
@@ -264,13 +248,13 @@ def reconcile(total, pops, tolerance=0.05):
                          f'(limit 2%) — extend the mechanical rules, do not guess')
 
 
-def write_tables(outdir, basis, total, rows, pops, progs, chunk_wall_target, cold_entry, cold_target):
+def write_tables(outdir, basis, total, rows, pops, progs):
     out = Path(outdir)
     out.mkdir(parents=True, exist_ok=True)
 
     with open(out / 'witnessreject-sentences.tsv', 'w', encoding='utf-8') as f:
         cols = ['basis', 'file', 'line_start', 'line_end', 'name', 'kind', 'secs', 'tactic',
-                'goal_head', 'program_key', 'population', 'opportunities', 'notes']
+                'goal_head', 'program_key', 'population', 'notes']
         f.write('# full declaration-rolled sentence profile — every profiled sentence attributed, never top-N\n')
         f.write('\t'.join(cols) + '\n')
         for r in rows:
@@ -278,72 +262,24 @@ def write_tables(outdir, basis, total, rows, pops, progs, chunk_wall_target, col
 
     with open(out / 'witnessreject-programs.tsv', 'w', encoding='utf-8') as f:
         f.write('# fixtures grouped by the exact program they analyze; vm_pairs counts vm_compute sentences '
-                '(tactic and Qed sides both pay the reduction)\n')
-        f.write('program_key\tdecl_count\ttotal_secs\tclaim_families\tvm_pairs\tlargest_decl\t'
-                'largest_secs\tbundle_reachable\n')
+                '(tactic and Qed sides both pay the reduction); raw attribution only, no derived judgment\n')
+        f.write('basis\tprogram_key\tdecl_count\ttotal_secs\tclaim_families\tvm_pairs\tlargest_decl\t'
+                'largest_secs\n')
         for k in sorted(progs, key=lambda k: -progs[k]['secs']):
             g = progs[k]
-            reach = 'yes' if (g['count'] >= 3 or g['secs'] >= 3.0) and g['count'] >= 2 else 'no'
-            f.write(f"{k}\t{g['count']}\t{g['secs']:.3f}\t{','.join(sorted(g['families']))}\t"
-                    f"{g['vm_pairs']}\t{g['largest'][0]}\t{g['largest'][1]:.3f}\t{reach}\n")
+            f.write(f"{basis}\t{k}\t{g['count']}\t{g['secs']:.3f}\t{','.join(sorted(g['families']))}\t"
+                    f"{g['vm_pairs']}\t{g['largest'][0]}\t{g['largest'][1]:.3f}\n")
 
     with open(out / 'witnessreject-populations.tsv', 'w', encoding='utf-8') as f:
-        f.write(f'# population attribution; full sentence total {total:.2f}s; totals reconcile within 0.05s\n')
-        f.write('population\tdecl_count\ttotal_secs\tshare_pct\tlargest_decl\tlargest_secs\t'
-                'parallel_deps\tcandidate_optimization\tmax_theoretical_saving_s\n')
+        f.write(f'# population attribution; full sentence total {total:.2f}s; totals reconcile within 0.05s; '
+                'raw attribution only — derived judgments live in the accounting owner\n')
+        f.write('basis\tpopulation\tdecl_count\ttotal_secs\tshare_pct\tlargest_decl\tlargest_secs\n')
         for name in POPULATIONS:
             if name not in pops:
                 continue
             p = pops[name]
-            dep = ('prelude definitions must precede every chunk' if name == 'SHARED_PROGRAM_OR_HELPER'
-                   else 'independent given the shared prelude')
-            cand = ('none (shared basis)' if name == 'SHARED_PROGRAM_OR_HELPER'
-                    else 'parallel chunking' + (
-                        ' + per-program bundles + future evidence observation'
-                        if name in ('ISSUE_TABLE', 'CAUSE_VIEW', 'REQ_VIEW', 'GROUP_VIEW') else ''))
-            max_save = 0.0 if name == 'SHARED_PROGRAM_OR_HELPER' else p['secs']
-            f.write(f"{name}\t{p['count']}\t{p['secs']:.3f}\t{100 * p['secs'] / total:.1f}\t"
-                    f"{p['largest'][0]}\t{p['largest'][1]:.3f}\t{dep}\t{cand}\t{max_save:.3f}\n")
-
-    heavy = sum(p['secs'] for n, p in pops.items() if n != 'SHARED_PROGRAM_OR_HELPER')
-    shared = pops.get('SHARED_PROGRAM_OR_HELPER', {'secs': 0.0})['secs']
-    ideal_wall = shared + heavy / 4.0
-    with open(out / 'witnessreject-opportunities.tsv', 'w', encoding='utf-8') as f:
-        f.write('# opportunity reachability: a contract may not target an opportunity whose theoretical '
-                'maximum cannot satisfy its own threshold\n')
-        f.write('opportunity\ttarget_population\ttarget_secs\ttarget_share_pct\tmax_file_saving_s\t'
-                'max_complete_path_saving_s\texpected_saving_s\tbaseline_end_to_end_s\t'
-                'projected_best_s\tthreshold\treachable_by_arithmetic\tconfidence_evidence\n')
-        f.write(f"PERF-COMP-WITNESS-CHUNKING\tall proof populations\t{heavy:.2f}\t"
-                f"{100 * heavy / total:.1f}\t{heavy - heavy / 4.0:.2f}\t{heavy - heavy / 4.0:.2f}\t"
-                f"{max(0.0, total - ideal_wall):.2f}\t{total:.2f}\t{ideal_wall:.2f}\t"
-                f"chunk wall <= {chunk_wall_target}s\t"
-                f"{'yes' if ideal_wall <= chunk_wall_target else 'no'}\t"
-                f"4-way ideal wall {ideal_wall:.1f}s = shared {shared:.1f}s + heavy {heavy:.2f}s/4 "
-                f"(+ per-chunk library load measured separately)\n")
-        verd = pops.get('VERDICT_ONLY', {'secs': 0.0})['secs']
-        f.write(f"PERF-COMP-FAST-DISPOSITION\tVERDICT_ONLY\t{verd:.2f}\t{100 * verd / total:.1f}\t"
-                f"{verd:.2f}\t{verd:.2f}\t{verd:.2f}\t{total:.2f}\t{total - verd:.2f}\t"
-                f"WitnessReject <= 14s and 3x\tno\t"
-                f"rejected measured: max saving {verd:.2f}s leaves ~{total - verd:.0f}s\n")
-        bundle = sum(g['secs'] for g in progs.values() if (g['count'] >= 3 or g['secs'] >= 3.0)
-                     and g['count'] >= 2)
-        f.write(f"PERF-COMP-PER-PROGRAM-BUNDLES\tmulti-fixture program clusters\t{bundle:.2f}\t"
-                f"{100 * bundle / total:.1f}\t{bundle / 2:.2f}\t{bundle / 2:.2f}\t{bundle / 3:.2f}\t"
-                f"{total:.2f}\t{total - bundle / 2:.2f}\t>=20% cluster improvement\t"
-                f"{'yes' if bundle > 0 else 'no'}\t"
-                f"one vm_compute+Qed per bundle instead of two VM passes per fixture\n")
-        evid = sum(pops.get(n, {'secs': 0.0})['secs']
-                   for n in ('ISSUE_TABLE', 'CAUSE_VIEW', 'REQ_VIEW', 'GROUP_VIEW'))
-        f.write(f"PERF-COMP-EVIDENCE-OBSERVATION\tISSUE_TABLE+CAUSE_VIEW+REQ_VIEW+GROUP_VIEW\t"
-                f"{evid:.2f}\t{100 * evid / total:.1f}\t{evid:.2f}\t{evid:.2f}\t{evid * 0.8:.2f}\t"
-                f"{total:.2f}\t{total - evid * 0.8:.2f}\tfuture contract sets it\tyes\t"
-                f"theorem-backed projection of exact Analysis/Report authority; later slice\n")
-        f.write(f"COLD-COMPLETE-CONTEXT\twhole complete path\t{cold_entry:.0f}\t\t\t\t\t"
-                f"{cold_entry:.0f}\t{cold_entry - max(0.0, total - ideal_wall):.0f}\t"
-                f"cold median <= {cold_target}s and >= 12% better\t"
-                f"{'yes' if cold_entry - max(0.0, total - ideal_wall) <= cold_target else 'no'}\t"
-                f"fixture stage saving projected onto the entry cold median\n")
+            f.write(f"{basis}\t{name}\t{p['count']}\t{p['secs']:.3f}\t{100 * p['secs'] / total:.1f}\t"
+                    f"{p['largest'][0]}\t{p['largest'][1]:.3f}\n")
 
 
 def self_test():
@@ -418,9 +354,6 @@ def main(argv):
     ap.add_argument('--basis')
     ap.add_argument('--outdir')
     ap.add_argument('--expect-sentences', type=int, default=500)
-    ap.add_argument('--chunk-wall-target', type=float, default=16.0)
-    ap.add_argument('--cold-entry', type=float, default=166.0)
-    ap.add_argument('--cold-target', type=float, default=145.0)
     a = ap.parse_args(argv[1:])
     if a.self_test:
         return self_test()
@@ -433,8 +366,7 @@ def main(argv):
     records, total, rows, pops, progs = build_tables_multi(
         list(zip(a.source, a.time_log)), a.basis, a.expect_sentences)
     reconcile(total, pops)
-    write_tables(a.outdir, a.basis, total, rows, pops, progs,
-                 a.chunk_wall_target, a.cold_entry, a.cold_target)
+    write_tables(a.outdir, a.basis, total, rows, pops, progs)
     print(f'fido: witness-profile-attribution OK — {len(records)} sentences / {total:.2f}s fully '
           f'attributed across {sum(p["count"] for p in pops.values())} declarations; population totals '
           f'reconcile; UNCLASSIFIED {pops.get("UNCLASSIFIED", {"secs": 0.0})["secs"]:.2f}s within the 2% law')

@@ -1931,10 +1931,12 @@ wait "$p_neg"  || { cat /tmp/emit-neg.log;    fail "a forged raw transport was N
 wait "$p_prov" || { cat /tmp/emit-prov.log;   fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; }
 tl "wave1-done"
 tl "wave2-start chunks A-D"
-rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectA.v > /tmp/emit-rej-a.log 2>&1 & p_ca=$!
-rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectB.v > /tmp/emit-rej-b.log 2>&1 & p_cb=$!
-rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectC.v > /tmp/emit-rej-c.log 2>&1 & p_cc=$!
-rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectD.v > /tmp/emit-rej-d.log 2>&1 & p_cd=$!
+# per-worker interval events: the reachability model consumes each chunk worker's measured start/done,
+# so no universal load or overhead constant ever substitutes for a measurement
+{ tl "worker chunk-A start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectA.v > /tmp/emit-rej-a.log 2>&1; rc=$?; tl "worker chunk-A done rc=$rc"; exit $rc; } & p_ca=$!
+{ tl "worker chunk-B start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectB.v > /tmp/emit-rej-b.log 2>&1; rc=$?; tl "worker chunk-B done rc=$rc"; exit $rc; } & p_cb=$!
+{ tl "worker chunk-C start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectC.v > /tmp/emit-rej-c.log 2>&1; rc=$?; tl "worker chunk-C done rc=$rc"; exit $rc; } & p_cc=$!
+{ tl "worker chunk-D start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectD.v > /tmp/emit-rej-d.log 2>&1; rc=$?; tl "worker chunk-D done rc=$rc"; exit $rc; } & p_cd=$!
 wait "$p_ca" || { cat /tmp/emit-rej-a.log; fail "WitnessReject chunk A FAILED — a rejection-matrix fixture broke"; }
 wait "$p_cb" || { cat /tmp/emit-rej-b.log; fail "WitnessReject chunk B FAILED — a rejection-matrix fixture broke"; }
 wait "$p_cc" || { cat /tmp/emit-rej-c.log; fail "WitnessReject chunk C FAILED — a rejection-matrix fixture broke"; }

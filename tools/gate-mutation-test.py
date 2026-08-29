@@ -37,10 +37,10 @@ MUTANTS = (
     (WORKSPAN, 'the leaf-partition law, so a parent and its child cannot both be counted as work',
      "                    if a['role'] == 'WORK_LEAF':",
      "                    if False:",
-     ('parent and child both counted',)),
+     ('a work leaf nested under another work leaf',)),
 
     (WORKSPAN, 'the elapsed-consistency law, so a false elapsed value cannot enter the totals',
-     "                if abs((en - s) - el) > 500:",
+     "                if abs((en - s) - el) > TOL:",
      "                if False:",
      ('false elapsed value',)),
 
@@ -48,6 +48,22 @@ MUTANTS = (
      "    if wall and uncl / wall > 0.05:",
      "    if False:",
      ('unclassified complete-path above 5% rejected',)),
+
+    (WORKSPAN, 'the leaf-class multiset law, so an event set cannot carry more or fewer required leaves',
+     "            if not lo <= counts.get(cls, 0) <= hi:",
+     "            if False:",
+     ('duplicated proof leaf beyond the topology count',)),
+
+    (WORKSPAN, 'the solve-operation count, so a hidden extra solve is caught',
+     "        if solves != spec['solve_ops']:",
+     "        if False:",
+     ('extra unexpected solve',)),
+
+    (WORKSPAN, 'the predecessor accumulation in the longest path, so it cannot degrade to max-single-leaf',
+     "        dist[eid] = best + int(e['elapsed_ms'])",
+     "        dist[eid] = int(e['elapsed_ms'])",
+     ('final PV critical path is the longest predecessor path',
+      'entry serial: work equals critical path')),
 
     (GRAPH, 'the helper-one-solve law, so a hidden second solve inside the canonical helper is caught',
      "        builds = body.count('docker buildx build')",
@@ -78,6 +94,36 @@ MUTANTS = (
      "    if not any(rl == 'final-candidate' for (_, rl) in seen):",
      "    if False:",
      ('baseline-only file passes as current evidence',)),
+
+    (PERFEV, 'the second-opportunity-projection rejection, so a peer opportunity table cannot come back',
+     "    if os.path.exists(peer):",
+     "    if False:",
+     ('restored second opportunity projection',)),
+
+    (PERFEV, 'the attribution-purity scan, so the raw classifier cannot regain a derived judgment',
+     "            if tok in src:",
+     "            if False:",
+     ('attribution tool regained a derived judgment',)),
+
+    (PERFEV, 'the one-longest-path census, so a second arithmetic implementation is caught',
+     "        if n != 1:",
+     "        if False:",
+     ('a second longest-path implementation',)),
+
+    (PERFEV, 'the one-DAG reduction floor, so an IMPLEMENTED claim cannot stand under 15%',
+     "            if v < ONEDAG_MIN_PCT:",
+     "            if False:",
+     ('one-DAG IMPLEMENTED below its lower-bound reduction',)),
+
+    (PERFEV, 'the gain-deferral rejection, so one gain field cannot point at the other',
+     "            if 'see work_gain' in v or 'see span_gain' in v:",
+     "            if False:",
+     ('gain deferring to the other gain field',)),
+
+    (PERFEV, 'the evidence-form grammar, so a bare number cannot stand as a gain claim',
+     "            elif not re.match(r'^(DERIVED:|MEASURED:|QUALITATIVE:|UNKNOWN_NOT_MEASURED:|NOT_APPLICABLE:)', v):",
+     "            elif False:",
+     ('gain without an explicit evidence form',)),
 
     (HOSTPY, 'the host-interpreter classification itself',
      "            if INTERPRETER_RE.match(bare) or bare.endswith('.py'):",
@@ -197,6 +243,129 @@ MUTANTS = (
      ('a two-character box-drawing banner', 'a star decoration')),
 )
 
+# ---- generated-summary mutations (contract: every hand edit, stale regeneration, deleted row, stronger
+# header, raw-input drift or generator drift must fail the byte-compare law). Each transform mutates the
+# COMMITTED evidence (or the generator itself) in a private copy and the harness requires
+# `perf-work-span.py --check-generated` — the exact mode make perf-evidence and the staged hook run — to
+# fail through the named summary. Transforms assert their expected content before writing, so a schema
+# change here fails loudly instead of silently testing nothing.
+WS_SUM = '.review/perf/verification-dag-work-span.tsv'
+REACH_SUM = '.review/perf/verification-dag-reachability.tsv'
+EVENTS_RAW = '.review/perf/verification-dag-events.tsv'
+
+
+def _mut_reduction_999(work: Path):
+    p = work / WS_SUM
+    text = p.read_text(encoding='utf-8')
+    if 'work_reduction_pct' in text:
+        out, n = re.subn(r'(work_reduction_pct\t)-?[\d.]+', r'\g<1>99.9', text, count=1)
+        if n != 1:
+            return 'work_reduction_pct row present but its value did not match'
+        text = out
+    else:
+        text += 'DELTA\tPROJECT_VERIFICATION_work_reduction_pct\t99.9\t\t\t\t\t\n'
+    p.write_text(text, encoding='utf-8')
+
+
+def _mut_saving_99(work: Path):
+    p = work / REACH_SUM
+    if p.exists():
+        text = p.read_text(encoding='utf-8')
+        out, n = re.subn(r'(max_complete_path_wall_saving_ms\t)-?[\d.]+', r'\g<1>99', text, count=1)
+        if n != 1:
+            return 'reachability summary lacks a max_complete_path_wall_saving_ms value'
+        p.write_text(out, encoding='utf-8')
+    else:
+        p.write_text('run\tmetric\tvalue_ms\nfinal-1\tmax_complete_path_wall_saving_ms\t99\n',
+                     encoding='utf-8')
+
+
+def _mut_delete_row(work: Path):
+    p = work / WS_SUM
+    lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
+    data = [i for i, ln in enumerate(lines) if ln.strip() and not ln.startswith(('#', 'run\t'))]
+    if not data:
+        return 'no data row to delete'
+    del lines[data[-1]]
+    p.write_text(''.join(lines), encoding='utf-8')
+
+
+def _mut_stronger_header(work: Path):
+    p = work / WS_SUM
+    text = p.read_text(encoding='utf-8')
+    anchor = 'byte-compared by the gates; a hand edit fails validation.'
+    if text.count(anchor) != 1:
+        return f'header anchor occurs {text.count(anchor)} time(s), expected exactly 1'
+    p.write_text(text.replace(anchor, 'PROVEN OPTIMAL; no further work reduction exists.'),
+                 encoding='utf-8')
+
+
+def _mut_raw_without_regen(work: Path):
+    p = work / EVENTS_RAW
+    lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
+    hits = [i for i, ln in enumerate(lines)
+            if not ln.startswith('#') and '\tentry-cold-1\te-go\t' in ln]
+    if len(hits) != 1:
+        return f'entry-cold-1 e-go row occurs {len(hits)} time(s), expected exactly 1'
+    f = lines[hits[0]].rstrip('\n').split('\t')
+    f[8], f[9] = str(int(f[8]) - 2000), str(int(f[9]) - 2000)
+    lines[hits[0]] = '\t'.join(f) + '\n'
+    p.write_text(''.join(lines), encoding='utf-8')
+
+
+def _mut_generator_drift(work: Path):
+    p = work / WORKSPAN
+    src = p.read_text(encoding='utf-8')
+    anchor = '{t["wall"]/1000:.1f}'
+    if src.count(anchor) != 1:
+        return f'generator anchor occurs {src.count(anchor)} time(s), expected exactly 1'
+    p.write_text(src.replace(anchor, '{t["wall"]/1000:.2f}'), encoding='utf-8')
+
+
+def _mut_hand_recalculation(work: Path):
+    p = work / WS_SUM
+    lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        f = ln.rstrip('\n').split('\t')
+        if len(f) == 8 and f[1] == 'PROJECT_VERIFICATION' and f[3] != f[4]:
+            f[3] = f[4]
+            lines[i] = '\t'.join(f) + '\n'
+            p.write_text(''.join(lines), encoding='utf-8')
+            return
+    return 'no PROJECT_VERIFICATION row where aggregate work differs from the critical path'
+
+
+EVIDENCE_MUTANTS = (
+    ('a hand-set 99.9 work reduction in the committed summary', _mut_reduction_999,
+     'verification-dag-work-span.tsv'),
+    ('a hand-set 99 maximum complete-path saving', _mut_saving_99,
+     'verification-dag-reachability.tsv'),
+    ('a deleted generated row', _mut_delete_row, 'verification-dag-work-span.tsv'),
+    ('a generated header edited to a stronger claim', _mut_stronger_header,
+     'verification-dag-work-span.tsv'),
+    ('raw events modified without regenerating the summary', _mut_raw_without_regen,
+     'verification-dag-work-span.tsv'),
+    ('a modified generator kept with stale committed output', _mut_generator_drift,
+     'verification-dag-work-span.tsv'),
+    ('committed output replaced by a second hand calculation', _mut_hand_recalculation,
+     'verification-dag-work-span.tsv'),
+)
+
+
+def run_evidence_mutant(root: Path, transform):
+    with tempfile.TemporaryDirectory() as d:
+        work = Path(d) / 'tree'
+        shutil.copytree(root, work, symlinks=True,
+                        ignore=shutil.ignore_patterns('.git', '_build', '*.vo', '*.glob', '__pycache__',
+                                                      '.claude'))
+        err = transform(work)
+        if err is not None:
+            return None, err
+        proc = subprocess.run([sys.executable, str(work / WORKSPAN), '--root', str(work),
+                               '--check-generated'], capture_output=True, text=True, cwd=work)
+        return proc, None
+
+
 DOCKERFILE = 'Dockerfile'
 LAYER_BEGIN = 'LAYER-GATE-LIB BEGIN'
 LAYER_END = 'LAYER-GATE-LIB END'
@@ -314,6 +483,25 @@ def main() -> int:
         else:
             print(f'  detected  {label}  ({tool}) — {len(expected)} named control(s) fired')
 
+    # Generated-summary mutations: each mutated committed summary / raw input / generator copy must fail
+    # the --check-generated law through its named summary file (the mode make perf-evidence and the
+    # staged hook both run, so the same detection holds in the ordinary and staged gates).
+    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
+        eran = list(pool.map(lambda m: run_evidence_mutant(root, m[1]), EVIDENCE_MUTANTS))
+    for (label, _fn, expected_file), (proc, err) in zip(EVIDENCE_MUTANTS, eran):
+        if err is not None or proc is None:
+            failures.append(f'evidence mutation: {label}: {err}')
+            continue
+        blob = proc.stdout + proc.stderr
+        if proc.returncode == 0:
+            failures.append(f'evidence mutation: {label}: --check-generated still PASSED — the '
+                            f'byte-compare law did not detect it')
+        elif f'generated-summary law: {expected_file}' not in blob:
+            failures.append(f'evidence mutation: {label}: failed, but not through the generated-summary '
+                            f'law on {expected_file}; output: {blob.strip().splitlines()[:3]}')
+        else:
+            print(f'  detected  {label}  (generated-summary byte-compare)')
+
     # The layer-dependency gate (a POSIX-sh decision block in the Dockerfile), under the same authority.
     layer_selected = list(LAYER_MUTANTS)
     block = extract_layer_block(root)
@@ -342,16 +530,18 @@ def main() -> int:
             else:
                 print(f'  detected  {label}  ({DOCKERFILE} layer gate) — {len(expected)} named control(s) fired')
 
-    checked = len(selected) + len(layer_selected)
+    checked = len(selected) + len(layer_selected) + len(EVIDENCE_MUTANTS)
     if failures:
         for f in failures:
             print(f'  FAIL  {f}')
         print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} finding(s) across {checked} checked mutants '
-              f'({len(selected)} permanent-policy Python helpers + {len(layer_selected)} layer-gate root decisions)')
+              f'({len(selected)} permanent-policy Python helpers + {len(layer_selected)} layer-gate root '
+              f'decisions + {len(EVIDENCE_MUTANTS)} generated-summary mutations)')
         return 1
     print(f'fido: gate-mutation test OK — {checked} checked mutants ({len(selected)} permanent-policy Python '
-          f'helpers + {len(layer_selected)} layer-gate root decisions), each proved load-bearing by deleting its '
-          f'effect and watching its own named controls fail ✓')
+          f'helpers + {len(layer_selected)} layer-gate root decisions + {len(EVIDENCE_MUTANTS)} '
+          f'generated-summary mutations), each proved load-bearing by deleting its effect and watching its '
+          f'own named controls fail ✓')
     return 0
 
 

@@ -16,16 +16,27 @@
 # `git ls-files -s` prints "<mode> <blob-sha> <stage>\t<path>"; the blob-sha is Git's content address, so the
 # digest changes iff any included file's bytes, mode, or path changes.  It reads the INDEX, which equals the
 # working tree and HEAD on the clean, committed state under which the gate and the freeze discipline run.
-# `--head` digests the SAME input set at the committed HEAD instead of the index, through the identical
+# `--head` (the committed HEAD) and `--commit <sha>` (any exact commit) digest the SAME input set through the identical
 # byte pipeline (HEAD read into a throwaway index), so an index digest and a HEAD digest are comparable:
 # equal iff no included byte differs between the proposed and the committed tree.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
-if [ "${1:-}" = "--head" ]; then
-  GIT_INDEX_FILE=$(mktemp); export GIT_INDEX_FILE
-  trap 'rm -f "$GIT_INDEX_FILE"' EXIT
-  git read-tree HEAD
-fi
+case "${1:-}" in
+  --head)
+    GIT_INDEX_FILE=$(mktemp); export GIT_INDEX_FILE
+    trap 'rm -f "$GIT_INDEX_FILE"' EXIT
+    git read-tree HEAD ;;
+  --commit)
+    # digest the same excluded-file input set at an EXACT commit, via a throwaway index; the real index
+    # and working tree are never touched, so a registry row's basis can be verified against its source
+    case "${2:-}" in
+      *[!0-9a-f]*|'') echo "performance-input-digest: --commit needs a 40-hex commit" >&2; exit 2 ;;
+    esac
+    [ ${#2} -eq 40 ] || { echo "performance-input-digest: --commit needs a 40-hex commit" >&2; exit 2; }
+    GIT_INDEX_FILE=$(mktemp); export GIT_INDEX_FILE
+    trap 'rm -f "$GIT_INDEX_FILE"' EXIT
+    git read-tree "$2" ;;
+esac
 git ls-files -s -- \
     ':(exclude).review/PERFORMANCE.tsv' \
     ':(exclude).review/PERFORMANCE_OPPORTUNITIES.tsv' \

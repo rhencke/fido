@@ -149,8 +149,9 @@ def check_perf(text, digest, findings, mdigests, head_digest='', notices=None, e
         findings.append(f'{PERF}: no scenario/relation coverage')
 
 
-def check_opps(text, mdigests, findings, summary_ids):
+def check_opps(text, mdigests, findings, summary_ids, derived_refs=None):
     data = rows(text)
+    derived_refs = derived_refs if derived_refs is not None else []
     ids = set()
     for i, r in enumerate(data, 1):
         if len(r) != len(OPP_COLS):
@@ -169,6 +170,21 @@ def check_opps(text, mdigests, findings, summary_ids):
         for req in ('affected', 'work_gain', 'span_gain', 'hotspot', 'constraints'):
             if not row[req].strip():
                 findings.append(f'{OPPS}:{i}: empty required field {req!r}')
+        # work and span are semantically distinct claims: each must carry one explicit evidence form,
+        # and a machine-derived current value is a DERIVED reference into a generated file, never a copy
+        for gf in ('work_gain', 'span_gain'):
+            v = row[gf].strip()
+            if 'see work_gain' in v or 'see span_gain' in v:
+                findings.append(f'{OPPS}:{i}: {gf} defers to the other gain field — state its own evidence')
+            elif not re.match(r'^(DERIVED:|MEASURED:|QUALITATIVE:|UNKNOWN_NOT_MEASURED:|NOT_APPLICABLE:)', v):
+                findings.append(f'{OPPS}:{i}: {gf} must use an explicit evidence form '
+                                '(DERIVED:/MEASURED:/QUALITATIVE:/UNKNOWN_NOT_MEASURED:/NOT_APPLICABLE:)')
+            elif v.startswith('DERIVED:'):
+                parts = v.split(':', 2)
+                if len(parts) < 3 or not parts[1].strip() or not parts[2].strip():
+                    findings.append(f'{OPPS}:{i}: {gf} DERIVED reference needs DERIVED:<file>:<metric>')
+                else:
+                    derived_refs.append((i, gf, parts[1].strip(), parts[2].strip()))
         if not row['basis'].strip():
             findings.append(f'{OPPS}:{i}: empty measurement basis')
         if row['status'] == 'IMPLEMENTED' and row['commit'] in ('', 'n/a'):
@@ -181,6 +197,62 @@ def check_opps(text, mdigests, findings, summary_ids):
             summary_ids.add(row['id'])
     if not ids:
         findings.append(f'{OPPS}: no opportunity rows')
+
+
+# single-arithmetic-owner law: raw attribution derives nothing, no second opportunity projection, and
+# exactly one longest-path implementation exists (the accounting engine's).
+FORBIDDEN_ATTRIBUTION_TOKENS = ('OPPS_OF', 'bundle_reachable', 'candidate_optimization', 'max_saving',
+                                'chunk_wall_target')
+
+
+def check_single_owner(root, findings):
+    peer = os.path.join(root, '.review/perf/witnessreject-opportunities.tsv')
+    if os.path.exists(peer):
+        findings.append('.review/perf/witnessreject-opportunities.tsv: a second opportunity projection '
+                        'is forbidden — the ledger and the generated summaries are the only routes')
+    attr = os.path.join(root, 'tools/witness-profile-attribution.py')
+    if os.path.exists(attr):
+        src = open(attr, encoding='utf-8').read()
+        for tok in FORBIDDEN_ATTRIBUTION_TOKENS:
+            if tok in src:
+                findings.append(f'tools/witness-profile-attribution.py: forbidden derived-judgment '
+                                f'token {tok} — the attribution tool is raw classification only')
+    tools_dir = os.path.join(root, 'tools')
+    if os.path.isdir(tools_dir):
+        needle = 'def longest' + '_path'
+        n = sum(open(os.path.join(tools_dir, f), encoding='utf-8').read().count(needle)
+                for f in os.listdir(tools_dir) if f.endswith('.py'))
+        if n != 1:
+            findings.append(f'tools: {n} longest-path implementation(s), expected exactly the one in '
+                            f'the accounting engine')
+
+
+# the one-DAG IMPLEMENTED claim stands only while the generated comparable lower-bound work reduction
+# holds its required floor (§ one-DAG status: below it the claim is a false success, not a smaller one)
+ONEDAG_ID = 'PERF-ORCH-ONE-VERIFICATION-DAG'
+ONEDAG_MIN_PCT = 15.0
+WS_SUMMARY = '.review/perf/verification-dag-work-span.tsv'
+
+
+def check_onedag_bound(root, opp_text, findings):
+    implemented = any(
+        (f := ln.split('\t'))[0] == ONEDAG_ID and len(f) > 3 and f[3] == 'IMPLEMENTED'
+        for ln in opp_text.splitlines() if ln and not ln.startswith('#'))
+    ws = os.path.join(root, WS_SUMMARY)
+    if not implemented or not os.path.exists(ws):
+        return
+    for ln in open(ws, encoding='utf-8'):
+        f = ln.rstrip('\n').split('\t')
+        if len(f) >= 3 and f[0] == 'DELTA' and f[1] == 'PROJECT_VERIFICATION_work_reduction_pct':
+            try:
+                v = float(f[2])
+            except ValueError:
+                findings.append(f'{WS_SUMMARY}: non-numeric PROJECT_VERIFICATION_work_reduction_pct')
+                return
+            if v < ONEDAG_MIN_PCT:
+                findings.append(f'{OPPS}: {ONEDAG_ID} claims IMPLEMENTED but the generated '
+                                f'PROJECT_VERIFICATION work reduction is {v}% — below the required '
+                                f'{ONEDAG_MIN_PCT}% lower bound (a false success claim)')
 
 
 def validate(root, digest, head_digest='', evidence_changed=False):
@@ -196,9 +268,20 @@ def validate(root, digest, head_digest='', evidence_changed=False):
     if findings:
         return findings, notices
     summary_ids, mdigests = set(), set()
+    check_single_owner(root, findings)
     check_perf(open(perf_path, encoding='utf-8').read(), digest, findings, mdigests, head_digest, notices,
                evidence_changed)
-    check_opps(open(opp_path, encoding='utf-8').read(), mdigests, findings, summary_ids)
+    derived_refs = []
+    opp_text = open(opp_path, encoding='utf-8').read()
+    check_opps(opp_text, mdigests, findings, summary_ids, derived_refs)
+    check_onedag_bound(root, opp_text, findings)
+    # every DERIVED reference must resolve: the generated file exists and carries the named metric/row
+    for i, gf, fname, metric in derived_refs:
+        gp = os.path.join(root, '.review/perf', fname)
+        if not os.path.exists(gp):
+            findings.append(f'{OPPS}:{i}: {gf} DERIVED reference names a missing generated file {fname}')
+        elif metric not in open(gp, encoding='utf-8').read():
+            findings.append(f'{OPPS}:{i}: {gf} DERIVED metric {metric!r} not found in {fname}')
     # every OPEN_MATERIAL opportunity must be visible in the current summary block of the measurement file
     perf_text = open(perf_path, encoding='utf-8').read()
     for oid in sorted(summary_ids):
@@ -226,7 +309,8 @@ def _perf_row(**kw):
 
 def _opp_row(**kw):
     d = dict(id='PERF-COMP-X', basis=DG, cls='COMPUTATIONAL', status='OPEN_MATERIAL', affected='cold',
-             work_gain='~24s work', span_gain='~5s wall', hotspot='WitnessReject',
+             work_gain='MEASURED:~24s aggregate target at basis ' + DG,
+             span_gain='MEASURED:~5s wall ceiling at basis ' + DG, hotspot='WitnessReject',
              constraints='exact disposition stays authority', commit='n/a', result='n/a',
              revisit='when profiled')
     d.update(kw)
@@ -300,6 +384,12 @@ def self_test():
         ('OPEN_MATERIAL omitted from summary', '\n'.join(_perf_row(scenario=s) for s in SCENARIOS) + '\n', _opp_row(id='PERF-ORCH-Y') + '\n'),
         ('OPEN_MATERIAL bound to a foreign digest', clean_perf, _opp_row(basis='c' * 64) + '\n'),
         ('empty opportunity basis', clean_perf, _opp_row(basis='') + '\n'),
+        ('gain deferring to the other gain field', clean_perf,
+         _opp_row(span_gain='QUALITATIVE:see work_gain; span not separately claimed') + '\n'),
+        ('gain without an explicit evidence form', clean_perf,
+         _opp_row(work_gain='30s faster') + '\n'),
+        ('DERIVED reference without file and metric', clean_perf,
+         _opp_row(work_gain='DERIVED:only-a-file') + '\n'),
     ]
     for case in cases:
         label, perf_body, opp_body = case[0], case[1], case[2]
@@ -308,6 +398,58 @@ def self_test():
         f, _ = run(perf_body, opp_body, **kw)
         if not f:
             print(f'  FAIL  {label} — the defect was not caught')
+            fails += 1
+
+    # single-arithmetic-owner adversaries over a filesystem fixture
+    import tempfile
+
+    def owner_case(label, build, want):
+        nonlocal controls, fails
+        controls += 1
+        with tempfile.TemporaryDirectory() as d:
+            os.makedirs(os.path.join(d, '.review/perf'))
+            os.makedirs(os.path.join(d, 'tools'))
+            # the clean baseline: exactly one engine implementation, nothing else
+            open(os.path.join(d, 'tools/perf-work-span.py'), 'w').write(
+                'def longest' + '_path():\n    pass\n')
+            clean = []
+            check_single_owner(d, clean)
+            if clean:
+                print(f'  FAIL  {label} — the clean single-owner fixture was rejected: {clean}')
+                fails += 1
+                return
+            build(d)
+            f = []
+            check_single_owner(d, f)
+            if not any(want in x for x in f):
+                print(f'  FAIL  {label} — the defect was not caught through its own rule (got {f})')
+                fails += 1
+
+    owner_case('restored second opportunity projection', lambda d: open(
+        os.path.join(d, '.review/perf/witnessreject-opportunities.tsv'), 'w').write('x\n'),
+        'second opportunity projection')
+    owner_case('attribution tool regained a derived judgment', lambda d: open(
+        os.path.join(d, 'tools/witness-profile-attribution.py'), 'w').write('OPPS_OF = {}\n'),
+        'forbidden derived-judgment token')
+    owner_case('a second longest-path implementation', lambda d: open(
+        os.path.join(d, 'tools/peer.py'), 'w').write('def longest' + '_path():\n    pass\n'),
+        'longest-path implementation')
+
+    # the one-DAG floor: an IMPLEMENTED claim over a generated reduction below 15% is a false success
+    controls += 1
+    with tempfile.TemporaryDirectory() as d:
+        os.makedirs(os.path.join(d, '.review/perf'))
+        open(os.path.join(d, WS_SUMMARY), 'w').write(
+            'run\tlevel\twall_span_s\nDELTA\tPROJECT_VERIFICATION_work_reduction_pct\t12.0\n')
+        opp = (ONEDAG_ID + '\t' + DG + '\tORCHESTRATION\tIMPLEMENTED\tcold\tDERIVED:x:y\t'
+               'DERIVED:x:y\th\tc\tabc123\tr\tn/a\n')
+        f = []
+        check_onedag_bound(d, opp, f)
+        good = []
+        check_onedag_bound(d, opp.replace('\tIMPLEMENTED\t', '\tREJECTED_MEASURED\t'), good)
+        if not any('below the required' in x for x in f) or good:
+            print('  FAIL  one-DAG IMPLEMENTED below its lower-bound reduction — not caught through '
+                  f'its own rule (got {f}; non-implemented control got {good})')
             fails += 1
     if fails:
         raise SystemExit(f'perf-evidence self-test: {fails} defect class(es) not caught')

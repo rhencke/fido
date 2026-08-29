@@ -90,7 +90,8 @@ make prove       dune build + module coverage + layer-dependency gate + whole-th
 make e2e         emit + pristine generated-module + go build ./... + differentials + witness vs goldens
 make regenerate  rebuild and publish the canonical module through the sink, after the validated go build (cache-valid)
 make regen-guard proves `sync` is unbuildable when go-e2e validation fails
-make perf        one serial diagnostic timing, cold and hot, into `.review/PERFORMANCE.tsv`
+make perf-evidence  verifies the basis registry, regenerates + byte-compares the generated summaries,
+                    and validates the measurement + opportunity ledgers
 ```
 
 Host Rocq is not supported. Everything runs through Buildx against the pins above.
