@@ -5,5 +5,15 @@
 run	level	wall_span_s	aggregate_task_elapsed_s	critical_path_span_s	interval_union_span_s	parallel_overlap_s	unclassified_s
 final82a-cold-1	PROJECT_VERIFICATION	103.0	101.0	83.0	83.0	18.0	1.0
 final82a-cold-1	COMPLETE_PATH	103.0	120.0	102.0	102.0	18.0	1.0
+final-cold-1	PROJECT_VERIFICATION	96.0	93.4	78.0	78.0	15.4	0.0
+final-cold-1	COMPLETE_PATH	96.0	111.4	96.0	96.0	15.4	0.0
+final-cold-2	PROJECT_VERIFICATION	100.0	94.6	81.0	81.0	13.6	0.0
+final-cold-2	COMPLETE_PATH	100.0	113.6	100.0	100.0	13.6	0.0
+final-cold-3	PROJECT_VERIFICATION	98.0	87.4	79.0	79.0	8.4	0.0
+final-cold-3	COMPLETE_PATH	98.0	106.4	98.0	98.0	8.4	0.0
 entry-cold-1	PROJECT_VERIFICATION	148.0	129.0	129.0	129.0	0.0	0.0
 entry-cold-1	COMPLETE_PATH	148.0	148.0	148.0	148.0	0.0	0.0
+DELTA	PROJECT_VERIFICATION_work_reduction_pct	27.6					
+DELTA	PROJECT_VERIFICATION_critical_span_reduction_pct	38.8					
+DELTA	COMPLETE_PATH_work_reduction_pct	24.7					
+DELTA	COMPLETE_PATH_critical_span_reduction_pct	33.8					
