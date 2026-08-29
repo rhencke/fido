@@ -1,15 +1,10 @@
 BUILDER := fido-builder
 # The 64-bit target the theory assumes; `override` makes a command-line or environment change inert.
 override PLATFORM := linux/amd64
-# Project-stage cold, for `make perf` alone: unset, both expand to nothing and every recipe below is exactly
-# the one that has always run.  Set, ONE cold pass forces ONE prover root in `prove` and ONE emit root in
-# `e2e`, while their stable toolchain ancestors stay cache hits — cold for the project, not an empty machine.
-#
-# The final generated-artifact comparison in `check` deliberately carries NO filter: it must REUSE the
-# generated module the forced-cold `e2e` already produced.  A single filter list applied to every Buildx
-# invocation forced `emit` a second time there, after e2e had already built and consumed it, and the total
-# was still called one cold pass.  Each root is forced exactly where it is intentionally forced, and nowhere
-# else.
+# FIDO_PERF_COLD is the §9.3 project-cold scenario switch (measurement-only): set, the one-solve `check`
+# path passes --project-cold to the canonical helper (invalidating exactly the project-derived stages while
+# base/toolchain layers stay primed), and the targeted `prove`/`e2e` commands force their own roots cold.
+# Unset, every recipe is exactly the one that always runs — cold for the project, never an empty machine.
 PERF_PROVER_NC := $(if $(FIDO_PERF_COLD),--no-cache-filter theory-built --no-cache-filter prover,)
 PERF_EMIT_NC   := $(if $(FIDO_PERF_COLD),--no-cache-filter theory-built --no-cache-filter emit,)
 
@@ -28,23 +23,6 @@ PYARGS  := --rm -u $(shell id -u):$(shell id -g) -e PYTHONDONTWRITEBYTECODE=1 -e
            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo -w /repo
 PYRUN    = docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3
 
-# ── Completion markers.  INERT unless FIDO_PERF_LOG names a file: with the variable absent the `if` is
-# false and nothing is written, so command order, bytes, output, exit status, side effects and normal
-# parallelism are exactly what they were.  A measurement that alters what it measures is not a measurement.
-#
-# A marker is a COMPLETION TIMESTAMP and nothing else — not a nested span, not a trace, not a parent, not a
-# partition, and not a proof of attribution.  Cumulative milliseconds since the run start `tools/perf.sh`
-# supplies; a reader subtracts adjacent rows.  CLOCK_MONOTONIC from /proc/uptime, because a wall clock can
-# step under NTP and a duration that can go backwards is not a duration.  The centiseconds field is two
-# digits, so 08 and 09 read as OCTAL and silently drop a marker — stripping the leading zero is the POSIX
-# fix, and `10#` would be a bashism.  The fraction is HUNDREDTHS, so a hundredth is ten milliseconds.
-#
-# The Makefile never parses, validates, compares or retains timing data.
-define fido_mark
-@if [ -n "$$FIDO_PERF_LOG" ]; then IFS='. ' read -r _s _c _r < /proc/uptime; _c=$${_c#0}; \
-  printf '%s\t%s\t%s\n' "$$FIDO_PERF_MODE" '$(1)' \
-    $$(( _s * 1000 + $${_c:-0} * 10 - $${FIDO_PERF_T0:-0} )) >> "$$FIDO_PERF_LOG"; fi
-endef
 
 # Build the pinned tooling images if this exact tag is not already present.  Never a rebuild of an existing
 # tag: the tag changed if and only if its inputs did.
@@ -52,10 +30,9 @@ pytools: builder
 	@docker image inspect $(PYTAG) > /dev/null 2>&1 || \
 	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target python-tools \
 	    --load -t $(PYTAG) . > /dev/null
-	$(call fido_mark,pytools)
 
 .PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants ledger perf-evidence perf-attribution graph-gate dag-guard profile perf pytools hostpython go-probe toolchain
+        diet mutants ledger perf-evidence perf-attribution graph-gate dag-guard profile pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -67,8 +44,6 @@ pytools: builder
 # `.dockerignore` hides the committed go.mod and .go from Buildx, so the pristine is independent of the
 # tracked bytes — which is what catches a header-preserving edit to a tracked `.go`.  The staged snapshot,
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
-# `make perf` times the complete `make -j1 check` invocation externally.
-# The `check` marker records only completion of this recipe body.
 # `make check` is the SOLE supported full verification.  It runs the whole DAG inline as `run_core`
 # (prove + e2e + working-tree pristine byte-compare), times a warmed successful run, and applies the budget;
 # a first pass over budget earns ONE warmed confirmation (the cold/setup allowance) and only a confirmed
@@ -113,7 +88,6 @@ check:
 	  [ $$rc -eq 0 ] || exit $$rc; \
 	  echo "fido: make check — warmed confirmation $${dt2}s (budget $${bud}s, complete path)"; \
 	  sh tools/check-budget.sh $$dt2
-	$(call fido_mark,check)
 
 # check-core is NOT a supported entry point: the only budget-enforced full verification is `make check`.
 # This stub exists so a direct invocation fails with clear guidance rather than silently running unbudgeted.
@@ -124,7 +98,6 @@ check-core:
 # direct edges == the sole ARCHITECTURE policy), + the whole-theory assumption audit.
 prove: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_PROVER_NC) --target prover .
-	$(call fido_mark,prove)
 
 prover-log: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_PROVER_NC) --progress=plain --target prover .
@@ -152,7 +125,6 @@ emit: builder
 # Emit the whole tree, then the pinned Go toolchain builds it and runs the witness against the goldens.
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_EMIT_NC) --progress=plain --target go-e2e .
-	$(call fido_mark,e2e)
 
 # Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` requires
 # the pinned `go build ./...` through the Docker DAG (`sync` COPYs go-e2e's success marker), so a failed
@@ -182,7 +154,6 @@ regen-guard: builder
 hostpython: pytools
 	@$(PYRUN) tools/host-python-gate.py --self-test
 	@$(PYRUN) tools/host-python-gate.py
-	$(call fido_mark,hostpython)
 
 fmt: pytools
 	@$(PYRUN) tools/fmt-check.py
@@ -192,7 +163,6 @@ fmt: pytools
 diet: pytools
 	@$(PYRUN) tools/source-diet.py --self-test
 	@$(PYRUN) tools/source-diet.py --check
-	$(call fido_mark,diet)
 
 # The raw structured-data gate: the .review ledgers are well-formed BEFORE any derived count or cross-ledger
 # claim.  Its adversarial controls run first, so a green here is one the checker can still earn.  It owns no
@@ -200,24 +170,23 @@ diet: pytools
 ledger: pytools
 	@$(PYRUN) tools/ledger-validate.py --self-test
 	@$(PYRUN) tools/ledger-validate.py
-	$(call fido_mark,ledger)
 
 # The candidate-bound performance-evidence gate: STRUCTURAL + currentness only, never a benchmark rerun
-# (measurement is `make perf` and the manual scenario runs).  The performance-input digest is a host Git
+# (measurement is the documented non-destructive raw commands above).  The performance-input digest is a host Git
 # computation (the host boundary owns Git); the validator runs in the pinned image and receives it by argument,
 # so no interpreter runs on the host and the slim image needs no Git.
 perf-evidence: pytools
 	@$(PYRUN) tools/perf-evidence-validate.py --self-test
+	@$(PYRUN) tools/perf-work-span.py --self-test
+	@$(PYRUN) tools/perf-work-span.py --root /repo
 	@d=$$(sh tools/performance-input-digest.sh); h=$$(sh tools/performance-input-digest.sh --head); \
 	  c=$$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes); \
 	  $(PYRUN) tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c
-	$(call fido_mark,perf-evidence)
 
 # The one-build verification-DAG structural gate: Dockerfile/Make/hook topology only, never a build.
 graph-gate: pytools
 	@$(PYRUN) tools/build-graph-gate.py --self-test
 	@$(PYRUN) tools/build-graph-gate.py --root /repo
-	$(call fido_mark,graph-gate)
 
 # The detailed WitnessReject timing-attribution evidence: one pinned -time profile per fixture module, then the
 # deterministic committed classifier writes the full sentence/program/population/opportunity tables into
@@ -237,21 +206,19 @@ perf-attribution: pytools builder
 	    $(foreach f,$(WR_MODULES),--source e2e/$(f).v --time-log /logs/$(f).log) \
 	    --basis $$d --outdir /perfout
 
-# The one diagnostic timing aid.  It runs the exact `make -j1 check` path once project-cold and once hot on
-# a dedicated serial builder, records cumulative elapsed milliseconds at a few real target completions, and
-# replaces `.review/PERFORMANCE.tsv`.  `git diff` is the comparison.
-#
-# It is diagnostic evidence, not certified correctness: no gate consults it, nothing depends on it, and it
-# is a prerequisite of nothing.
-perf:
-	@sh tools/perf.sh
+# Raw performance measurement is NON-DESTRUCTIVE and never writes candidate evidence: the supported
+# commands are `FIDO_PERF_COLD=1 make check` (project-cold complete), `make check` (warm complete),
+# `FIDO_PERF_COLD=1 .githooks/pre-commit` (project-cold staged), and `.githooks/pre-commit` (warm staged),
+# each over the one verified DAG; the printed stage timers, fido-stage events, and Buildx plain logs are
+# normalized into .review/perf/verification-dag-events.tsv and validated/summed ONLY by
+# tools/perf-work-span.py during the freeze process.  The old `make perf` serial-builder publisher that
+# overwrote .review/PERFORMANCE.tsv is deleted.
 
 # Every root helper in the surviving policy gates must be LOAD-BEARING: delete its effect in a copy of the
 # tree and that gate's own named controls must fail.  A control that survives the deletion of the rule it
 # protects is decoration, not evidence.
 mutants: pytools
 	@$(PYRUN) tools/gate-mutation-test.py
-	$(call fido_mark,mutants)
 
 # A diagnostic wrapper which reports the File/Error lines from `prover-log`; it deliberately swallows the
 # build failure so the useful diagnostics remain visible.  On failure Buildx echoes the entire recipe back as

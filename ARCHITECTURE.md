@@ -273,16 +273,16 @@ This refines dependency retreat, it does not delete it: a genuinely load-bearing
 reopens. A demonstrably internal proof refactor that changes no semantic, provenance, public-guarantee or
 boundary dependency needs no retreat; uncertainty means freeze and report.
 
-**Review and acceptance.** An exhaustive review is the archive-authoritative sixteen-pass Wirth whole-system
-protocol. Sixteen criterion-isolated pass agents each answer one whole-system question — architecture,
-ownership, simplicity, semantics, intrinsic correctness, provenance, single authority, guarantee strength,
-boundary honesty, capability, execution path, proof integrity, foundational stability, retention, artifact
-adequacy, and governance — over the same exact immutable candidate: a frozen source archive identified by its
-ZIP-comment commit and archive SHA-256, not the live `HEAD`. Each inspects public types and constructor
-topology before proof bodies, freezes one findings report, and grades it; the candidate's grade is the weakest
-of the sixteen, never an average. A separate seventeenth synthesis role reads the sixteen frozen reports, maps
-their convergence, conflict, asymmetry and silence, and produces one dependency-ordered implementation
-contract. The submitted archive carries Rob's trusted attestation that its required gates passed before
+**Review and acceptance.** An exhaustive review is the archive-authoritative criterion-isolated Wirth
+whole-system protocol. One pass agent per registered review criterion — architecture, ownership, simplicity,
+semantics, intrinsic correctness, provenance, single authority, guarantee strength, boundary honesty,
+capability, execution path, proof integrity, foundational stability, retention, artifact adequacy,
+governance, and any criterion later registered — answers its one whole-system question over the same exact
+immutable candidate: a frozen source archive identified by its ZIP-comment commit and archive SHA-256, not
+the live `HEAD`. Each inspects public types and constructor topology before proof bodies, freezes one
+findings report, and grades it; the candidate's grade is the weakest pass grade, never an average. A separate
+synthesis role reads all frozen reports, maps their convergence, conflict, asymmetry and silence, and
+produces one dependency-ordered implementation contract. The submitted archive carries Rob's trusted attestation that its required gates passed before
 handoff, so a review inspects gate definitions, coverage and retained artifacts but never reruns the pinned
 toolchain and never treats local tool absence as missing evidence. Reviewers propose; no pass and no synthesis
 accepts; Rob alone accepts, and no work is manufactured after the reviewed frontier has survived review.
@@ -736,6 +736,20 @@ the committed bytes from Buildx, so the proof and e2e cannot incidentally valida
 The hook is a prototype boundary giving reasonable assurance against accidental stale output for a
 cooperating developer. It is bypassable with `--no-verify` and does not defend against modification of its own
 verifier. Local verifier tamper-resistance is explicitly out of scope.
+
+**One verification DAG.** The complete validation is one BuildKit graph: a `theory-built` parent owns the one
+Docker copy of the certified source closure and the single `dune build @install @all`, snapshotting the exact
+`_build` into an ordinary immutable layer (caches change only cost, never correctness); the proof/audit
+branch and the emit branch descend from that parent, the pinned-Go stage consumes the emit branch's exact
+generated module, and the final artifact requires both fail-closed branch markers through a verified join
+that exports only the module bytes. `make check` and the staged hook each issue exactly one project solve
+through `tools/build-verified-artifact.sh`; the structural gate (`tools/build-graph-gate.py`) pins the whole
+topology including the helper's own one-solve grammar. `ARCHITECTURE.md` itself is proof-branch-only build
+input: the layer-dependency gate reads it in the prover, so a policy-prose edit rebuilds the proof branch and
+nothing else. Performance evidence separates aggregate task elapsed (work) from wall span (latency) — the
+two are never conflated, neither is called CPU time, and the one accounting authority is
+`tools/perf-work-span.py` over the committed normalized event table; raw measurement is the documented
+non-destructive scenario commands, never a publisher that overwrites candidate evidence.
 
 ---
 

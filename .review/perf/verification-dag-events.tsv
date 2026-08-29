@@ -1,0 +1,31 @@
+# Normalized measurement events (§5.1). One row per event; roles CONTAINER / WORK_LEAF / ATTRIBUTION;
+# governing totals are computed ONLY by tools/perf-work-span.py from these intervals (never by hand).
+# entry-cold-1: the instrumented 148s three-solve project-cold run at the ee1241f-era candidate (source
+# cold2 plain log; the scenario median across runs was 151s, range 148-159). final-cold-1: the 103s-median
+# one-DAG project-cold complete run at the 82a2a86 freeze (make stage timers + fido-stage events).
+basis	scenario	run_id	event_id	parent_id	role	class	start_ms	end_ms	elapsed_ms	predecessors	worker_or_stage	cache_state	result	source	notes
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	root		CONTAINER	UNCLASSIFIED	0	148000	148000		make-check	project-cold	ok	cold2.log	three-solve topology; serial solves
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	policy	root	WORK_LEAF	POLICY	0	19000	19000		host-gates	pytools-warm	ok	stage-timer	
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	prove-solve	root	CONTAINER	UNCLASSIFIED	19000	87000	68000	policy	verification-solve	project-cold	ok	stage-timer	solve 1 of 3
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	p-context	prove-solve	WORK_LEAF	WAIT_OR_OVERHEAD	19000	36000	17000		context-copy	cold	ok	cold2.log	context load + certified COPY chain
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	p-dune	prove-solve	WORK_LEAF	THEORY	36000	63500	27500	p-context	dune	cold-mount	ok	cold2.log	dune invocation 1 of 2
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	p-gates	prove-solve	WORK_LEAF	PROOF	63500	77200	13700	p-dune	proof-gates	warm-lib	ok	cold2.log	coverage+layer+typing+absence
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	p-tail	prove-solve	WORK_LEAF	WAIT_OR_OVERHEAD	77200	87000	9800	p-gates	export-layers	cold	ok	derived	solve export/teardown remainder
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	e2e-solve	root	CONTAINER	UNCLASSIFIED	87000	145000	58000	prove-solve	verification-solve	project-cold	ok	stage-timer	solve 2 of 3
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	e-context	e2e-solve	WORK_LEAF	WAIT_OR_OVERHEAD	87000	95000	8000		context-copy	cold	ok	cold2.log	duplicate certified COPY chain + e2e
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	e-dune	e2e-solve	WORK_LEAF	THEORY	95000	99500	4500	e-context	dune	warm-mount	ok	cold2.log	dune invocation 2 of 2 (revalidation)
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	e-emit	e2e-solve	WORK_LEAF	EMIT	99500	136000	36500	e-dune	emit-run	cold	ok	cold2.log	materializers+waves+audit+sink
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	e-wave2	e-emit	ATTRIBUTION	FIXTURE_WORKER	109500	124800	15300		chunk-workers	cold	ok	fido-timeline	4-slot wave detail
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	e-go	e2e-solve	WORK_LEAF	GO	136000	145000	9000	e-emit	go-e2e	cold	ok	derived	pinned go build + goldens
+a020ace0d16449ac5f703c5bca067554870075a9a1e79f50eca44f502e381eba	COLD_COMPLETE	entry-cold-1	art-solve	root	WORK_LEAF	JOIN_EXPORT	145000	148000	3000	e2e-solve	verification-solve	layer-warm	ok	stage-timer	solve 3 of 3: export + byte-compare
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	root		CONTAINER	UNCLASSIFIED	0	103000	103000		make-check	project-cold	ok	stage-timer	one-DAG topology
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	policy	root	WORK_LEAF	POLICY	0	19000	19000		host-gates	pytools-warm	ok	stage-timer	
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	solve	root	CONTAINER	UNCLASSIFIED	19000	100000	81000	policy	verification-solve	project-cold	ok	stage-timer	the ONE project solve
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	setup	solve	WORK_LEAF	WAIT_OR_OVERHEAD	19000	25000	6000		context-copy	cold	ok	pc1.log	one context load + one certified COPY chain
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	theory	solve	WORK_LEAF	THEORY	25000	51000	26000	setup	dune	cold-mount	ok	fido-stage	the ONE dune invocation + snapshot
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	proof	solve	WORK_LEAF	PROOF	52000	70000	18000	theory	proof-branch	ordinary-layer	ok	fido-stage	fully overlapped beside emit; still counted as work
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	emit	solve	WORK_LEAF	EMIT	52000	85000	33000	theory	emit-branch	ordinary-layer	ok	fido-stage	materializers+waves+audit+sink
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	wave2	emit	ATTRIBUTION	FIXTURE_WORKER	61000	74500	13500		chunk-workers	ordinary-layer	ok	fido-timeline	4-slot wave detail; sentence profile nests under this
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	go	solve	WORK_LEAF	GO	85000	94000	9000	emit	go-e2e	fresh-copy	ok	fido-stage	
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	join	solve	WORK_LEAF	JOIN_EXPORT	94000	100000	6000	proof,go	join-export	scratch	ok	derived	requires both markers; local export
+1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	COLD_COMPLETE	final-cold-1	compare	root	WORK_LEAF	ARTIFACT_COMPARE	100000	103000	3000	join	worktree-compare	host	ok	stage-timer	

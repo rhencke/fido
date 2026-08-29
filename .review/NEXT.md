@@ -1,4 +1,4 @@
-# Active task: the C4 Exact Short-Requirement Case Identity and Branch Reflection closure candidate
+# Active task: the C4 performance accounting and validation-tool truth closure candidate
 
 Review: implementation
 
@@ -89,7 +89,7 @@ governing corpus are updated with the code.
 
 ## Status
 
-The candidate is frozen `CANDIDATE_READY_FOR_REVIEW` for the sixteen-pass whole-candidate review; C4 is **not**
+The candidate is frozen `CANDIDATE_READY_FOR_REVIEW` for the whole-candidate review (all registered criteria); C4 is **not**
 claimed accepted or complete, and only Rob accepts. The frozen lower stack stays `IMPLEMENTED_NOT_ACCEPTED` (C5
 stays historically accepted; C6 roots beyond the cutover stay frozen until acceptance; `make check` on the pinned
 toolchain is the supported run). Governing truth held by this candidate:
@@ -144,7 +144,21 @@ toolchain is the supported run). Governing truth held by this candidate:
   binder value/type meaning) remains a later root — both honest temporary boundaries (decision `C4-SHORTDECL` in
   `DECISIONS.md`). Material performance opportunities remain explicit in `.review/PERFORMANCE_OPPORTUNITIES.tsv`.
   No C4 completion is claimed.
-- **The active candidate is the single-build verification DAG; exact semantic outputs are unchanged.** One
+- **The active candidate is the performance accounting and validation-tool truth closure; exact semantic
+  outputs are unchanged.** The one-DAG implementation below is retained and operationally successful; this
+  slice corrects the claims and tooling around it. Aggregate task elapsed (work) and wall span (latency) are
+  now computed only by `tools/perf-work-span.py` from the committed normalized event table — the earlier
+  hand-summed "129s → 84s / −35% work" claim is replaced by the tool's reconciled values (project-verification
+  work 126→98s, −22.2% lower bound; span 126→80s, −36.5%; the 18s proof-branch overlap stays visible). The
+  evidence-observation reachability is recomputed on the four-chunk critical path: its 24.39s aggregate target
+  buys at most ~4.8s of wall (`realistic_expected_saving = UNKNOWN_PENDING_SPIKE`; next step is a
+  measurement-only spike, not an implementation contract). The destructive `make perf` serial-builder
+  publisher is deleted (raw measurement is the documented non-destructive scenario commands); the one-solve
+  graph gate now inspects the canonical helper's own body; `ARCHITECTURE.md` is proof-branch-only build input
+  (an architecture edit rebuilds the prover alone: zero Dune, emit/go cached, artifact byte-identical,
+  measured). Theorem-backed evidence observation remains unimplemented pending the corrected reachability;
+  local declared-and-used analysis remains the next semantic root.
+- **The retained single-build verification DAG; exact semantic outputs are unchanged.** One
   `theory-built` parent owns the one Docker copy of the certified source closure and the ONE
   `dune build @install @all`, snapshotting the exact cache-assisted `_build` into an ordinary immutable layer;
   the proof/audit branch and the emit branch both descend from it and never rerun Dune, and the final

@@ -51,7 +51,6 @@ COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
 COPY --chown=opam:opam Compilable/ Compilable/
 COPY --chown=opam:opam Index/ Index/
-COPY --chown=opam:opam ARCHITECTURE.md ./
 COPY --chown=opam:opam plugin/ plugin/
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
@@ -86,6 +85,9 @@ SH
 #    internal declaration depending on an assumption fails even when it is not a public theorem.
 FROM theory-built AS prover
 ARG TARGETARCH
+# the architecture policy is PROOF-BRANCH input only (the layer-dependency gate reads it); copying it here
+# keeps a policy-prose edit from invalidating the shared theory build or the emit branch
+COPY --chown=opam:opam ARCHITECTURE.md ./
 RUN <<'SH'
 set -eu
 fail() { echo "fido: prove FAILED — $*"; exit 1; }

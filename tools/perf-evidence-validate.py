@@ -41,8 +41,8 @@ OPP_STATUS = ('OPEN_MATERIAL', 'IMPLEMENTED', 'REJECTED_MEASURED', 'REJECTED_BY_
 
 PERF_COLS = ['scenario', 'relation', 'digest', 'command', 'cores', 'memory', 'boundary',
              'toolchain', 'cache', 'exit', 'wall_s', 'complete', 'dominant', 'notes']
-OPP_COLS = ['id', 'basis', 'class', 'status', 'affected', 'gain', 'hotspot', 'constraints',
-            'commit', 'result', 'revisit']
+OPP_COLS = ['id', 'basis', 'class', 'status', 'affected', 'work_gain', 'span_gain', 'hotspot',
+            'constraints', 'commit', 'result', 'revisit']
 HEX64 = re.compile(r'^[0-9a-f]{64}$')
 # cache state must name every required sub-system so no row hides what stayed warm (contract §19.1).
 CACHE_KEYS = ('builder', 'project', 'dune-build', 'dune-cache', 'buildkit', 'base', 'prior')
@@ -166,7 +166,7 @@ def check_opps(text, mdigests, findings, summary_ids):
             findings.append(f'{OPPS}:{i}: unknown class {row["class"]!r}')
         if row['status'] not in OPP_STATUS:
             findings.append(f'{OPPS}:{i}: unknown status {row["status"]!r}')
-        for req in ('affected', 'gain', 'hotspot', 'constraints'):
+        for req in ('affected', 'work_gain', 'span_gain', 'hotspot', 'constraints'):
             if not row[req].strip():
                 findings.append(f'{OPPS}:{i}: empty required field {req!r}')
         if not row['basis'].strip():
@@ -211,7 +211,7 @@ def validate(root, digest, head_digest='', evidence_changed=False):
 CLEAN_PERF = ('# perf evidence (fixture)\n'
               'scenario\trelation\tdigest\tcommand\tcores\tmemory\tboundary\ttoolchain\tcache\texit\twall_s\tcomplete\tdominant\tnotes\n')
 CLEAN_OPP = ('# opportunities (fixture)\n'
-             'id\tbasis\tclass\tstatus\taffected\tgain\thotspot\tconstraints\tcommit\tresult\trevisit\n')
+             'id\tbasis\tclass\tstatus\taffected\twork_gain\tspan_gain\thotspot\tconstraints\tcommit\tresult\trevisit\n')
 DG = 'a' * 64
 
 
@@ -226,11 +226,13 @@ def _perf_row(**kw):
 
 def _opp_row(**kw):
     d = dict(id='PERF-COMP-X', basis=DG, cls='COMPUTATIONAL', status='OPEN_MATERIAL', affected='cold',
-             gain='~30s', hotspot='WitnessReject', constraints='exact disposition stays authority',
-             commit='n/a', result='n/a', revisit='when profiled')
+             work_gain='~24s work', span_gain='~5s wall', hotspot='WitnessReject',
+             constraints='exact disposition stays authority', commit='n/a', result='n/a',
+             revisit='when profiled')
     d.update(kw)
-    return '\t'.join([d['id'], d['basis'], d['cls'], d['status'], d['affected'], d['gain'], d['hotspot'],
-                      d['constraints'], d['commit'], d['result'], d['revisit']])
+    return '\t'.join([d['id'], d['basis'], d['cls'], d['status'], d['affected'], d['work_gain'],
+                      d['span_gain'], d['hotspot'], d['constraints'], d['commit'], d['result'],
+                      d['revisit']])
 
 
 def self_test():

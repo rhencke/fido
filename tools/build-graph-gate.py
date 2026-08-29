@@ -56,7 +56,7 @@ def recipe_of(makefile_text, target):
     return '\n'.join(out)
 
 
-def check_graph(dockerfile, makefile, hook, findings):
+def check_graph(dockerfile, makefile, hook, findings, helper=''):
     st = {name: (parent, body) for name, parent, body in stages(dockerfile)}
 
     # 17.1 one Dune builder, owned by theory-built (executable lines only — a comment is not a builder)
@@ -96,6 +96,44 @@ def check_graph(dockerfile, makefile, hook, findings):
     if 'mv /workspace/_build_snapshot /workspace/_build' not in tb:
         findings.append('snapshot: theory-built must restore the snapshot as an ordinary layer _build')
 
+    # 11.1 the architecture policy is proof-branch-only input: theory-built must not copy it (a prose edit
+    # must never rebuild the shared theory or emit), the prover must, and emit/go-e2e must not consume it
+    if 'ARCHITECTURE.md' in st.get('theory-built', (None, ''))[1]:
+        findings.append('policy-locality: theory-built copies ARCHITECTURE.md — a policy edit would rebuild '
+                        'the shared theory and every branch')
+    if 'ARCHITECTURE.md' not in st.get('prover', (None, ''))[1]:
+        findings.append('policy-locality: the prover branch must copy ARCHITECTURE.md for the layer gate')
+    for other in ('emit', 'go-e2e'):
+        if 'ARCHITECTURE.md' in st.get(other, (None, ''))[1]:
+            findings.append(f'policy-locality: {other} must not consume the architecture policy input')
+
+    # 10.1 the canonical helper itself: exactly one project-verification Buildx construction targeting the
+    # final artifact, and nothing capable of issuing a second solve (no second build, no bake, no recursion,
+    # no eval/source) — the helper is deliberately boring and this enforces its actual grammar
+    if helper:
+        body = '\n'.join(ln for ln in helper.split('\n') if not ln.lstrip().startswith('#'))
+        builds = body.count('docker buildx build')
+        if builds != 1:
+            findings.append(f'helper-one-solve: the canonical helper must construct exactly one '
+                            f'`docker buildx build`, found {builds}')
+        if '--target generated-artifact' not in body:
+            findings.append('helper-one-solve: the helper must target the final generated-artifact')
+        for bad, why in (('docker buildx bake', 'bake'), ('build-verified-artifact.sh', 'recursion'),
+                         ('eval ', 'eval'), ('. /', 'sourced shell'), ('source ', 'sourced shell')):
+            if bad in body:
+                findings.append(f'helper-one-solve: the helper contains {why} capable of a second solve')
+        execs = len([ln for ln in body.split('\n') if ln.strip().startswith('"$@"')])
+        if execs < 1 or execs > 2:
+            findings.append(f'helper-one-solve: the constructed command must execute in one or two mutually '
+                            f'exclusive logging branches, found {execs} execution sites')
+
+    # 9.3 no supported command may overwrite committed performance evidence: the destructive legacy
+    # publisher stays deleted and no recipe writes the evidence files
+    for ln in makefile.split('\n'):
+        if ln.startswith('\t') and ('perf.sh' in ln or '.review/PERFORMANCE' in ln.split('#')[0]
+                                    and ('>' in ln.split('#')[0] or 'cp ' in ln.split('#')[0])):
+            findings.append(f'perf-route: a Makefile recipe can write committed performance evidence: {ln.strip()!r}')
+
     # 17.3 one complete solve per path, through the canonical helper
     for label, text in (('make check', recipe_of(makefile, 'check')), ('staged hook', hook)):
         n = text.count('build-verified-artifact.sh')
@@ -111,6 +149,7 @@ FROM rocq-base AS theory-built
 RUN --mount=type=cache,target=/workspace/_build dune build @install @all && cp -a /workspace/_build /workspace/_build_snapshot
 RUN mv /workspace/_build_snapshot /workspace/_build
 FROM theory-built AS prover
+COPY ARCHITECTURE.md ./
 RUN gates && touch /workspace/proof-ok
 FROM theory-built AS profile
 RUN profile
@@ -130,12 +169,18 @@ COPY --from=verified-join /generated/ /
 '''
 CLEAN_MAKE = 'check:\n\tsh tools/build-verified-artifact.sh --output x\n'
 CLEAN_HOOK = 'sh "$ctx/tools/build-verified-artifact.sh" --output "$tmp/pristine"\n'
+CLEAN_HELPER = ('set -- docker buildx build --builder "$BUILDER" --target generated-artifact --output "x"\n'
+                'if [ -n "$PLAIN" ]; then\n'
+                '  "$@" --progress=plain "$CONTEXT" > "$PLAIN" 2>&1\n'
+                'else\n'
+                '  "$@" "$CONTEXT"\n'
+                'fi\n')
 
 
 def self_test():
-    def run(d=CLEAN_DOCKER, m=CLEAN_MAKE, h=CLEAN_HOOK):
+    def run(d=CLEAN_DOCKER, m=CLEAN_MAKE, h=CLEAN_HOOK, hb=CLEAN_HELPER):
         f = []
-        check_graph(d, m, h, f)
+        check_graph(d, m, h, f, hb)
         return f
 
     if run():
@@ -158,6 +203,19 @@ def self_test():
         ('final artifact copies proof metadata', 'artifact-purity',
          dict(d=CLEAN_DOCKER.replace('COPY --from=verified-join /generated/ /\n',
                                      'COPY --from=verified-join /generated/ /\nCOPY --from=prover /workspace/proof-ok /\n'))),
+        ('destructive legacy perf writer reintroduced', 'perf-route',
+         dict(m=CLEAN_MAKE + 'perf:\n\t@sh tools/perf.sh\n')),
+        ('architecture policy moved back into the shared theory stage', 'policy-locality',
+         dict(d=CLEAN_DOCKER.replace('FROM theory-built AS prover',
+                                     'COPY ARCHITECTURE.md ./\nFROM theory-built AS prover'))),
+        ('architecture policy removed from the prover', 'policy-locality',
+         dict(d=CLEAN_DOCKER.replace('COPY ARCHITECTURE.md ./\nRUN gates', 'RUN gates'))),
+        ('hidden second solve inside the canonical helper', 'helper-one-solve',
+         dict(hb=CLEAN_HELPER + 'docker buildx build --target prover .\n')),
+        ('helper switched to buildx bake', 'helper-one-solve',
+         dict(hb=CLEAN_HELPER.replace('docker buildx build', 'docker buildx bake'))),
+        ('helper recursion capable of a second solve', 'helper-one-solve',
+         dict(hb=CLEAN_HELPER + 'sh tools/build-verified-artifact.sh --output y\n')),
         ('cache-only _build with no ordinary snapshot', 'snapshot',
          dict(d=CLEAN_DOCKER.replace(' && cp -a /workspace/_build /workspace/_build_snapshot', '')
                             .replace('RUN mv /workspace/_build_snapshot /workspace/_build\n', 'RUN true\n'))),
@@ -187,7 +245,8 @@ def main():
     check_graph((root / 'Dockerfile').read_text(encoding='utf-8'),
                 (root / 'Makefile').read_text(encoding='utf-8'),
                 (root / '.githooks/pre-commit').read_text(encoding='utf-8'),
-                findings)
+                findings,
+                (root / 'tools/build-verified-artifact.sh').read_text(encoding='utf-8'))
     if findings:
         for f in findings:
             print('build-graph-gate: ' + f, file=sys.stderr)
@@ -195,7 +254,7 @@ def main():
     print('fido: build-graph gate OK — one dune builder in the shared theory stage; proof/emit/profile descend '
           'from it; the final artifact requires both branch markers through the verified join and exports only '
           'the generated module; make check and the staged hook each issue one project-verification solve '
-          'through the canonical helper')
+          'through the canonical helper, whose own body constructs exactly one project solve')
 
 
 if __name__ == '__main__':

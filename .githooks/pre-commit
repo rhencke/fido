@@ -59,6 +59,8 @@ staged_all() {
   pec=$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes)
   fido_py tools/build-graph-gate.py --self-test || return $?
   fido_py tools/build-graph-gate.py --root /repo || return $?
+  fido_py tools/perf-work-span.py --self-test || return $?
+  fido_py tools/perf-work-span.py --root /repo || return $?
   fido_py tools/perf-evidence-validate.py --self-test || return $?
   fido_py tools/perf-evidence-validate.py --digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
   # (2b) BUDGET-EDGE integrity (§7.5): one owner in check-budget.sh (no Make variable), and both make check and

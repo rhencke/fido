@@ -30,9 +30,30 @@ HOSTPY = 'tools/host-python-gate.py'
 WORKTREE = 'tools/worktree-list.py'
 PERFEV = 'tools/perf-evidence-validate.py'
 GRAPH = 'tools/build-graph-gate.py'
+WORKSPAN = 'tools/perf-work-span.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
+    (WORKSPAN, 'the leaf-partition law, so a parent and its child cannot both be counted as work',
+     "                    if a['role'] == 'WORK_LEAF':",
+     "                    if False:",
+     ('parent and child both counted',)),
+
+    (WORKSPAN, 'the elapsed-consistency law, so a false elapsed value cannot enter the totals',
+     "                if abs((en - s) - el) > 500:",
+     "                if False:",
+     ('false elapsed value',)),
+
+    (WORKSPAN, 'the unclassified ceiling, so unattributed wall time stays visible',
+     "    if wall and uncl / wall > 0.05:",
+     "    if False:",
+     ('unclassified complete-path above 5% rejected',)),
+
+    (GRAPH, 'the helper-one-solve law, so a hidden second solve inside the canonical helper is caught',
+     "        builds = body.count('docker buildx build')",
+     "        builds = 1",
+     ('hidden second solve inside the canonical helper',)),
+
     (GRAPH, 'the one-dune-builder rule, so a second certified build cannot creep back',
      "    if dune_stages != ['theory-built']:",
      "    if False:",
