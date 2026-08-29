@@ -1,12 +1,12 @@
-# population attribution; full sentence total 40.50s; totals reconcile within 0.05s
+# population attribution; full sentence total 40.02s; totals reconcile within 0.05s
 population	decl_count	total_secs	share_pct	largest_decl	largest_secs	parallel_deps	candidate_optimization	max_theoretical_saving_s
-VERDICT_ONLY	75	1.647	4.1	r_cx_mix	0.103	independent given the shared prelude	parallel chunking	1.647
-ISSUE_TABLE	4	11.803	29.1	d4_invalid_unsupported_coexist	8.555	independent given the shared prelude	parallel chunking + per-program bundles + future evidence observation	11.803
-CAUSE_VIEW	10	7.582	18.7	o_cx_typed_payload	3.083	independent given the shared prelude	parallel chunking + per-program bundles + future evidence observation	7.582
-GROUP_VIEW	4	5.004	12.4	r_redecl_usecontext	3.149	independent given the shared prelude	parallel chunking + per-program bundles + future evidence observation	5.004
-RAW_FACT_READER	2	0.323	0.8	reader_facts_kinds	0.162	independent given the shared prelude	parallel chunking	0.323
-EXACT_PROVENANCE	6	1.120	2.8	reader_index_compiled	0.398	independent given the shared prelude	parallel chunking	1.120
-EXACT_READER	15	7.711	19.0	d4_collision_redeclared_coexist	2.694	independent given the shared prelude	parallel chunking	7.711
-SHARED_PROGRAM_OR_HELPER	83	5.174	12.8	Fido	0.674	prelude definitions must precede every chunk	none (shared basis)	0.000
-OTHER	2	0.041	0.1	dr_short_nonvar	0.041	independent given the shared prelude	parallel chunking	0.041
-UNCLASSIFIED	3	0.097	0.2	mm17_3_main_multiple_none	0.043	independent given the shared prelude	parallel chunking	0.097
+VERDICT_ONLY	75	1.658	4.1	o_short_multi_use	0.094	independent given the shared prelude	parallel chunking	1.658
+ISSUE_TABLE	4	11.819	29.5	d4_invalid_unsupported_coexist	8.358	independent given the shared prelude	parallel chunking + per-program bundles + future evidence observation	11.819
+CAUSE_VIEW	10	7.330	18.3	o_cx_typed_payload	2.651	independent given the shared prelude	parallel chunking + per-program bundles + future evidence observation	7.330
+GROUP_VIEW	4	4.850	12.1	r_redecl_usecontext	3.086	independent given the shared prelude	parallel chunking + per-program bundles + future evidence observation	4.850
+RAW_FACT_READER	2	0.373	0.9	reader_len	0.213	independent given the shared prelude	parallel chunking	0.373
+EXACT_PROVENANCE	6	0.942	2.4	reader_index	0.366	independent given the shared prelude	parallel chunking	0.942
+EXACT_READER	15	7.785	19.5	d4_collision_redeclared_coexist	2.605	independent given the shared prelude	parallel chunking	7.785
+SHARED_PROGRAM_OR_HELPER	83	5.127	12.8	Fido	0.673	prelude definitions must precede every chunk	none (shared basis)	0.000
+OTHER	2	0.043	0.1	dr_short_nonvar	0.042	independent given the shared prelude	parallel chunking	0.043
+UNCLASSIFIED	3	0.092	0.2	mm17_3_main_multiple_none	0.040	independent given the shared prelude	parallel chunking	0.092

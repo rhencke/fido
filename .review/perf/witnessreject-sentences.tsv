@@ -1,206 +1,206 @@
 # full declaration-rolled sentence profile — every profiled sentence attributed, never top-N
 basis	file	line_start	line_end	name	kind	secs	tactic	goal_head	program_key	population	opportunities	notes
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	3	3	Stdlib	From	0.255				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	5	5	Fido	From	0.455				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	7	7	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	9	9	PI	Module	0.004				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	11	11	BN	Module	0.185				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	13	13	AN	Module	0.301				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	15	15	RP	Module	0.503				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	17	17	PL	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	18	18	NEG	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	19	19	ILIT	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	20	20	SLIT	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	21	21	CONV	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	22	22	CPLX	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	23	23	APP	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	24	24	TT	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	25	25	FF	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	27	27	rmod	Definition	0.011		ModuleSpec		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	29	29	rmain	Definition	0.001		FilePath.T		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	31	31	prog	Definition	0.0		list		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	35	35	reject	Ltac	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	37	37	compileok	Ltac	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	39	39	outside	Ltac	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	41	41	OID	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	42	42	VNAME	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	43	43	NE1	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	46	46	result_of_compile	Definition	0.083		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	48	48	rres	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	51	51	rprobe	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	54	54	dsites	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	57	57	pfacts	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	60	60	cprobe	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	62	62	oprobe	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	65	65	retained_via_program	Definition	0.0		Compilable.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	67	67	retained_via_rejection	Definition	0.0		Compilable.Rejection		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	69	69	retained_via_outside	Definition	0.0		Compilable.Outside		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	72	72	p_redecl_use	Definition	0.002		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	76	76	p_app_multi	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	79	79	prog_tops	Definition	0.0		list		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	81	81	main0	Definition	0.0		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	83	83	tconstmain	Definition	0.001		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	87	87	p_two_iota	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	92	92	p_invalid_unsupported	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	97	97	cgen_path	Definition	0.002		FilePath.T		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	99	99	cvar1	Definition	0.001		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	102	102	cvar2	Definition	0.0		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	105	105	p_collision	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	111	111	p_collision_redecl	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	118	118	ppkg	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	120	120	pmissing	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	122	122	pcollision	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	125	125	otransport	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	128	128	dp_neg_string	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	130	130	dp_conv0	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	132	132	dp_conv2	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	134	134	dp_uint8_neg	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	136	136	dp_type_value	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	138	138	dp_stmt_lit	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	140	140	dp_default_ovf	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	142	142	dp_no_main	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	144	144	dp_multi_main	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	146	146	dp_ok	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	149	149	dp_short_dup	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	151	151	dp_short_count	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	153	153	dp_short_nonew	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	155	155	dp_short_allblank	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectPrelude.v	157	157	dp_short_nonvar	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	3	3	Stdlib	From	0.236				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	4	5	Fido	From	0.551				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	8	8	r_neg_bool	Definition	0.015	reject.	Compilable.rejects	inline:c6534d920347	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	10	10	r_neg_int8min	Definition	0.014	reject.	Compilable.rejects	inline:5e73de323a39	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	12	12	r_cx_str	Definition	0.069	reject.	Compilable.rejects	inline:cd2fe4349488	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	14	14	r_stmt_lit	Definition	0.006	reject.	Compilable.rejects	inline:6494479e9fce	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	17	17	r_stmt_conv0	Definition	0.008	reject.	Compilable.rejects	inline:27cd9c52eebb	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	20	20	o_print	Definition	0.008	outside.	Compilable.outsides	inline:6ce44a32ad09	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	22	22	c_neg_untyped	Definition	0.01	compileok.	Compilable.compiles	inline:3b5539406d04	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	25	25	r_append_val	Definition	0.008	reject.	Compilable.rejects	inline:f24506a16d01	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	27	27	r_short_self	Definition	0.013	reject.	Compilable.rejects	inline:b1cdb123d6f0	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	29	29	r_var_true	Definition	0.017	reject.	Compilable.rejects	inline:b916f52129fd	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	32	32	r_short_rhsneg	Definition	0.014	reject.	Compilable.rejects	inline:78d8ba65f4c5	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	34	37	d4_invalid_unsupported_coexist	Definition	8.555	vm_compute; reflexivity.	map		ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	39	39	dr_neg_string	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	41	41	dr_uint8_neg	Definition	0.013	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectA.v	43	43	dr_type_value	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	3	3	Stdlib	From	0.249				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	4	5	Fido	From	0.514				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	9	9	r_cx_bool	Definition	0.021	reject.	Compilable.rejects	inline:83f8f303d6e9	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	11	11	r_cx_int8	Definition	0.021	reject.	Compilable.rejects	inline:7a2c2a02b429	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	13	13	r_cx1	Definition	0.069	reject.	Compilable.rejects	inline:169ec44c3c90	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	16	16	r_call_neg	Definition	0.01	reject.	Compilable.rejects	inline:77e62bc4392f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	19	19	r_stmt_conv	Definition	0.008	reject.	Compilable.rejects	inline:23ccdeab8340	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	21	21	c_neg_complex	Definition	0.014	compileok.	Compilable.compiles	inline:bdd69fe1d009	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	24	24	o_cx_typed	Definition	0.019	outside.	Compilable.outsides	inline:b1315aa801a7	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	27	27	r_iota	Definition	0.008	reject.	Compilable.rejects	inline:49c304cf1bd6	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	30	30	o_var_uintptr	Definition	0.016	outside.	Compilable.outsides	inline:73ef8a051fac	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	33	33	o_var_use	Definition	0.034	outside.	Compilable.outsides	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	35	35	o_short_use	Definition	0.022	outside.	Compilable.outsides	inline:1b7f640fe64f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	37	37	r_const_count	Definition	0.07	reject.	Compilable.rejects	inline:b550d3e753da	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	39	39	r_short_ambiguous	Definition	0.06	reject.	Compilable.rejects	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	41	41	o_short_blank_new	Definition	0.029	outside.	Compilable.outsides	inline:b16fcd76bf80	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	44	44	o_short_multi_use	Definition	0.07	outside.	Compilable.outsides	inline:d9c8a23ac041	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	47	47	r_complex_coexist	Definition	0.046	reject.	Compilable.rejects	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	49	50	reader_index	Lemma	0.24	vm_compute; reflexivity.	AN.res_index		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	52	55	reader_len	Lemma	0.161	vm_compute; reflexivity.	Datatypes.length		RAW_FACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	58	59	no_program_for_rejected	Definition	0.0	unfold Compilable.rejects in Hrej. rewrite (Compilable.program_forces_compiled c	Syntax.Program		OTHER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	61	63	c_neg_int8_core	Definition	1.162	split; vm_compute; reflexivity.	RP.result_cause_views	inline:93e22a27a3c6	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	66	66	c_main_recursive	Definition	0.01	compileok.	Compilable.compiles	inline:ef0d97493ab0	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	69	71	r_main_arity_payload	Definition	0.243	vm_compute; reflexivity.	RP.result_cause_views	inline:b264ca6458f2	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	74	76	r_iota_family	Definition	0.267	vm_compute; reflexivity.	RP.result_diag_families	inline:49c304cf1bd6	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	79	81	o_cx_typed_family	Definition	1.361	eexists; vm_compute; reflexivity.	exists	inline:b1315aa801a7	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	84	84	c_println_legal	Definition	0.01	compileok.	Compilable.compiles	inline:bf1eac37726d	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	86	88	mf_println_legal_no_cause	Definition	0.535	split; vm_compute; reflexivity.	RP.result_cause_views	inline:bf1eac37726d	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	90	94	r_main_const_redecl_payload	Definition	0.459	vm_compute; reflexivity.			GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	97	97	r_main_missing	Definition	0.007	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	100	107	two_iota_obs	Definition	3.205	vm_compute; reflexivity.			ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	109	116	d4_two_iota_no_collapse	Definition	0.006	split. - exact (f_equal (fun '(n, _, _) => n) two_iota_obs). - exact (f_equal (f	Datatypes.length		ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	119	122	d4_two_iota_same_cause	Definition	0.003	exact (f_equal (fun '(_, _, v) => v) two_iota_obs).	RP.result_cause_views		CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	125	137	d4_ord0_is_first_diagnostic	Definition	0.037	split. - pose proof (f_equal (fun '(_, m, _) => m) two_iota_obs) as Hm; cbv beta			ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	139	140	mm17_1_missing_view	Lemma	0.071	vm_compute; reflexivity.	map		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	143	146	mm17_6_coexist	Lemma	0.193	vm_compute; reflexivity.	andb		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	148	148	dr_stmt_lit	Definition	0.006	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	150	150	dr_short_dup	Definition	0.012	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	152	152	dr_short_nonew	Definition	0.014	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectB.v	154	154	dr_short_allblank	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	3	3	Stdlib	From	0.264				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	4	5	Fido	From	0.529				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	9	9	r_conv0	Definition	0.015	reject.	Compilable.rejects	inline:f939be015889	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	11	11	r_call_bool	Definition	0.006	reject.	Compilable.rejects	inline:1c7b694922b2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	13	13	r_call_lit	Definition	0.006	reject.	Compilable.rejects	inline:8e7f686a936d	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	16	16	c_neg_int8	Definition	0.071	compileok.	Compilable.compiles	inline:93e22a27a3c6	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	18	18	r_nil	Definition	0.008	reject.	Compilable.rejects	inline:66411cab8efe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	21	21	r_var_self	Definition	0.02	reject.	Compilable.rejects	inline:9b9299ef30f9	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	23	23	o_var_later	Definition	0.043	outside.	Compilable.outsides	inline:381e644bf14a	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	26	26	o_short_new	Definition	0.012	outside.	Compilable.outsides	inline:6b2112888bc2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	29	29	r_const_noinit	Definition	0.016	reject.	Compilable.rejects	inline:a6450cd7b5f2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	31	31	o_short_mixed	Definition	0.023	outside.	Compilable.outsides	inline:95fa0a9015db	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	33	33	reader_disp_outside	Lemma	0.064	vm_compute; reflexivity.	Compilable.disposition		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	36	38	reader_facts_kinds	Lemma	0.162	vm_compute; reflexivity.	map		RAW_FACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	40	42	r_type_value_cause	Definition	0.292	vm_compute; reflexivity.	RP.result_cause_views	inline:c26827be1f9f	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	44	46	r_cx_mix_cause	Definition	1.394	vm_compute; reflexivity.	RP.result_cause_views	inline:d958ea918e4b	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	49	49	o_main_value	Definition	0.014	outside.	Compilable.outsides	inline:9fe1acda41d7	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	52	52	r_main_arity	Definition	0.014	reject.	Compilable.rejects	inline:b264ca6458f2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	55	55	r_redecl_var	Definition	0.046	reject.	Compilable.rejects	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	57	59	r_redecl_usecontext	Definition	3.149	vm_compute; reflexivity.	map		GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	62	65	r_invalidid_app_dep	Definition	0.067	vm_compute; reflexivity.	existsb	inline:22f6c077278b	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	68	71	r_redecl_app_dep	Definition	0.504	vm_compute; reflexivity.	existsb	inline:c4abf00b282c	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	74	77	mf_stmt_lit_invalid_row	Definition	0.187	split; vm_compute; reflexivity.	RP.result_cause_views	inline:6494479e9fce	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	80	83	mf_dep_row_silent	Definition	0.37	split; vm_compute; reflexivity.	RP.result_cause_views	inline:83127280c219	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	85	90	mf_app_two_families	Definition	0.232	vm_compute; reflexivity.	_		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	93	93	o_const_inherited	Definition	0.033	outside.	Compilable.outsides	inline:cfdf396eef80	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	96	96	r_main_const_redecl	Definition	0.009	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	98	101	r_main_missing_payload	Definition	0.362	vm_compute; reflexivity.			EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	104	107	d4_collision_missing_main_coexist	Definition	1.261	vm_compute; reflexivity.	andb		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	110	111	mm17_1_missing_len	Lemma	0.057	vm_compute; reflexivity.	Datatypes.length		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	114	115	mm17_5_nocollision_none	Lemma	0.026	vm_compute; reflexivity.	pcollision	inline:bf1eac37726d	UNCLASSIFIED		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	117	117	dr_conv0	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	119	119	dr_conv2	Definition	0.012	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	121	121	dr_no_main	Definition	0.006	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	123	123	dr_short_count	Definition	0.016	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectC.v	125	142	dr_short_nonvar	Definition	0.041	reject. Declare ML Module "fido.emit". Fido OracleExport (otransport dp_neg_stri	Compilable.rejects		OTHER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	3	3	Stdlib	From	0.347				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	4	5	Fido	From	0.674				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	9	9	r_neg_string	Definition	0.019	reject.	Compilable.rejects	inline:f0e4ff2af7bf	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	11	11	r_neg_uint8	Definition	0.015	reject.	Compilable.rejects	inline:63463f0d389c	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	13	13	r_cx_mix	Definition	0.103	reject.	Compilable.rejects	inline:d958ea918e4b	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	15	15	r_conv2	Definition	0.018	reject.	Compilable.rejects	inline:c8e9614974e8	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	17	17	r_cx3	Definition	0.018	reject.	Compilable.rejects	inline:802dede6d116	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	20	20	r_println_val	Definition	0.012	reject.	Compilable.rejects	inline:1f3834395742	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	22	22	r_type_value	Definition	0.011	reject.	Compilable.rejects	inline:c26827be1f9f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	25	25	r_default_overflow	Definition	0.01	reject.	Compilable.rejects	inline:d175a4d84955	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	27	27	r_const_self	Definition	0.024	reject.	Compilable.rejects	inline:5017d9f8c04c	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	30	30	o_short_blank	Definition	0.016	outside.	Compilable.outsides	inline:b16fcd76bf80	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	33	33	o_short_two_origins	Definition	0.042	outside.	Compilable.outsides	inline:41bd7c550a7f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	36	36	r_short_dup_use	Definition	0.088	reject.	Compilable.rejects	inline:0e334ea66391	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	38	39	reader_disp	Lemma	0.01	vm_compute; reflexivity.	Compilable.disposition		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	41	41	reader_disp_compiled	Lemma	0.01	vm_compute; reflexivity.	Compilable.disposition		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	43	43	reader_index_compiled	Lemma	0.398	vm_compute; reflexivity.	AN.res_index		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	45	45	reader_index_outside	Lemma	0.398	vm_compute; reflexivity.	AN.res_index		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	48	50	r_iota_cause	Definition	0.313	vm_compute; reflexivity.	RP.result_cause_views	inline:49c304cf1bd6	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	52	55	o_cx_typed_payload	Definition	3.083	split; vm_compute; reflexivity.	RP.result_cause_views	inline:b1315aa801a7	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	57	57	r_main_as_type	Definition	0.023	reject.	Compilable.rejects	inline:aca9c56b2318	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	60	60	o_main_shadowed	Definition	0.031	outside.	Compilable.outsides	inline:78ca46446674	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	63	68	r_redecl_payload	Definition	1.221	vm_compute; reflexivity.		inline:43eeca9d61fe	GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	71	74	r_unbound_app_dep	Definition	0.126	vm_compute; reflexivity.	existsb	inline:83127280c219	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	77	80	r_child_stmt_dep	Definition	0.074	vm_compute; reflexivity.	existsb	inline:22f6c077278b	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	83	86	r_redecl_type_dep	Definition	0.35	vm_compute; reflexivity.	existsb	inline:4ac17493eeb9	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	89	89	c_main_only	Definition	0.004	compileok.	Compilable.compiles		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	92	92	r_main_multiple	Definition	0.006	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	94	98	r_main_multiple_payload	Definition	0.175	vm_compute; reflexivity.			GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	101	104	d4_collision_redeclared_coexist	Definition	2.694	vm_compute; reflexivity.	andb		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	107	108	mm17_2_main_one_none	Lemma	0.028	vm_compute; reflexivity.	pmissing		UNCLASSIFIED		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	111	112	mm17_3_main_multiple_none	Lemma	0.043	vm_compute; reflexivity.	pmissing		UNCLASSIFIED		
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	115	116	mm17_4_collision_view	Lemma	0.092	vm_compute; reflexivity.	option_map		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	118	118	dr_default_ovf	Definition	0.008	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	120	120	dr_multi_main	Definition	0.005	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
-1c960cd26bf3ac6729b88797551451c9b0fd71a7384dc63edb93bc8afa281c69	e2e/WitnessRejectD.v	122	122	dc_ok	Definition	0.013	compileok.	Compilable.compiles		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	3	3	Stdlib	From	0.245				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	5	5	Fido	From	0.439				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	7	7	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	9	9	PI	Module	0.004				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	11	11	BN	Module	0.158				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	13	13	AN	Module	0.305				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	15	15	RP	Module	0.508				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	17	17	PL	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	18	18	NEG	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	19	19	ILIT	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	20	20	SLIT	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	21	21	CONV	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	22	22	CPLX	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	23	23	APP	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	24	24	TT	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	25	25	FF	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	27	27	rmod	Definition	0.011		ModuleSpec		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	29	29	rmain	Definition	0.001		FilePath.T		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	31	31	prog	Definition	0.0		list		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	35	35	reject	Ltac	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	37	37	compileok	Ltac	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	39	39	outside	Ltac	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	41	41	OID	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	42	42	VNAME	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	43	43	NE1	Notation	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	46	46	result_of_compile	Definition	0.092		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	48	48	rres	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	51	51	rprobe	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	54	54	dsites	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	57	57	pfacts	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	60	60	cprobe	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	62	62	oprobe	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	65	65	retained_via_program	Definition	0.0		Compilable.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	67	67	retained_via_rejection	Definition	0.0		Compilable.Rejection		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	69	69	retained_via_outside	Definition	0.0		Compilable.Outside		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	72	72	p_redecl_use	Definition	0.002		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	76	76	p_app_multi	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	79	79	prog_tops	Definition	0.0		list		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	81	81	main0	Definition	0.0		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	83	83	tconstmain	Definition	0.001		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	87	87	p_two_iota	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	92	92	p_invalid_unsupported	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	97	97	cgen_path	Definition	0.002		FilePath.T		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	99	99	cvar1	Definition	0.0		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	102	102	cvar2	Definition	0.0		Syntax.TopLevelDecl		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	105	105	p_collision	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	111	111	p_collision_redecl	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	118	118	ppkg	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	120	120	pmissing	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	122	122	pcollision	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	125	125	otransport	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	128	128	dp_neg_string	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	130	130	dp_conv0	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	132	132	dp_conv2	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	134	134	dp_uint8_neg	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	136	136	dp_type_value	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	138	138	dp_stmt_lit	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	140	140	dp_default_ovf	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	142	142	dp_no_main	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	144	144	dp_multi_main	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	146	146	dp_ok	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	149	149	dp_short_dup	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	151	151	dp_short_count	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	153	153	dp_short_nonew	Definition	0.001		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	155	155	dp_short_allblank	Definition	0.0		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectPrelude.v	157	157	dp_short_nonvar	Definition	0.002		Syntax.Program		SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	3	3	Stdlib	From	0.257				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	4	5	Fido	From	0.526				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	8	8	r_neg_bool	Definition	0.015	reject.	Compilable.rejects	inline:c6534d920347	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	10	10	r_neg_int8min	Definition	0.014	reject.	Compilable.rejects	inline:5e73de323a39	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	12	12	r_cx_str	Definition	0.073	reject.	Compilable.rejects	inline:cd2fe4349488	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	14	14	r_stmt_lit	Definition	0.005	reject.	Compilable.rejects	inline:6494479e9fce	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	17	17	r_stmt_conv0	Definition	0.006	reject.	Compilable.rejects	inline:27cd9c52eebb	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	20	20	o_print	Definition	0.008	outside.	Compilable.outsides	inline:6ce44a32ad09	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	22	22	c_neg_untyped	Definition	0.01	compileok.	Compilable.compiles	inline:3b5539406d04	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	25	25	r_append_val	Definition	0.008	reject.	Compilable.rejects	inline:f24506a16d01	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	27	27	r_short_self	Definition	0.011	reject.	Compilable.rejects	inline:b1cdb123d6f0	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	29	29	r_var_true	Definition	0.017	reject.	Compilable.rejects	inline:b916f52129fd	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	32	32	r_short_rhsneg	Definition	0.014	reject.	Compilable.rejects	inline:78d8ba65f4c5	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	34	37	d4_invalid_unsupported_coexist	Definition	8.358	vm_compute; reflexivity.	map		ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	39	39	dr_neg_string	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	41	41	dr_uint8_neg	Definition	0.013	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectA.v	43	43	dr_type_value	Definition	0.009	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	3	3	Stdlib	From	0.353				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	4	5	Fido	From	0.673				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	9	9	r_cx_bool	Definition	0.022	reject.	Compilable.rejects	inline:83f8f303d6e9	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	11	11	r_cx_int8	Definition	0.022	reject.	Compilable.rejects	inline:7a2c2a02b429	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	13	13	r_cx1	Definition	0.089	reject.	Compilable.rejects	inline:169ec44c3c90	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	16	16	r_call_neg	Definition	0.012	reject.	Compilable.rejects	inline:77e62bc4392f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	19	19	r_stmt_conv	Definition	0.013	reject.	Compilable.rejects	inline:23ccdeab8340	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	21	21	c_neg_complex	Definition	0.019	compileok.	Compilable.compiles	inline:bdd69fe1d009	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	24	24	o_cx_typed	Definition	0.024	outside.	Compilable.outsides	inline:b1315aa801a7	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	27	27	r_iota	Definition	0.01	reject.	Compilable.rejects	inline:49c304cf1bd6	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	30	30	o_var_uintptr	Definition	0.02	outside.	Compilable.outsides	inline:73ef8a051fac	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	33	33	o_var_use	Definition	0.048	outside.	Compilable.outsides	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	35	35	o_short_use	Definition	0.026	outside.	Compilable.outsides	inline:1b7f640fe64f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	37	37	r_const_count	Definition	0.089	reject.	Compilable.rejects	inline:b550d3e753da	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	39	39	r_short_ambiguous	Definition	0.072	reject.	Compilable.rejects	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	41	41	o_short_blank_new	Definition	0.033	outside.	Compilable.outsides	inline:b16fcd76bf80	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	44	44	o_short_multi_use	Definition	0.094	outside.	Compilable.outsides	inline:d9c8a23ac041	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	47	47	r_complex_coexist	Definition	0.055	reject.	Compilable.rejects	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	49	50	reader_index	Lemma	0.366	vm_compute; reflexivity.	AN.res_index		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	52	55	reader_len	Lemma	0.213	vm_compute; reflexivity.	Datatypes.length		RAW_FACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	58	59	no_program_for_rejected	Definition	0.001	unfold Compilable.rejects in Hrej. rewrite (Compilable.program_forces_compiled c	Syntax.Program		OTHER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	61	63	c_neg_int8_core	Definition	1.347	split; vm_compute; reflexivity.	RP.result_cause_views	inline:93e22a27a3c6	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	66	66	c_main_recursive	Definition	0.014	compileok.	Compilable.compiles	inline:ef0d97493ab0	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	69	71	r_main_arity_payload	Definition	0.282	vm_compute; reflexivity.	RP.result_cause_views	inline:b264ca6458f2	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	74	76	r_iota_family	Definition	0.309	vm_compute; reflexivity.	RP.result_diag_families	inline:49c304cf1bd6	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	79	81	o_cx_typed_family	Definition	1.576	eexists; vm_compute; reflexivity.	exists	inline:b1315aa801a7	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	84	84	c_println_legal	Definition	0.011	compileok.	Compilable.compiles	inline:bf1eac37726d	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	86	88	mf_println_legal_no_cause	Definition	0.595	split; vm_compute; reflexivity.	RP.result_cause_views	inline:bf1eac37726d	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	90	94	r_main_const_redecl_payload	Definition	0.52	vm_compute; reflexivity.			GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	97	97	r_main_missing	Definition	0.008	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	100	107	two_iota_obs	Definition	3.415	vm_compute; reflexivity.			ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	109	116	d4_two_iota_no_collapse	Definition	0.005	split. - exact (f_equal (fun '(n, _, _) => n) two_iota_obs). - exact (f_equal (f	Datatypes.length		ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	119	122	d4_two_iota_same_cause	Definition	0.002	exact (f_equal (fun '(_, _, v) => v) two_iota_obs).	RP.result_cause_views		CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	125	137	d4_ord0_is_first_diagnostic	Definition	0.041	split. - pose proof (f_equal (fun '(_, m, _) => m) two_iota_obs) as Hm; cbv beta			ISSUE_TABLE	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	139	140	mm17_1_missing_view	Lemma	0.074	vm_compute; reflexivity.	map		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	143	146	mm17_6_coexist	Lemma	0.195	vm_compute; reflexivity.	andb		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	148	148	dr_stmt_lit	Definition	0.005	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	150	150	dr_short_dup	Definition	0.012	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	152	152	dr_short_nonew	Definition	0.013	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectB.v	154	154	dr_short_allblank	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	3	3	Stdlib	From	0.299				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	4	5	Fido	From	0.517				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	9	9	r_conv0	Definition	0.015	reject.	Compilable.rejects	inline:f939be015889	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	11	11	r_call_bool	Definition	0.006	reject.	Compilable.rejects	inline:1c7b694922b2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	13	13	r_call_lit	Definition	0.006	reject.	Compilable.rejects	inline:8e7f686a936d	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	16	16	c_neg_int8	Definition	0.067	compileok.	Compilable.compiles	inline:93e22a27a3c6	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	18	18	r_nil	Definition	0.008	reject.	Compilable.rejects	inline:66411cab8efe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	21	21	r_var_self	Definition	0.021	reject.	Compilable.rejects	inline:9b9299ef30f9	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	23	23	o_var_later	Definition	0.04	outside.	Compilable.outsides	inline:381e644bf14a	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	26	26	o_short_new	Definition	0.009	outside.	Compilable.outsides	inline:6b2112888bc2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	29	29	r_const_noinit	Definition	0.014	reject.	Compilable.rejects	inline:a6450cd7b5f2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	31	31	o_short_mixed	Definition	0.022	outside.	Compilable.outsides	inline:95fa0a9015db	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	33	33	reader_disp_outside	Lemma	0.061	vm_compute; reflexivity.	Compilable.disposition		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	36	38	reader_facts_kinds	Lemma	0.16	vm_compute; reflexivity.	map		RAW_FACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	40	42	r_type_value_cause	Definition	0.29	vm_compute; reflexivity.	RP.result_cause_views	inline:c26827be1f9f	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	44	46	r_cx_mix_cause	Definition	1.346	vm_compute; reflexivity.	RP.result_cause_views	inline:d958ea918e4b	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	49	49	o_main_value	Definition	0.011	outside.	Compilable.outsides	inline:9fe1acda41d7	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	52	52	r_main_arity	Definition	0.01	reject.	Compilable.rejects	inline:b264ca6458f2	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	55	55	r_redecl_var	Definition	0.04	reject.	Compilable.rejects	inline:43eeca9d61fe	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	57	59	r_redecl_usecontext	Definition	3.086	vm_compute; reflexivity.	map		GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	62	65	r_invalidid_app_dep	Definition	0.067	vm_compute; reflexivity.	existsb	inline:22f6c077278b	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	68	71	r_redecl_app_dep	Definition	0.499	vm_compute; reflexivity.	existsb	inline:c4abf00b282c	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	74	77	mf_stmt_lit_invalid_row	Definition	0.188	split; vm_compute; reflexivity.	RP.result_cause_views	inline:6494479e9fce	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	80	83	mf_dep_row_silent	Definition	0.37	split; vm_compute; reflexivity.	RP.result_cause_views	inline:83127280c219	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	85	90	mf_app_two_families	Definition	0.226	vm_compute; reflexivity.	_		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	93	93	o_const_inherited	Definition	0.032	outside.	Compilable.outsides	inline:cfdf396eef80	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	96	96	r_main_const_redecl	Definition	0.008	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	98	101	r_main_missing_payload	Definition	0.331	vm_compute; reflexivity.			EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	104	107	d4_collision_missing_main_coexist	Definition	1.241	vm_compute; reflexivity.	andb		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	110	111	mm17_1_missing_len	Lemma	0.056	vm_compute; reflexivity.	Datatypes.length		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	114	115	mm17_5_nocollision_none	Lemma	0.026	vm_compute; reflexivity.	pcollision	inline:bf1eac37726d	UNCLASSIFIED		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	117	117	dr_conv0	Definition	0.01	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	119	119	dr_conv2	Definition	0.012	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	121	121	dr_no_main	Definition	0.006	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	123	123	dr_short_count	Definition	0.016	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectC.v	125	142	dr_short_nonvar	Definition	0.042	reject. Declare ML Module "fido.emit". Fido OracleExport (otransport dp_neg_stri	Compilable.rejects		OTHER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	3	3	Stdlib	From	0.237				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	4	5	Fido	From	0.49				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	6	6	ListNotations.	Import	0.0				SHARED_PROGRAM_OR_HELPER		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	9	9	r_neg_string	Definition	0.015	reject.	Compilable.rejects	inline:f0e4ff2af7bf	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	11	11	r_neg_uint8	Definition	0.012	reject.	Compilable.rejects	inline:63463f0d389c	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	13	13	r_cx_mix	Definition	0.077	reject.	Compilable.rejects	inline:d958ea918e4b	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	15	15	r_conv2	Definition	0.012	reject.	Compilable.rejects	inline:c8e9614974e8	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	17	17	r_cx3	Definition	0.014	reject.	Compilable.rejects	inline:802dede6d116	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	20	20	r_println_val	Definition	0.01	reject.	Compilable.rejects	inline:1f3834395742	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	22	22	r_type_value	Definition	0.008	reject.	Compilable.rejects	inline:c26827be1f9f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	25	25	r_default_overflow	Definition	0.008	reject.	Compilable.rejects	inline:d175a4d84955	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	27	27	r_const_self	Definition	0.021	reject.	Compilable.rejects	inline:5017d9f8c04c	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	30	30	o_short_blank	Definition	0.014	outside.	Compilable.outsides	inline:b16fcd76bf80	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	33	33	o_short_two_origins	Definition	0.036	outside.	Compilable.outsides	inline:41bd7c550a7f	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	36	36	r_short_dup_use	Definition	0.07	reject.	Compilable.rejects	inline:0e334ea66391	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	38	39	reader_disp	Lemma	0.008	vm_compute; reflexivity.	Compilable.disposition		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	41	41	reader_disp_compiled	Lemma	0.008	vm_compute; reflexivity.	Compilable.disposition		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	43	43	reader_index_compiled	Lemma	0.254	vm_compute; reflexivity.	AN.res_index		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	45	45	reader_index_outside	Lemma	0.245	vm_compute; reflexivity.	AN.res_index		EXACT_PROVENANCE	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	48	50	r_iota_cause	Definition	0.259	vm_compute; reflexivity.	RP.result_cause_views	inline:49c304cf1bd6	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	52	55	o_cx_typed_payload	Definition	2.651	split; vm_compute; reflexivity.	RP.result_cause_views	inline:b1315aa801a7	CAUSE_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	also result_req_views
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	57	57	r_main_as_type	Definition	0.019	reject.	Compilable.rejects	inline:aca9c56b2318	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	60	60	o_main_shadowed	Definition	0.023	outside.	Compilable.outsides	inline:78ca46446674	VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	63	68	r_redecl_payload	Definition	1.075	vm_compute; reflexivity.		inline:43eeca9d61fe	GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	71	74	r_unbound_app_dep	Definition	0.113	vm_compute; reflexivity.	existsb	inline:83127280c219	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	77	80	r_child_stmt_dep	Definition	0.066	vm_compute; reflexivity.	existsb	inline:22f6c077278b	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	83	86	r_redecl_type_dep	Definition	0.341	vm_compute; reflexivity.	existsb	inline:4ac17493eeb9	EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	89	89	c_main_only	Definition	0.004	compileok.	Compilable.compiles		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	92	92	r_main_multiple	Definition	0.004	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	94	98	r_main_multiple_payload	Definition	0.169	vm_compute; reflexivity.			GROUP_VIEW	PERF-COMP-WITNESS-CHUNKING,PERF-COMP-PER-PROGRAM-BUNDLES,PERF-COMP-EVIDENCE-OBSERVATION	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	101	104	d4_collision_redeclared_coexist	Definition	2.605	vm_compute; reflexivity.	andb		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	107	108	mm17_2_main_one_none	Lemma	0.026	vm_compute; reflexivity.	pmissing		UNCLASSIFIED		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	111	112	mm17_3_main_multiple_none	Lemma	0.04	vm_compute; reflexivity.	pmissing		UNCLASSIFIED		
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	115	116	mm17_4_collision_view	Lemma	0.086	vm_compute; reflexivity.	option_map		EXACT_READER	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	118	118	dr_default_ovf	Definition	0.008	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	120	120	dr_multi_main	Definition	0.004	reject.	Compilable.rejects		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
+c4615d14557989c8db0bcf7b3026534f9013292b1e469475e9ae1bfb05c387e3	e2e/WitnessRejectD.v	122	122	dc_ok	Definition	0.012	compileok.	Compilable.compiles		VERDICT_ONLY	PERF-COMP-WITNESS-CHUNKING	
