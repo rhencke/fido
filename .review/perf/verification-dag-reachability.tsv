@@ -1,0 +1,23 @@
+# §14.3 reachability decision, committed BEFORE retained implementation (measured on the entry candidate
+# c13e3d5, three-solve topology, from the instrumented 148s representative project-cold run).
+metric	value
+entry_cold_median_s	151
+dune_invocation_1_prover_cold_s	27.5
+dune_invocation_2_emit_warm_cache_s	4.5
+dune_sum_baseline_s	32.5
+duplicated_certified_copy_context_s	10
+third_solve_overhead_s	3
+per_solve_fixed_overhead_saved_s	6
+proof_gate_wall_hidden_by_overlap_s	14
+target_population_removable_work_s	23
+target_share_of_129s_stage_work_pct	18
+zero_cost_lower_bound_cold_s	112
+realistic_projected_cold_s	117
+required_cold_target_s	120
+reachable_cold	yes-borderline
+required_stage_work_reduction_pct	15
+projected_stage_work_reduction_pct	15-19
+reachable_stage_work	yes
+dune_sum_reduction_40pct	IMPOSSIBLE — invocation 2 is a ~5s cache-warm revalidation; one-build removes ~15% of Dune-sum (reported to Rob pre-implementation per §15.2; proceed authorized)
+confidence_basis	instrumented plain-progress logs of the entry cold run (prover RUN 34.7s with dune done at 27.8s; emit RUN 36.5s with materialization starting at 5.3s)
+predicted_next_critical_path	theory-build + emit branch (fixture waves + materialization) inside one solve

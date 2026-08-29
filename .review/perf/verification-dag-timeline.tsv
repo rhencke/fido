@@ -1,0 +1,14 @@
+# §20.2 stage timeline (monotonic fido-stage events + buildx step boundaries), freeze-basis project-cold.
+run	stage	start_offset_s	end_offset_s	elapsed_s	concurrency	predecessor	cache_state	result
+final-project-cold	policy-gates	0	19	19	host serial	-	pytools warm	ok
+final-project-cold	theory-build	19	45	26	1 slot	policy	dune cache mount EMPTY	ok
+final-project-cold	proof-audit	46	64	18	parallel with emit	theory-built	ordinary _build layer	ok
+final-project-cold	emit	46	79	33	parallel with proof	theory-built	ordinary _build layer	ok
+final-project-cold	fixture-wave1	55	58	3	4 slots	emit start	prelude+3 shorts	ok
+final-project-cold	fixture-wave2	58	72	14	4 slots	wave1	chunks A-D	ok
+final-project-cold	go-e2e	79	88	9	1 slot	generated-module	fresh copy	ok
+final-project-cold	verification-join+export	88	100	12	1 slot	both markers	scratch copy + local export	ok
+final-project-cold	artifact-compare	100	103	3	host serial	export	worktree tar	ok
+entry-project-cold	prove-solve	19	87	68	solo solve	policy	shared cache mount	ok
+entry-project-cold	e2e-solve	87	145	58	solo solve	prove	shared cache mount	ok
+entry-project-cold	artifact-solve+compare	145	148	3	solo solve	e2e	layer cache	ok
