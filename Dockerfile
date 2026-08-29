@@ -39,7 +39,13 @@ FROM ghcr.io/fidocancode/fido-toolchain@sha256:3e43c422adb1a41446d778a56efb2048c
 #    The audit enumerates its own roots, so no hand-written surface list sits beside it to drift.
 #    The layer-dependency gate runs here too: pinned `rocq dep` direct Fido edges must equal the sole
 #    ARCHITECTURE policy block, with its own actual-minus-policy, policy-minus-actual and coverage controls.
-FROM rocq-base AS prover
+# ── theory-built: the ONE certified theory/plugin build every verification branch descends from.  It owns the
+#    one Docker copy of the certified source closure and the one `dune build @install @all` of the complete
+#    verification graph.  The Dune `_build` cache mount assists incrementality only: the exact build output is
+#    snapshotted OUT of the mount and restored as an ORDINARY immutable parent layer, so every downstream stage
+#    (proof/audit, emit, profile) inherits the identical compiled theory with the cache absent, and an empty
+#    cache is equally correct — a matching cache changes only cost.
+FROM rocq-base AS theory-built
 ARG TARGETARCH
 COPY --chown=opam:opam dune-project dune ./
 COPY --chown=opam:opam *.v ./
@@ -47,17 +53,44 @@ COPY --chown=opam:opam Compilable/ Compilable/
 COPY --chown=opam:opam Index/ Index/
 COPY --chown=opam:opam ARCHITECTURE.md ./
 COPY --chown=opam:opam plugin/ plugin/
-# `make prove` is the COMPLETE proof gate: Dune builds the theory AND the audit/transport plugin; then the
-# certified-module coverage check, the WHOLE-certified-theory assumption-closure audit (constants + mutual
-# INDUCTIVES + surviving named assumptions, descending opaque Qed bodies, rejecting every Printer.Axiom
-# category AND Printer.Variable), and the adversarial self-tests A-E run HERE — so a retained internal
-# declaration depending on an assumption fails even when it is not a public theorem.
 RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
 set -eu
-fail() { echo "fido: prove FAILED — $*"; exit 1; }
-# (a) Dune builds the certified theory AND the audit/transport plugin (one shared cache id with emit/e2e)
+fail() { echo "fido: theory-built FAILED — $*"; exit 1; }
+echo "fido-stage: theory-build start mono=$(cut -d' ' -f1 /proc/uptime)"
 if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
 cat /tmp/build.log
+# snapshot the exact build out of the cache mount; the next (unmounted) step restores it as an ordinary layer
+rm -rf /workspace/_build_snapshot
+cp -a /workspace/_build /workspace/_build_snapshot
+echo "fido-stage: theory-build done mono=$(cut -d' ' -f1 /proc/uptime) size=$(du -sm /workspace/_build_snapshot | cut -f1)MB"
+SH
+RUN <<'SH'
+set -eu
+fail() { echo "fido: theory-built FAILED — $*"; exit 1; }
+rm -rf /workspace/_build
+mv /workspace/_build_snapshot /workspace/_build
+# §5.5 structural self-checks, all against the ordinary layer with the cache unavailable
+[ -d /workspace/_build/install/default/lib ] || fail "the Dune install tree did not survive the snapshot"
+ls /workspace/_build/default/*.vo > /dev/null || fail "no root .vo in the restored build"
+ls /workspace/_build/default/Compilable/*.vo > /dev/null || fail "no Compilable submodule .vo in the restored build"
+find /workspace/_build/install/default/lib -name '*.cmxs' | grep -q . || fail "no installed plugin artifact in the restored build"
+[ ! -d /workspace/e2e ] || fail "e2e fixtures must not exist before the branch point"
+touch /workspace/theory-built-ok
+echo "fido: theory-built OK — one dune build, snapshotted to an ordinary immutable layer (install tree + root/submodule .vo + plugin present; e2e absent; cache-free)"
+SH
+
+# ── proof/audit branch: descends from the one theory-built parent and NEVER reruns the certified Dune build.
+#    The certified-module coverage check, the WHOLE-certified-theory assumption-closure audit (constants +
+#    mutual INDUCTIVES + surviving named assumptions, descending opaque Qed bodies, rejecting every
+#    Printer.Axiom category AND Printer.Variable), and the adversarial self-tests A-E run HERE — so a retained
+#    internal declaration depending on an assumption fails even when it is not a public theorem.
+FROM theory-built AS prover
+ARG TARGETARCH
+RUN <<'SH'
+set -eu
+fail() { echo "fido: prove FAILED — $*"; exit 1; }
+echo "fido-stage: proof-audit start mono=$(cut -d' ' -f1 /proc/uptime)"
+[ -f /workspace/theory-built-ok ] || fail "the shared theory-built parent marker is missing — this branch would silently rebuild"
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 # (b) certified-module coverage: tracked root .v == dune (modules ...) (test/e2e .v are outside)
 mods=$(sed -n 's/.*(modules \([^)]*\)).*/\1/p' dune); [ -n "$mods" ] || fail "no (modules ...) in dune"
@@ -442,7 +475,7 @@ SH
 # The intrinsic-unforgeability typing controls run in a SECOND prover-stage RUN over the SAME _build cache mount:
 # the certified library the first RUN built is read (never rebuilt), and the whole control set stays under the
 # per-argument exec limit while remaining one `make prove` gate — nothing is skipped, weakened, sampled or moved.
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+RUN <<'SH'
 set -eu
 fail() { echo "fido: prove FAILED — $*"; exit 1; }
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
@@ -1125,7 +1158,7 @@ SH
 # cache mount, for the identical reason RUN two is split from RUN one: the certified library the first RUN built
 # is read (never rebuilt), and each RUN's inline script stays under the per-argument exec limit — one `make prove`
 # gate still, nothing skipped, weakened, sampled or moved.
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+RUN <<'SH'
 set -eu
 fail() { echo "fido: prove FAILED — $*"; exit 1; }
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
@@ -1136,7 +1169,7 @@ fi
 echo "fido: edge absence control OK — Bindings/Analysis name no deleted edge route, node_children, or position-guess path"
 # — §19 occurrence-topology absence: the pre-split phase-only cause/dep names and the second family classifier are
 #   GONE from every certified/e2e source; the exact fact kinds and one exact family projection are the sole route —
-if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' Compilable/Analysis.v Compilable/Report.v Compilable.v e2e/WitnessReject*.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
+if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' Compilable/Analysis.v Compilable/Report.v Compilable.v; then
   fail "occurrence-topology absence control — a pre-split phase-only payload name or the deleted occ_family classifier still exists"
 fi
 echo "fido: occurrence-topology absence control OK — no pre-split cause/dependency name, no second family classifier; site+kind fact refs are the sole route"
@@ -1744,28 +1777,28 @@ if ! rocq c -Q _build/default/. Fido /tmp/sealed_ok.v > /tmp/sealed_ok.log 2>&1;
   cat /tmp/sealed_ok.log; fail "sealed positive control: the public surface / the ONE end-to-end route are NOT reachable"
 fi
 echo "fido: sealed positive control — compile is the sole source of the abstract Program/Rejection/Outside; generic branch handling via disposition+OutcomeAt opens no maker; compiled_program yields a Program for a Compiled program; program_compilation/program_admissible/rejection_has_diagnostics/outside_reports/admissible_iff_reports; of_compiled + of_evidence are the only image routes and transport is evidence-independent; MainOne/MainMultiple over Est payloads, package_main as a projection over exact package-environment refs, a RedeclaredGroup diagnostic (with its cause projection) for a redeclared main group, DMissingMain for a package with no fixed main, and main as a SourceObject(DOFunc); the canonical child-edge surface (ChildAt + refined parents + indexed edges) constructs and projects for a concrete source file, every ordinal checked by computation; the phase-owned event/state/trace surface (package ledgers, per-block state traces with exact causal cuts, block event kinds, exact retained additions and add-counts, equal-content different-cut discrimination, and ordinary resolution to the exact establishment/redeclaration/unbound outcome) computes over the section-12 fixture programs; the exact state-indexed short/declaration classifications and judgments, the exact use-context/environment/visible-group refs, and every phase-owned inversion law are reachable as stated (the exact classifications carry proof-bearing state refs, so they are exercised at the type/law level, not by vm_compute) — all reachable (as required)"
-echo "fido: prove OK — dune build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/certificate-data/fact-row/case-ref/package-decision-case/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository + package-row absence controls + positive control"
+echo "fido: prove OK — the one shared theory build; module coverage; one-build + projection-only control; whole-theory audit (constants+inductives+named); self-tests A-E; sealed abstract-branch absence controls (Sealed makers + private composer + top-level + Emit routes) checked in one library load with two load sentinels + adversarial meta-controls + neg_* intrinsic-unforgeability typing controls (branch/certificate-data/fact-row/case-ref/package-decision-case/index/occurrence/selector/package/main/report/image/edge/state-cut/block/phase/event/addition/group/redeclaration/resolution) checked in one library load + canonical-edge peer-authority-absence controls + deleted transition/env/flat-route absence controls + repository + package-row absence controls + positive control"
+# the branch-completion marker: created ONLY here, after every proof, audit, control and adversary above; the
+# verified-artifact join requires this exact file, so a failed producer prevents it (a BuildKit edge, no authority)
+touch /workspace/proof-ok
+echo "fido-stage: proof-audit done mono=$(cut -d' ' -f1 /proc/uptime)"
 SH
 
-# ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  Dune builds the theory (shared cache), then ONE
-#    module is recompiled with `rocq c -time`, which prints a per-sentence timing keyed by byte offset.  The
-#    raw log is EXPORTED and then ranked by tools/rocq-profile.py in the pinned Python image — the prover
-#    image stays free of a Python toolchain and the ranking still never touches the host.  Nothing here
-#    verifies anything: it exists so "the build is slow" becomes "this lemma is 40% of the file".
-FROM rocq-base AS profile
+# ── Stage 3b: profile — a DIAGNOSTIC stage, not a gate.  It descends from the one theory-built parent (no
+#    second Dune build; the ordinary inherited _build is the library), then ONE module is recompiled with
+#    `rocq c -time`, which prints a per-sentence timing keyed by byte offset.  The raw log is EXPORTED and
+#    ranked by tools/rocq-profile.py in the pinned Python image — the prover image stays free of a Python
+#    toolchain and the ranking never touches the host.  Nothing here verifies anything: it exists so "the
+#    build is slow" becomes "this lemma is 40% of the file".
+FROM theory-built AS profile
 ARG TARGETARCH
 ARG PROFILE_FILE=Compilable.v
 RUN mkdir -p /workspace/profile /workspace/diff/compiled /workspace/diff/reject
-COPY --chown=opam:opam dune-project dune ./
-COPY --chown=opam:opam *.v ./
-COPY --chown=opam:opam Compilable/ Compilable/
-COPY --chown=opam:opam Index/ Index/
-COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam e2e/ e2e/
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked <<'SH'
+RUN <<'SH'
 set -eu
 fail() { echo "fido: profile FAILED — $*"; exit 1; }
-if ! dune build @install @all > /tmp/build.log 2>&1; then cat /tmp/build.log; fail "dune build FAILED"; fi
+[ -f /workspace/theory-built-ok ] || fail "the shared theory-built parent marker is missing"
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 [ -f "$PROFILE_FILE" ] || fail "no such module: $PROFILE_FILE"
 echo "fido: profiler flags this rocq offers:$(rocq c --help 2>&1 | grep -oE '\-(time|profile)[a-z-]*' | sort -u | sed 's/^/ /' | tr -d '\n')"
@@ -1797,28 +1830,29 @@ FROM scratch AS profile-log
 COPY --from=profile /workspace/profile/ /
 
 
-# ── Stage 4: emit — Dune compiles the theory AND the Fido transport plugin (shared cache id with prover).
-#    Then, in EXPLICIT always-run steps (never .vo side effects): `Fido Materialize` writes each witness's
-#    authoritative pristine image DIRECTLY (witness, multi, EMPTY), and the emit-time assumption-closure guard
-#    rejects TRANSIENTLY-generated forged images.  A standalone driver (sink_test) exercises the dirty-directory
-#    sink separately (foreign/nested-.fido rejection, sibling-temp two-phase recovery, crash/cleanup/EXDEV/ownership).
-FROM rocq-base AS emit
+# ── Stage 4: emit — descends from the one theory-built parent (no second Dune build; the ordinary inherited
+#    _build is the certified library).  In EXPLICIT always-run steps (never .vo side effects): `Fido
+#    Materialize` writes each witness's authoritative pristine image DIRECTLY (witness, multi, EMPTY), and the
+#    emit-time assumption-closure guard rejects TRANSIENTLY-generated forged images.  A standalone driver
+#    (sink_test) exercises the dirty-directory sink separately (foreign/nested-.fido rejection, sibling-temp
+#    two-phase recovery, crash/cleanup/EXDEV/ownership).
+FROM theory-built AS emit
 ARG TARGETARCH
-COPY --chown=opam:opam dune-project dune ./
-COPY --chown=opam:opam *.v ./
-COPY --chown=opam:opam Compilable/ Compilable/
-COPY --chown=opam:opam Index/ Index/
-COPY --chown=opam:opam plugin/ plugin/
 COPY --chown=opam:opam e2e/ e2e/
 # pre-create the cross-mount test root as the emit (opam) user, so it stays opam-owned when the RUN below
 # mounts a distinct-device (opam-owned) cache at its nested `sub/` parent — the real cross-mount gate.
 RUN mkdir -p /workspace/adv-mount
-RUN --mount=type=cache,id=fido-dune-rocq-9.2.0-${TARGETARCH},uid=1000,gid=1000,target=/workspace/_build,sharing=locked --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
+RUN --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
 set -eu
 fail() { echo "fido: emit FAILED — $*"; exit 1; }
+echo "fido-stage: emit start mono=$(cut -d' ' -f1 /proc/uptime)"
+[ -f /workspace/theory-built-ok ] || fail "the shared theory-built parent marker is missing — this branch would silently rebuild"
 rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test /workspace/generated /workspace/generated-multi /workspace/generated-empty /workspace/generated-bytes /workspace/generated-alias 2>/dev/null || true
-# cached: Dune compiles the proved theory + the transport plugin (shared cache id)
-if ! dune build @install @all > /tmp/emit-build.log 2>&1; then cat /tmp/emit-build.log; fail "theory/plugin build FAILED"; fi
+# the pre-split occurrence-topology names must be absent from the fixture files too (the certified files are
+# checked in the proof branch, which carries no e2e sources)
+if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' e2e/WitnessReject*.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
+  fail "occurrence-topology absence control — a deleted payload name or classifier is referenced by an e2e fixture"
+fi
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 # --- each witness ONLY MATERIALIZES its authoritative pristine image (`Fido Materialize`): EXACTLY the rendered
 #     go.mod + recursive .go, NO .fido/lock/temp — what the `generated-module` layer + go-e2e VALIDATE with a
@@ -2400,6 +2434,7 @@ echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INI
 [ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back"
 ./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
 
+echo "fido-stage: emit done mono=$(cut -d' ' -f1 /proc/uptime)"
 echo "fido: emit OK — Fido Materialize wrote the witness / multi / EMPTY / boundary-byte pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery, complete-image staging, crash points, handled/cleanup-failure aggregation, EXDEV no-copy, ownership rechecks, first-time rollback, and REAL cross-mount staging"
 SH
 
@@ -2411,9 +2446,8 @@ SH
 FROM scratch AS generated-module
 COPY --from=emit /workspace/generated/ /generated/
 
-# ── Stage 4c: generated-artifact — the pristine module at the image root (for local export / bind-apply).
-FROM scratch AS generated-artifact
-COPY --from=generated-module /generated/ /
+# ── Stage 4c: generated-artifact — the pristine module at the image root — is defined AFTER go-e2e below,
+#    behind the verified-artifact join (a stage may only COPY --from an EARLIER stage).
 
 # ── Stage 4d: sync (the `make regenerate` image) is defined AFTER go-e2e below, because it COPYs go-e2e's
 #    fresh-build validation marker (a stage may only COPY --from an EARLIER stage).
@@ -2443,6 +2477,7 @@ umask 022
 # closed-world integration: force the local pinned toolchain, no workspace, no network proxy, and NO ambient
 # go env / flag / sumdb state — export the COMPLETE pinned environment so no case inherits host config.
 export GOWORK=off GOTOOLCHAIN=local GOPROXY=off GOENV=off GOFLAGS= GOSUMDB=off GO111MODULE=on GOOS=linux GOARCH=amd64
+echo "fido-stage: go-e2e start mono=$(cut -d' ' -f1 /proc/uptime)"
 
 # ── The ONE fresh-build runner (an explicit fail-closed state machine): runs the pinned fixed `go build ./...`
 #    at most ONCE in a FRESH disposable copy, and DISTINGUISHES an actual pinned-Go invocation from every
@@ -2842,10 +2877,25 @@ cd /e2e/tree
 
 echo "fido e2e OK — pinned Go built the whole tree in a fresh copy (go build ./...) with the RENDERED go.mod, accepted the empty module, ran the witness vs goldens (ten integer conversions + the float + complex sections incl. the double-round scars), checked the multi-package + go-list differential, rejected the no-main/dup-main + out-of-range/non-integer/float-overflow/fractional/wrong-type/complex-overflow/nonzero-imaginary fixtures exactly as Compilable does, and confirmed the fresh-image directory-collision differential matrix (go vet nonblocking)"
 # The FRESH-BUILD-OK Docker DAG edge — a tiny marker written ONLY after every check above passed.  It carries no
-# bytes or digest and proves nothing on its own; it exists only so the `sync` image (below) cannot build unless
-# this go-e2e stage completed successfully (validate-before-publish for the supported workflow).
+# bytes or digest and proves nothing on its own; it exists only so the `sync` image and the verified-artifact
+# join cannot build unless this go-e2e stage completed successfully (validate-before-publish + the one-DAG join).
 : > /fresh-build-ok
+echo "fido-stage: go-e2e done mono=$(cut -d' ' -f1 /proc/uptime)"
 SH
+
+# ── The verified-artifact JOIN: one stage whose construction REQUIRES both branch markers and carries the
+#    exact pristine generated module.  A missing marker (a failed proof/audit branch or a failed Go branch)
+#    makes this stage — and therefore the final artifact — unbuildable.  Markers are BuildKit dependency edges
+#    only: they prove no theorem, mint no capability, and never enter the exported artifact.
+FROM scratch AS verified-join
+COPY --from=prover /workspace/proof-ok /proof-ok
+COPY --from=go-e2e /fresh-build-ok /fresh-build-ok
+COPY --from=generated-module /generated/ /generated/
+
+# ── generated-artifact: the ONE public full-verification export — exactly the pristine module (go.mod +
+#    recursive generated .go), nothing else: the markers stay in the join layer and never leak into the export.
+FROM scratch AS generated-artifact
+COPY --from=verified-join /generated/ /
 
 # ── Stage 4d (defined last): sync — the `make regenerate` image.  It compiles the tiny internal filesystem
 #    adapter (linking Sink) and bakes in the pristine `generated-module` layer; run with the repo root

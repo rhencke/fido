@@ -29,9 +29,20 @@ DIET = 'tools/source-diet.py'
 HOSTPY = 'tools/host-python-gate.py'
 WORKTREE = 'tools/worktree-list.py'
 PERFEV = 'tools/perf-evidence-validate.py'
+GRAPH = 'tools/build-graph-gate.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
+    (GRAPH, 'the one-dune-builder rule, so a second certified build cannot creep back',
+     "    if dune_stages != ['theory-built']:",
+     "    if False:",
+     ('second dune build inserted in emit',)),
+
+    (GRAPH, 'the marker-join rule, so the final artifact cannot stop requiring a branch',
+     "    if '--from=prover /workspace/proof-ok' not in join:",
+     "    if False:",
+     ('proof marker dependency removed from the join',)),
+
     (PERFEV, 'the incomplete-path rejection, so complete=no cannot satisfy required coverage',
      "        if row['complete'] == 'no' and row['relation'] in RELATIONS:",
      "        if False:",

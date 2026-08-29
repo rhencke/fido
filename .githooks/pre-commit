@@ -57,6 +57,8 @@ staged_all() {
   pd=$(sh "$ctx/tools/performance-input-digest.sh") || return $?
   ph=$(sh "$ctx/tools/performance-input-digest.sh" --head) || return $?
   pec=$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes)
+  fido_py tools/build-graph-gate.py --self-test || return $?
+  fido_py tools/build-graph-gate.py --root /repo || return $?
   fido_py tools/perf-evidence-validate.py --self-test || return $?
   fido_py tools/perf-evidence-validate.py --digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
   # (2b) BUDGET-EDGE integrity (§7.5): one owner in check-budget.sh (no Make variable), and both make check and
@@ -69,13 +71,13 @@ staged_all() {
   grep -qE 't0=\$\(date \+%s\)' "$ctx/.githooks/pre-commit" || { echo "fido: pre-commit — the staged hook no longer starts its complete-path timer"; return 1; }
   echo "fido: pre-commit — budget-edge integrity OK — one owner; make check + this hook both route through it; both time the complete path"
   sh "$ctx/tools/check-budget.sh" --self-test || return $?
-  # (3) the complete staged verification: proof gate + whole-tree Go e2e.
-  ( cd "$ctx"
-    docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target prover .
-    docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target go-e2e . ) || return $?
-  # (4) materialize the PRISTINE generated-module from the STAGED inputs and byte-compare it to the staged bytes.
-  docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target generated-artifact \
-    --output "type=local,dest=$tmp/pristine" "$ctx" || return $?
+  # (3) the complete staged verification: ONE verified BuildKit DAG (the staged helper against the staged
+  #     context/Dockerfile) performs proof, emit, Go, and artifact production — the final target requires both
+  #     the proof-audit and fresh-build markers, so a failed branch fails this one solve.
+  rm -rf "$tmp/pristine"
+  sh "$ctx/tools/build-verified-artifact.sh" --builder "$FIDO_BUILDER" --platform linux/amd64 \
+    --context "$ctx" --output "$tmp/pristine" || return $?
+  # (4) byte-compare the STAGED generated sources against the exact exported pristine artifact.
   sh "$ctx/tools/staged-generated-compare.sh" "$ctx" "$tmp/pristine" || return $?
 }
 

@@ -55,7 +55,7 @@ pytools: builder
 	$(call fido_mark,pytools)
 
 .PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants ledger perf-evidence perf-attribution profile perf pytools hostpython go-probe toolchain
+        diet mutants ledger perf-evidence perf-attribution graph-gate dag-guard profile perf pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -82,25 +82,26 @@ check:
 	    [ -z "$$FIDO_CHECK_TEST_SLEEP" ] || sleep "$$FIDO_CHECK_TEST_SLEEP"; \
 	    s=$$(date +%s); $(MAKE) --no-print-directory builder pytools || return $$?; \
 	    echo "fido: [check stage] builder+tools = $$(( $$(date +%s) - s ))s"; \
-	    s=$$(date +%s); $(MAKE) --no-print-directory hostpython diet mutants ledger perf-evidence || return $$?; \
+	    s=$$(date +%s); $(MAKE) --no-print-directory hostpython diet mutants ledger perf-evidence graph-gate || return $$?; \
 	    echo "fido: [check stage] policy gates = $$(( $$(date +%s) - s ))s"; \
-	    s=$$(date +%s); $(MAKE) --no-print-directory prove || return $$?; \
-	    echo "fido: [check stage] prove = $$(( $$(date +%s) - s ))s"; \
-	    s=$$(date +%s); $(MAKE) --no-print-directory e2e || return $$?; \
-	    echo "fido: [check stage] e2e = $$(( $$(date +%s) - s ))s"; \
-	    s=$$(date +%s); tmp=$$(mktemp -d); tree="$$tmp/tree"; mkdir -p "$$tree"; \
-	    { $(PYRUN) tools/worktree-list.py --self-test && \
-	      $(PYRUN) tools/worktree-list.py > "$$tmp/list.nul" && \
-	      tar --null -T "$$tmp/list.nul" -cf "$$tmp/tree.tar" && \
-	      tar -xf "$$tmp/tree.tar" -C "$$tree" && \
-	      sh tools/ocaml-origin-gate.sh    "$$tree" && \
-	      sh tools/generated-output-gate.sh "$$tree" && \
-	      docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target generated-artifact \
-	        --output "type=local,dest=$$tmp/pristine" . && \
-	      sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; }; \
-	    rc=$$?; rm -rf "$$tmp"; \
-	    echo "fido: [check stage] artifact-compare = $$(( $$(date +%s) - s ))s"; \
-	    if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — proved the core axiom-free (the coverage + layer-dependency gate + whole-theory audit + controls chain runs in prove) AND materialized the pristine generated-module (Fido Materialize) + validated it through go build ./... vs goldens (the internal sibling-temp sink exercised separately); the working-tree generated go.mod + recursive .go byte-match the pristine artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
+	    s=$$(date +%s); tmp=$$(mktemp -d); \
+	    sh tools/build-verified-artifact.sh --builder $(BUILDER) --platform $(PLATFORM) \
+	      --context . --output "$$tmp/pristine"; rc=$$?; \
+	    echo "fido: [check stage] verification-solve = $$(( $$(date +%s) - s ))s (one BuildKit DAG: theory-built -> proof-audit + emit -> go-e2e -> verified join -> artifact)"; \
+	    if [ $$rc -eq 0 ]; then \
+	      s=$$(date +%s); tree="$$tmp/tree"; mkdir -p "$$tree"; \
+	      { $(PYRUN) tools/worktree-list.py --self-test && \
+	        $(PYRUN) tools/worktree-list.py > "$$tmp/list.nul" && \
+	        tar --null -T "$$tmp/list.nul" -cf "$$tmp/tree.tar" && \
+	        tar -xf "$$tmp/tree.tar" -C "$$tree" && \
+	        sh tools/ocaml-origin-gate.sh    "$$tree" && \
+	        sh tools/generated-output-gate.sh "$$tree" && \
+	        sh tools/staged-generated-compare.sh "$$tree" "$$tmp/pristine"; }; \
+	      rc=$$?; \
+	      echo "fido: [check stage] artifact-compare = $$(( $$(date +%s) - s ))s"; \
+	    fi; \
+	    rm -rf "$$tmp"; \
+	    if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — ONE verified BuildKit DAG proved the core axiom-free (coverage + layer gate + whole-theory audit + controls in the proof branch) AND materialized the pristine generated-module + validated it through go build ./... vs goldens, the final artifact requiring BOTH branch markers; the working-tree generated go.mod + recursive .go byte-match the exported artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
 	    return $$rc; \
 	  }; \
 	  run_all; rc=$$?; dt=$$(( $$(date +%s) - t0 )); \
@@ -165,6 +166,10 @@ regenerate: builder
 
 # With go-e2e forced to FAIL on a temp Dockerfile copy, `--target sync` must be unbuildable, and on the
 # unmodified tree it must build — so `make regenerate` cannot publish without a passing go-e2e validation.
+# The one-DAG join guard: proof-fail / Go-fail / missing-marker each make the final artifact unbuildable.
+dag-guard: builder
+	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/dag-guard-test.sh
+
 regen-guard: builder
 	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/regen-guard-test.sh
 
@@ -207,6 +212,12 @@ perf-evidence: pytools
 	  c=$$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes); \
 	  $(PYRUN) tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c
 	$(call fido_mark,perf-evidence)
+
+# The one-build verification-DAG structural gate: Dockerfile/Make/hook topology only, never a build.
+graph-gate: pytools
+	@$(PYRUN) tools/build-graph-gate.py --self-test
+	@$(PYRUN) tools/build-graph-gate.py --root /repo
+	$(call fido_mark,graph-gate)
 
 # The detailed WitnessReject timing-attribution evidence: one pinned -time profile per fixture module, then the
 # deterministic committed classifier writes the full sentence/program/population/opportunity tables into
