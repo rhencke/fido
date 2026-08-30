@@ -1,12 +1,12 @@
 # CLASS: GENERATED_VIEW — population attribution; derived deterministically from witnessreject-sentences.tsv alone and byte-compared by the gates; no opportunity id, recommendation, saving, or reachability claim.
 basis	population	decl_count	total_secs	share_pct	largest_decl	largest_secs
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	VERDICT_ONLY	75	1.506	4.0	r_cx_mix	0.076
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	ISSUE_TABLE	4	11.329	29.7	d4_invalid_unsupported_coexist	8.077
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	CAUSE_VIEW	10	7.040	18.5	o_cx_typed_payload	2.660
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	GROUP_VIEW	4	4.796	12.6	r_redecl_usecontext	3.093
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	RAW_FACT_READER	2	0.320	0.8	reader_facts_kinds	0.161
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	EXACT_PROVENANCE	6	0.838	2.2	reader_index_compiled	0.270
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	EXACT_READER	15	7.528	19.8	d4_collision_redeclared_coexist	2.620
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	SHARED_PROGRAM_OR_HELPER	83	4.615	12.1	Fido	0.513
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	OTHER	2	0.042	0.1	dr_short_nonvar	0.042
-f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	UNCLASSIFIED	3	0.093	0.2	mm17_3_main_multiple_none	0.040
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	VERDICT_ONLY	75	1.514	4.0	r_const_count	0.074
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	ISSUE_TABLE	4	11.334	29.7	d4_invalid_unsupported_coexist	8.096
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	CAUSE_VIEW	10	7.032	18.4	o_cx_typed_payload	2.666
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	GROUP_VIEW	4	4.815	12.6	r_redecl_usecontext	3.109
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	RAW_FACT_READER	2	0.323	0.8	reader_facts_kinds	0.163
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	EXACT_PROVENANCE	6	0.844	2.2	reader_index_compiled	0.275
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	EXACT_READER	15	7.556	19.8	d4_collision_redeclared_coexist	2.635
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	SHARED_PROGRAM_OR_HELPER	83	4.615	12.1	Fido	0.498
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	OTHER	2	0.042	0.1	dr_short_nonvar	0.042
+2285bfc2ad59590280fa7331383e7221a71c2c86b7fcb41afceae46869cf34a6	UNCLASSIFIED	3	0.094	0.2	mm17_3_main_multiple_none	0.040
