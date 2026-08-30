@@ -28,7 +28,9 @@ from both documents; no compatibility path survives beside the new order.
 
 ## Bounded concurrent cleanup (closure point is this edit)
 
-- `.dockerignore`: delete only the extinct `make perf`/`.review/PERFORMANCE.tsv` comment and ignore entry.
+- `.dockerignore`: replace the extinct `make perf`/`.review/PERFORMANCE.tsv` comment and ignore entry with
+  `/.review/perf/runs/` and a live comment — append-only raw benchmark sessions are tracked review
+  evidence, never build inputs.
 - `.editorconfig`: replace the nonexistent `PROBE_ENVIRONMENT.tsv` example with a format-generic
   trailing-empty-field explanation; keep the `*.{tsv,csv}` rules.
 - `DECISIONS.md`: delete only the dated `Supersedes the prior PACKAGE-MAIN-CARRIER rule … 2026-08-19`
@@ -57,13 +59,17 @@ work stay frozen. `make check` on the pinned toolchain is the supported run.
 
 ## Candidate-bound performance evidence
 
-The authored non-evidence edits move the performance-input digest, so the final-candidate evidence is
-refreshed on the new basis through the existing supported workflow (`make perf-attribution`,
-`tools/perf-work-span.py` via the pinned container, `make perf-evidence`): one CURRENT basis tied to the
-implementation-freeze commit, the `comparison-baseline` row/graph retained, three fresh runs per scenario,
-every opportunity rebound to the new basis without a status change. The prior 102/27/102/25 medians remain
-in Git and the completion report as historical observations, never relabeled onto the new bytes. Every open
-opportunity stays open; unknown realistic savings stay unknown.
+Two-commit order, append-only. First commit the six-file governance implementation; then benchmark that
+exact clean commit and, in a later evidence-only commit, add exactly one immutable timestamped session
+file `.review/perf/runs/YYYYMMDDTHHMMSSZ-<12-hex-impl-commit>.tsv`. That file names the measured commit,
+tree, and performance-input digest, records three cold-to-immediate-warm and three staged pairs, and
+re-attests the unchanged opportunity ledger by path and SHA-256 (no status change). Every pre-existing
+performance basis, row, graph, derived view, and opportunity stays byte-identical — nothing is rebased,
+relabeled, or regenerated; the prior comparison medians remain honestly historical in the existing
+ledgers. `tools/performance-input-digest.sh` already excludes `.review/perf/*`, so the implementation and
+evidence commits share one performance-input digest. The only hard bound is the existing 120-second
+fail-closed budget; this slice carries no wall target and adds none. Every open opportunity stays open;
+unknown savings stay unknown.
 
 ## Stop conditions
 

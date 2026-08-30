@@ -788,6 +788,13 @@ population, so the exact series and its status/event bijection are checked befor
 Each event states its timing clock and native resolution (`HOST_SECONDS` / `PROC_UPTIME_10MS` /
 `BUILDKIT_LOG_OFFSET` / `DERIVED`) and no row may claim finer precision than its source. Raw measurement is
 the documented non-destructive scenario commands, never a publisher that overwrites candidate evidence.
+`.review/perf/runs/` is append-only raw session capture: every file names the clean implementation commit,
+tree, and performance-input digest it measured, the later evidence commit carries it, and it is never
+overwritten. The directory has no comparison-series, selection, accounting, opportunity-status,
+optimization, or acceptance authority — it is observation lineage, and the canonical ledgers remain the
+status authorities (a session record may hash and re-attest the unchanged opportunity ledger, never rebind
+or supersede a row). It is tracked in Git but excluded from the BuildKit context, so a raw session never
+perturbs the build.
 
 ---
 

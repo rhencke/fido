@@ -33,3 +33,5 @@ vendor/
 .DS_Store
 *.swp
 *.swo
+# Append-only raw benchmark sessions are tracked review evidence, never build inputs.
+/.review/perf/runs/
