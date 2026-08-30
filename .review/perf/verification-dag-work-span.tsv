@@ -4,17 +4,17 @@
 # comparison baseline and current cold RunKeys; the one-DAG DELTA is the current cold
 # standard median (even = mean of two middle) versus the verified historical representative.
 run	boundary	wall_span_s	aggregate_task_elapsed_s	critical_path_span_s	interval_union_span_s	temporal_overlap_s	work_outside_critical_path_s	unclassified_s
-final-cold-1	PROJECT_VERIFICATION	77.0	92.1	77.0	77.0	15.1	15.1	0.0
-final-cold-1	COMPLETE_PATH	100.0	115.1	100.0	100.0	15.1	15.1	0.0
-final-cold-2	PROJECT_VERIFICATION	75.0	90.5	75.0	75.0	15.5	15.5	0.0
-final-cold-2	COMPLETE_PATH	95.0	110.5	95.0	95.0	15.5	15.5	0.0
-final-cold-3	PROJECT_VERIFICATION	76.0	92.0	76.0	76.0	16.0	16.0	0.0
-final-cold-3	COMPLETE_PATH	95.0	111.0	95.0	95.0	16.0	16.0	0.0
 entry-cold-1	PROJECT_VERIFICATION	129.0	129.0	129.0	129.0	0.0	0.0	0.0
 entry-cold-1	COMPLETE_PATH	148.0	148.0	148.0	148.0	0.0	0.0	0.0
+final-cold-1	PROJECT_VERIFICATION	80.0	95.2	80.0	80.0	15.2	15.2	0.0
+final-cold-1	COMPLETE_PATH	102.0	117.2	102.0	102.0	15.2	15.2	0.0
+final-cold-2	PROJECT_VERIFICATION	79.0	94.2	79.0	79.0	15.2	15.2	0.0
+final-cold-2	COMPLETE_PATH	101.0	116.2	101.0	101.0	15.2	15.2	0.0
+final-cold-3	PROJECT_VERIFICATION	82.0	97.2	82.0	82.0	15.2	15.2	0.0
+final-cold-3	COMPLETE_PATH	105.0	120.2	105.0	105.0	15.2	15.2	0.0
 SERIES_HISTORICAL	entry-cold-1	cb7e58105b784a0ff047a43bb53e927d12938281c73b26e4e18a9d16ff4223a6	COLD_COMPLETE
 SERIES_CURRENT	final-cold-1,final-cold-2,final-cold-3	3	standard_median_of_COMPLETE_PATH_wall
-DELTA	onedag.complete_path.aggregate_work_reduction_pct	25.0						
-DELTA	onedag.complete_path.critical_span_reduction_pct	35.8						
-DELTA	onedag.project_verification.aggregate_work_reduction_pct	28.7						
-DELTA	onedag.project_verification.critical_span_reduction_pct	41.1						
+DELTA	onedag.complete_path.aggregate_work_reduction_pct	20.8						
+DELTA	onedag.complete_path.critical_span_reduction_pct	31.1						
+DELTA	onedag.project_verification.aggregate_work_reduction_pct	26.2						
+DELTA	onedag.project_verification.critical_span_reduction_pct	38.0						

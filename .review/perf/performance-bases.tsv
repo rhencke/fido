@@ -3,4 +3,4 @@
 # Exactly one CURRENT basis exists (the latest frozen candidate); everything else is HISTORICAL.
 basis_digest	source_commit	topology_id	status	purpose	notes
 cb7e58105b784a0ff047a43bb53e927d12938281c73b26e4e18a9d16ff4223a6	c13e3d574b8f5a4e46a11f6fb7b01117b47170b0	THREE_SOLVE_POST_CHUNKING_V1	HISTORICAL	the instrumented 148s three-solve entry run (the DAG contract's entry candidate; post-chunking fixtures)	verified from Git history: the run predated any DAG edit; scenario median across runs was 151s, range 148-159; the retained run is the fastest (lower-bound comparisons)
-c7563aa006d79060c7638f9e9b222cf4aeab48b4fa2e5988ca293c4d7ac077bf	d2f9c927a67d4d4cfb41ea42263d3367628a8302	ONE_DAG_CHUNK_TIMED_V2	CURRENT	exact-graph typed-metric freeze	three cold V2 event graphs + full profile on this basis
+f1a7d1c08db95ffae98ca33c83487fff0acae702f3134a4ea54362b78c98d4a6	003b360525504293f1dd6edf46812e81a85afa05	ONE_DAG_CHUNK_TIMED_V2	CURRENT	comparison-series freeze	three cold V2 graphs with direct PROC_UPTIME_10MS worker intervals + full profile
