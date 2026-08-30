@@ -1,0 +1,28 @@
+# class=RAW_BENCHMARK_SESSION
+# format_version=1
+# source_archive=fido-c4-runs-capture-5596a6f3.zip
+# source_archive_sha256=8b42f66f0429583006ab4dc84edfbf92c89f626a6987fa0ea93ee94696febea4
+# source_archive_comment_commit=5596a6fb655f0a18ff538155025b16dda3a88368
+# measured_commit=d8957d5ae2ae33ac4adcb972c425303b807268fe
+# measured_tree=6fce3c90fb9f6ddcb52264e939991d3c1bdc00ad
+# performance_input_digest=0b9206b3cca692872798231fd43f3168134600ad3a749b8f6209f6f0d421be9f
+# measured_dirty=no
+# session_started_at_utc=2026-08-30T22:48:55Z
+# hard_budget_seconds=120
+# opportunity_ledger=.review/PERFORMANCE_OPPORTUNITIES.tsv
+# opportunity_ledger_sha256=bef47335ef740123becf8f689421488a2946afd3830a2ab3645d31ee84f9364b
+# opportunity_reviewed_at_utc=2026-08-30T23:31:50Z
+# opportunity_disposition=UNCHANGED_ALL_STATUSES_AND_OPEN_DEBT_PRESERVED
+printf 'recorded_at_utc\tscenario\tcache_class\trepetition\tcommand\tcache_state\texit\twall_seconds\tcomplete_path\tdominant_profile_attribution\tmachine_toolchain\tnotes\n'
+2026-08-30T22:48:55Z	COLD_COMPLETE	project-cold	1	FIDO_PERF_COLD=1 make check	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	117	yes	verification-solve 92s; dominant emit 45.2s (fido-stage emit /proc/uptime)	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T22:50:52Z	WARM_COMPLETE	immediate-warm	1	make check	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run	0	28	yes	policy-gates 22s; solve CACHED 3s	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T22:53:39Z	COLD_COMPLETE	project-cold	2	FIDO_PERF_COLD=1 make check	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	109	yes	verification-solve 85s; dominant emit 44.8s	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T22:55:28Z	WARM_COMPLETE	immediate-warm	2	make check	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run	0	28	yes	policy-gates 22s; solve CACHED	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T22:55:58Z	COLD_COMPLETE	project-cold	3	FIDO_PERF_COLD=1 make check	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	111	yes	verification-solve 87s; dominant emit 45.1s	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T22:57:49Z	WARM_COMPLETE	immediate-warm	3	make check	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run	0	29	yes	policy-gates 22s; solve CACHED	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T22:58:38Z	STAGED_PRE_COMMIT	project-cold	1	FIDO_PERF_COLD=1 .githooks/pre-commit	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	115	yes	one project-cold staged solve (hook internal 115s)	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T23:00:33Z	STAGED_PRE_COMMIT	immediate-warm	1	.githooks/pre-commit	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run;prior=cold-staged	0	77	yes	staged gates; run 1 partial cache after the prune (77s wall)	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T23:10:36Z	STAGED_PRE_COMMIT	project-cold	2	FIDO_PERF_COLD=1 .githooks/pre-commit	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	109	yes	one project-cold staged solve (hook internal 109s)	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T23:12:25Z	STAGED_PRE_COMMIT	immediate-warm	2	.githooks/pre-commit	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run;prior=cold-staged	0	22	yes	staged gates warm	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T23:13:26Z	STAGED_PRE_COMMIT	project-cold	3	FIDO_PERF_COLD=1 .githooks/pre-commit	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	253	yes	honest cold overage: hook internal 135s over the 120s budget, warm-confirmed	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-08-30T23:17:39Z	STAGED_PRE_COMMIT	immediate-warm	3	.githooks/pre-commit	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run;prior=cold-staged	0	23	yes	staged gates warm	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
