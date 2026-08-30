@@ -62,7 +62,7 @@ staged_all() {
   fido_py tools/perf-work-span.py --self-test || return $?
   sh "$ctx/tools/verify-performance-bases.sh" "$ctx/.review/perf/performance-bases.tsv" || return $?
   fido_py tools/perf-work-span.py --root /repo --check-generated \
-    --current-digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
+    --current-digest "$pd" --evidence-changed "$pec" || return $?
   fido_py tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf || return $?
   fido_py tools/perf-evidence-validate.py --self-test || return $?
   fido_py tools/perf-evidence-validate.py --digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?

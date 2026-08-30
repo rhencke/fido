@@ -111,10 +111,10 @@ def run_self_test():
 
     checks = []
 
-    def run(bases=None, events=None, sents=None, digest=None, head=None, changed=False):
+    def run(bases=None, events=None, sents=None, digest=None, changed=False):
         findings, notices = [], []
         reg, current = pws.check_bases(bases if bases is not None else _base_rows(), findings)
-        pws.check_currency(current, digest, head, changed, findings, notices)
+        pws.check_currency(current, digest, changed, findings, notices)
         evs = events if events is not None else (_one_dag() + _three_solve())
         by_run = defaultdict(list)
         for e in evs:
@@ -212,9 +212,9 @@ def run_self_test():
                        mids['validation.solve_count']['value'] == 1
                        and mids['validation.dune_invocation_count']['value'] == 1))
 
-    def expect_fail(label, bases=None, events=None, sents=None, digest=None, head=None,
-                    changed=False, want=None):
-        f, _, _, _, _ = run(bases=bases, events=events, sents=sents, digest=digest, head=head,
+    def expect_fail(label, bases=None, events=None, sents=None, digest=None, changed=False,
+                    want=None):
+        f, _, _, _, _ = run(bases=bases, events=events, sents=sents, digest=digest,
                             changed=changed)
         ok = bool(f) and (want is None or any(want in x for x in f))
         checks.append((label, ok))
@@ -383,14 +383,12 @@ def run_self_test():
         dict(b, status='HISTORICAL') for b in _base_rows()], want='exactly one CURRENT')
     expect_fail('malformed registry digest', bases=[
         dict(b, basis_digest='xyz') if b['status'] == 'CURRENT' else b for b in _base_rows()])
-    expect_fail('CURRENT basis differing from the candidate digest', digest='9' * 64,
-                head='8' * 64, want='neither the candidate digest')
+    expect_fail('CURRENT basis differing from the candidate digest at publication',
+                digest='9' * 64, changed=True, want='evidence changed')
     expect_fail('historical basis promoted to CURRENT', bases=[
         dict(b, status='CURRENT' if b['basis_digest'] == DGH else 'HISTORICAL')
-        for b in _base_rows()], digest=DGC, want='neither the candidate digest')
-    expect_fail('evidence changed but CURRENT differs from the candidate digest',
-                digest='9' * 64, head=DGC, changed=True, want='evidence changed')
-    ok_hist, hn, _, _, _ = run(digest='9' * 64, head=DGC)
+        for b in _base_rows()], digest=DGC, changed=True, want='evidence changed')
+    ok_hist, hn, _, _, _ = run(digest='9' * 64)
     checks.append(('committed candidate basis honestly historical for an unfrozen tree',
                    not ok_hist and any('HISTORICAL' in x for x in hn)))
     ok_cur, cn, _, _, _ = run(digest=DGC)

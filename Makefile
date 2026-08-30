@@ -185,7 +185,7 @@ perf-evidence: pytools
 	  c=$$(sh tools/perf-evidence-changed.sh); \
 	  docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3 \
 	    tools/perf-work-span.py --root /repo --check-generated \
-	    --current-digest $$d --head-digest $$h --evidence-changed $$c && \
+	    --current-digest $$d --evidence-changed $$c && \
 	  docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3 \
 	    tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf && \
 	  $(PYRUN) tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c

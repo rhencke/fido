@@ -85,10 +85,10 @@ MUTANTS = (
      "    return max(visit(m) for m in list(members))",
      ('terminal-bound critical path differs from max-over-arbitrary-leaves',)),
 
-    (WORKSPAN, 'the currency join, so a foreign or promoted CURRENT basis cannot pass as historical',
-     "    elif head_digest and current == head_digest:",
-     "    elif True:",
-     ('CURRENT basis differing from the candidate digest',
+    (WORKSPAN, 'the publication currency bind, so a promoted or foreign CURRENT basis cannot publish',
+     "    elif evidence_changed:",
+     "    elif False:",
+     ('CURRENT basis differing from the candidate digest at publication',
       'historical basis promoted to CURRENT')),
 
     (GRAPH, 'the helper-one-solve law, so a hidden second solve inside the canonical helper is caught',

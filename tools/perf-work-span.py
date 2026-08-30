@@ -21,9 +21,10 @@ elapsed task time is the declared work proxy):
 
 Every boundary member must be reachable from the exact boundary start and reach the exact terminal; the
 terminal has no successor and no work leaf runs past it.  The one CURRENT registry basis is joined to the
-candidate digest under the same three-frame law the scenario validator uses (current / committed-historical
-/ foreign).  Reachability (the evidence-observation ceiling) uses measured per-worker intervals and
-same-basis sentence targets — no universal worker-load, serial-overhead, or wave constants.
+candidate digest: equal is CURRENT, unchanged-but-different is honestly HISTORICAL, and any change to the
+evidence content (the perf-evidence-changed projection) must bind CURRENT to the exact candidate digest.
+Reachability (the evidence-observation ceiling) uses measured per-worker intervals and same-basis sentence
+targets — no universal worker-load, serial-overhead, or wave constants.
 """
 import argparse
 import csv
@@ -140,22 +141,24 @@ def check_bases(bases, findings):
     return reg, (current[0] if current else None)
 
 
-def check_currency(current, current_digest, head_digest, evidence_changed, findings, notices):
-    """Join the registry CURRENT basis to the candidate digest (three-frame, like the scenario law)."""
+def check_currency(current, current_digest, evidence_changed, findings, notices):
+    """Join the registry CURRENT basis to the candidate digest.
+
+    Unchanged evidence on an earlier committed basis is honestly HISTORICAL; any change to the
+    evidence content (measurements, registry currency, raw rows — decided by the one
+    perf-evidence-changed projection) must bind CURRENT to the exact candidate digest, so a
+    promoted or fabricated CURRENT basis is rejected where it is published."""
     if not current or not current_digest:
         return
     if current == current_digest:
         notices.append('registry CURRENT basis equals the candidate digest — evidence is CURRENT')
     elif evidence_changed:
         findings.append(f'{BASES}: performance evidence changed but the CURRENT basis '
-                        f'{current[:12]} differs from the candidate digest {current_digest[:12]}')
-    elif head_digest and current == head_digest:
-        notices.append('registry CURRENT basis is the committed candidate digest; the proposed tree '
-                       'has not re-frozen — evidence is HISTORICAL for this exact tree')
+                        f'{current[:12]} differs from the candidate digest {current_digest[:12]} — '
+                        f'a promoted or foreign CURRENT basis is rejected at publication')
     else:
-        findings.append(f'{BASES}: CURRENT basis {current[:12]} is neither the candidate digest '
-                        f'{current_digest[:12]} nor the committed candidate digest — a promoted or '
-                        f'foreign CURRENT basis is rejected')
+        notices.append('registry CURRENT basis is an earlier committed candidate; the proposed tree '
+                       'has not re-frozen — evidence is HISTORICAL for this exact tree')
 
 
 # ---------------- exact event grammar ----------------
@@ -568,10 +571,10 @@ def gen_reachability(per, reach, metrics):
 
 
 # ---------------- validation entry ----------------
-def validate(root, current_digest=None, head_digest=None, evidence_changed=False):
+def validate(root, current_digest=None, evidence_changed=False):
     findings, notices = [], []
     reg, current = check_bases(read_tsv(root / BASES), findings)
-    check_currency(current, current_digest, head_digest, evidence_changed, findings, notices)
+    check_currency(current, current_digest, evidence_changed, findings, notices)
     events = read_tsv(root / EVENTS)
     by_run = defaultdict(list)
     for e in events:
@@ -633,10 +636,9 @@ def main():
     ap.add_argument('--report', action='store_true')
     ap.add_argument('--current-digest', default='',
                     help='the candidate performance-input digest (index for make, staged index for the '
-                         'hook); joined to the registry CURRENT basis under the three-frame law')
-    ap.add_argument('--head-digest', default='',
-                    help='digest of the committed HEAD tree — lets a committed candidate basis be '
-                         'honestly historical for a proposed tree that has not re-frozen')
+                         'hook); joined to the registry CURRENT basis — unchanged evidence on an '
+                         'earlier committed basis is honestly historical, changed evidence must bind '
+                         'exactly')
     ap.add_argument('--evidence-changed', choices=['yes', 'no'], default='no')
     ap.add_argument('--emit-tables', default='',
                     help='write the generated summaries + metric index here')
@@ -651,7 +653,7 @@ def main():
         return run_self_test()
     root = Path(args.root)
     findings, notices, reg, current, totals, per, reach, metrics = validate(
-        root, args.current_digest or None, args.head_digest or None,
+        root, args.current_digest or None,
         args.evidence_changed == 'yes')
     for n in notices:
         print('fido: perf-work-span — ' + n)
