@@ -1,4 +1,4 @@
-# full declaration-rolled sentence profile — every profiled sentence attributed, never top-N
+# CLASS: RAW_MEASUREMENT — full declaration-rolled sentence profile: every profiled sentence attributed, never top-N
 basis	file	line_start	line_end	name	kind	secs	tactic	goal_head	program_key	population	notes
 2fa0d9114ba3e96982e79d510ad6fc6b21c008dac6c372ebd0c1f6f0fa3bd486	e2e/WitnessRejectPrelude.v	0	0	(file preamble)	preamble	0.0				SHARED_PROGRAM_OR_HELPER	
 2fa0d9114ba3e96982e79d510ad6fc6b21c008dac6c372ebd0c1f6f0fa3bd486	e2e/WitnessRejectPrelude.v	3	3	Stdlib	From	0.239				SHARED_PROGRAM_OR_HELPER	

@@ -4,7 +4,8 @@
 # The budget value lives ONLY here (BUDGET_SECONDS): there is no Make variable and no second constant, so an
 # ordinary `make CHECK_BUDGET_SECONDS=… check` cannot raise it.  Both `make check` and the pre-commit hook time
 # a warmed successful verification and call `check-budget.sh <elapsed>`; the budget they apply is this one.
-# `.review/PERFORMANCE.tsv` is a `make perf` diagnostic and is NOT consulted here.
+# `.review/PERFORMANCE.tsv` is candidate-bound scenario evidence (validated by `make perf-evidence`)
+# and is NOT consulted here.
 #
 # Usage:
 #   check-budget.sh <elapsed_seconds>   exit 0 within budget · exit 1 over (prints guidance) · exit 3 malformed

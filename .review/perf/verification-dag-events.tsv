@@ -1,4 +1,4 @@
-# Normalized measurement events. Every basis is registered in performance-bases.tsv and verified against
+# CLASS: RAW_MEASUREMENT — normalized measurement events. Every basis is registered in performance-bases.tsv and verified against
 # its exact source commit in the gate; the required-event grammar of the registered topology is enforced,
 # so a required proof/emit/Go/join/compare/solve/Dune event cannot be omitted; the governing totals are
 # computed ONLY by tools/perf-work-span.py from these intervals and declared predecessors.

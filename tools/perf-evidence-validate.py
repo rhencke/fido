@@ -40,7 +40,7 @@ OPP_STATUS = ('OPEN_MATERIAL', 'IMPLEMENTED', 'REJECTED_MEASURED', 'REJECTED_BY_
               'IMMATERIAL', 'SUPERSEDED', 'BLOCKED_EXTERNAL')
 
 PERF_COLS = ['scenario', 'relation', 'digest', 'command', 'cores', 'memory', 'boundary',
-             'toolchain', 'cache', 'exit', 'wall_s', 'complete', 'dominant', 'notes']
+             'toolchain', 'cache', 'exit', 'wall_s', 'complete', 'dominant', 'notes', 'run_id']
 OPP_COLS = ['id', 'basis', 'class', 'status', 'affected', 'work_gain', 'span_gain', 'hotspot',
             'constraints', 'commit', 'result', 'revisit']
 HEX64 = re.compile(r'^[0-9a-f]{64}$')
@@ -180,11 +180,13 @@ def check_opps(text, mdigests, findings, summary_ids, derived_refs=None):
                 findings.append(f'{OPPS}:{i}: {gf} must use an explicit evidence form '
                                 '(DERIVED:/MEASURED:/QUALITATIVE:/UNKNOWN_NOT_MEASURED:/NOT_APPLICABLE:)')
             elif v.startswith('DERIVED:'):
-                parts = v.split(':', 2)
-                if len(parts) < 3 or not parts[1].strip() or not parts[2].strip():
-                    findings.append(f'{OPPS}:{i}: {gf} DERIVED reference needs DERIVED:<file>:<metric>')
+                ref = v.split(':', 1)[1].strip()
+                if not re.fullmatch(r'[a-z0-9_.-]+', ref):
+                    findings.append(f'{OPPS}:{i}: {gf} DERIVED reference must be DERIVED:<metric_id> '
+                                    f'(exact typed metric id — filename/substring resolution and '
+                                    f'copied numbers beside the reference are retired)')
                 else:
-                    derived_refs.append((i, gf, parts[1].strip(), parts[2].strip()))
+                    derived_refs.append((i, gf, ref, row['basis'].strip()))
         if not row['basis'].strip():
             findings.append(f'{OPPS}:{i}: empty measurement basis')
         if row['status'] == 'IMPLEMENTED' and row['commit'] in ('', 'n/a'):
@@ -200,7 +202,7 @@ def check_opps(text, mdigests, findings, summary_ids, derived_refs=None):
 
 
 # single-arithmetic-owner law: raw attribution derives nothing, no second opportunity projection, and
-# exactly one longest-path implementation exists (the accounting engine's).
+# exactly one terminal-bound longest-path implementation exists (the accounting engine's).
 FORBIDDEN_ATTRIBUTION_TOKENS = ('OPPS_OF', 'bundle_reachable', 'candidate_optimization', 'max_saving',
                                 'chunk_wall_target')
 
@@ -219,7 +221,7 @@ def check_single_owner(root, findings):
                                 f'token {tok} — the attribution tool is raw classification only')
     tools_dir = os.path.join(root, 'tools')
     if os.path.isdir(tools_dir):
-        needle = 'def longest' + '_path'
+        needle = 'def terminal' + '_path'
         n = sum(open(os.path.join(tools_dir, f), encoding='utf-8').read().count(needle)
                 for f in os.listdir(tools_dir) if f.endswith('.py'))
         if n != 1:
@@ -227,32 +229,116 @@ def check_single_owner(root, findings):
                             f'the accounting engine')
 
 
+# ---------- the typed metric index (consumed, never recomputed) ----------
+METRIC_INDEX = '.review/perf/performance-derived-metrics.tsv'
+METRIC_KINDS = ('WORK', 'SPAN', 'COUNT', 'RATIO', 'BOUND')
+# gain-compatibility is exact typed matching: a WORK metric or a work-subject RATIO satisfies
+# work_gain; a SPAN metric or a span-subject RATIO satisfies span_gain; COUNT/BOUND satisfy neither
+WORK_RATIO_SCOPES = ('/aggregate_work',)
+SPAN_RATIO_SCOPES = ('/critical_span', '/wall')
+
+
+def read_metric_index(text, findings):
+    metrics = {}
+    for i, r in enumerate(rows(text), 1):
+        if len(r) != 8:
+            findings.append(f'{METRIC_INDEX}:{i}: {len(r)} fields, expected 8')
+            continue
+        m: dict = {k: v for k, v in zip(('metric_id', 'metric_kind', 'basis', 'scope', 'statistic',
+                                         'unit', 'value', 'source'), r)}
+        if m['metric_id'] in metrics:
+            findings.append(f'{METRIC_INDEX}:{i}: duplicate metric id {m["metric_id"]!r}')
+        if m['metric_kind'] not in METRIC_KINDS:
+            findings.append(f'{METRIC_INDEX}:{i}: unknown metric kind {m["metric_kind"]!r}')
+        if not HEX64.match(m['basis']):
+            findings.append(f'{METRIC_INDEX}:{i}: metric basis is not a 64-hex digest')
+        if m['unit'] not in ('ms', 's', 'pct', 'count'):
+            findings.append(f'{METRIC_INDEX}:{i}: unknown unit {m["unit"]!r}')
+        try:
+            m['value_num'] = float(m['value'])
+        except ValueError:
+            findings.append(f'{METRIC_INDEX}:{i}: non-numeric value {m["value"]!r}')
+            m['value_num'] = None
+        metrics[m['metric_id']] = m
+    return metrics
+
+
+def check_derived_refs(derived_refs, metrics, findings):
+    for i, gf, mid, opp_basis in derived_refs:
+        m = metrics.get(mid)
+        if m is None:
+            findings.append(f'{OPPS}:{i}: {gf} DERIVED reference {mid!r} is not in the generated '
+                            f'metric index')
+            continue
+        kind, scope = m['metric_kind'], m['scope']
+        if gf == 'work_gain':
+            ok = kind == 'WORK' or (kind == 'RATIO' and scope.endswith(WORK_RATIO_SCOPES))
+        else:
+            ok = kind == 'SPAN' or (kind == 'RATIO' and scope.endswith(SPAN_RATIO_SCOPES))
+        if not ok:
+            findings.append(f'{OPPS}:{i}: {gf} references {mid} of kind {kind} (scope {scope}) — '
+                            f'a work gain may cite only a WORK metric or a work-subject ratio, a '
+                            f'span gain only a SPAN metric or a span-subject ratio')
+        if m['unit'] not in ('ms', 's', 'pct'):
+            findings.append(f'{OPPS}:{i}: {gf} references {mid} with unit {m["unit"]!r} — not a '
+                            f'gain-compatible unit')
+        if opp_basis != m['basis']:
+            findings.append(f'{OPPS}:{i}: {gf} opportunity basis {opp_basis[:12]} differs from the '
+                            f'metric basis {m["basis"][:12]} — a current opportunity cannot cite a '
+                            f'foreign or historical metric')
+
+
+def check_run_links(perf_text, metrics, findings):
+    """Current cold scenario rows and current cold event graphs are 1:1 by exact run_id."""
+    run_metrics = {mid.split('.')[1]: m for mid, m in metrics.items()
+                   if mid.startswith('run.') and mid.endswith('.complete_path.wall_span_ms')}
+    linked = set()
+    for i, r in enumerate(rows(perf_text), 1):
+        if len(r) != len(PERF_COLS):
+            continue
+        row = dict(zip(PERF_COLS, r))
+        if row['relation'] != 'final-candidate' or row['scenario'] != 'COLD_COMPLETE':
+            continue
+        rid = row['run_id'].strip()
+        m = run_metrics.get(rid)
+        if m is None:
+            findings.append(f'{PERF}:{i}: run_id {rid!r} has no generated complete-wall metric — '
+                            f'every cold scenario row names and links exactly one current event graph')
+            continue
+        linked.add(rid)
+        if m['value_num'] is not None and abs(float(row['wall_s']) * 1000 - m['value_num']) > 1500:
+            findings.append(f'{PERF}:{i}: wall {row["wall_s"]}s disagrees with the generated '
+                            f'COMPLETE_PATH wall {m["value_num"]:.0f}ms for {rid}')
+        if m['basis'] != row['digest']:
+            findings.append(f'{PERF}:{i}: run {rid} basis {row["digest"][:12]} differs from the '
+                            f'generated metric basis {m["basis"][:12]}')
+    for rid in sorted(set(run_metrics) - linked):
+        findings.append(f'{PERF}: current cold event graph {rid} has no linked scenario row — the '
+                        f'median must use exactly the linked runs, never a selected subset')
+
+
 # the one-DAG IMPLEMENTED claim stands only while the generated comparable lower-bound work reduction
 # holds its required floor (§ one-DAG status: below it the claim is a false success, not a smaller one)
 ONEDAG_ID = 'PERF-ORCH-ONE-VERIFICATION-DAG'
 ONEDAG_MIN_PCT = 15.0
-WS_SUMMARY = '.review/perf/verification-dag-work-span.tsv'
+ONEDAG_METRIC = 'onedag.project_verification.aggregate_work_reduction_pct'
 
 
-def check_onedag_bound(root, opp_text, findings):
+def check_onedag_bound(opp_text, metrics, findings):
     implemented = any(
         (f := ln.split('\t'))[0] == ONEDAG_ID and len(f) > 3 and f[3] == 'IMPLEMENTED'
         for ln in opp_text.splitlines() if ln and not ln.startswith('#'))
-    ws = os.path.join(root, WS_SUMMARY)
-    if not implemented or not os.path.exists(ws):
+    if not implemented:
         return
-    for ln in open(ws, encoding='utf-8'):
-        f = ln.rstrip('\n').split('\t')
-        if len(f) >= 3 and f[0] == 'DELTA' and f[1] == 'PROJECT_VERIFICATION_work_reduction_pct':
-            try:
-                v = float(f[2])
-            except ValueError:
-                findings.append(f'{WS_SUMMARY}: non-numeric PROJECT_VERIFICATION_work_reduction_pct')
-                return
-            if v < ONEDAG_MIN_PCT:
-                findings.append(f'{OPPS}: {ONEDAG_ID} claims IMPLEMENTED but the generated '
-                                f'PROJECT_VERIFICATION work reduction is {v}% — below the required '
-                                f'{ONEDAG_MIN_PCT}% lower bound (a false success claim)')
+    m = metrics.get(ONEDAG_METRIC)
+    if m is None or m['value_num'] is None:
+        findings.append(f'{OPPS}: {ONEDAG_ID} claims IMPLEMENTED but the generated metric index '
+                        f'carries no {ONEDAG_METRIC}')
+        return
+    if m['value_num'] < ONEDAG_MIN_PCT:
+        findings.append(f'{OPPS}: {ONEDAG_ID} claims IMPLEMENTED but the generated '
+                        f'PROJECT_VERIFICATION work reduction is {m["value_num"]}% — below the '
+                        f'required {ONEDAG_MIN_PCT}% lower bound (a false success claim)')
 
 
 def validate(root, digest, head_digest='', evidence_changed=False):
@@ -274,14 +360,15 @@ def validate(root, digest, head_digest='', evidence_changed=False):
     derived_refs = []
     opp_text = open(opp_path, encoding='utf-8').read()
     check_opps(opp_text, mdigests, findings, summary_ids, derived_refs)
-    check_onedag_bound(root, opp_text, findings)
-    # every DERIVED reference must resolve: the generated file exists and carries the named metric/row
-    for i, gf, fname, metric in derived_refs:
-        gp = os.path.join(root, '.review/perf', fname)
-        if not os.path.exists(gp):
-            findings.append(f'{OPPS}:{i}: {gf} DERIVED reference names a missing generated file {fname}')
-        elif metric not in open(gp, encoding='utf-8').read():
-            findings.append(f'{OPPS}:{i}: {gf} DERIVED metric {metric!r} not found in {fname}')
+    # the typed metric index is the sole DERIVED resolution authority — no substring, no recompute
+    mi_path = os.path.join(root, METRIC_INDEX)
+    if not os.path.exists(mi_path):
+        findings.append(f'{METRIC_INDEX}: missing generated metric index')
+    else:
+        metrics = read_metric_index(open(mi_path, encoding='utf-8').read(), findings)
+        check_derived_refs(derived_refs, metrics, findings)
+        check_run_links(open(perf_path, encoding='utf-8').read(), metrics, findings)
+        check_onedag_bound(opp_text, metrics, findings)
     # every OPEN_MATERIAL opportunity must be visible in the current summary block of the measurement file
     perf_text = open(perf_path, encoding='utf-8').read()
     for oid in sorted(summary_ids):
@@ -292,7 +379,9 @@ def validate(root, digest, head_digest='', evidence_changed=False):
 
 # ---------- adversarial self-test ----------
 CLEAN_PERF = ('# perf evidence (fixture)\n'
-              'scenario\trelation\tdigest\tcommand\tcores\tmemory\tboundary\ttoolchain\tcache\texit\twall_s\tcomplete\tdominant\tnotes\n')
+              'scenario\trelation\tdigest\tcommand\tcores\tmemory\tboundary\ttoolchain\tcache\texit\twall_s\tcomplete\tdominant\tnotes\trun_id\n')
+CLEAN_MI = ('# metric index (fixture)\n'
+            'metric_id\tmetric_kind\tbasis\tscope\tstatistic\tunit\tvalue\tsource\n')
 CLEAN_OPP = ('# opportunities (fixture)\n'
              'id\tbasis\tclass\tstatus\taffected\twork_gain\tspan_gain\thotspot\tconstraints\tcommit\tresult\trevisit\n')
 DG = 'a' * 64
@@ -302,9 +391,18 @@ def _perf_row(**kw):
     d = dict(scenario='COLD_COMPLETE', relation='tooling-baseline', digest=DG, command='make check',
              cores='4', memory='class-A', boundary='container', toolchain='sha256:abcd',
              cache='builder=x;project=cold;dune-build=cold;dune-cache=off;buildkit=off;base=warm;prior=none',
-             exit='0', wall_s='89', complete='yes', dominant='e2e', notes='-')
+             exit='0', wall_s='89', complete='yes', dominant='e2e', notes='-', run_id='-')
     d.update(kw)
     return '\t'.join(d[c] for c in PERF_COLS)
+
+
+def _mi_row(**kw):
+    d = dict(metric_id='evidence_observation.max_aggregate_work_saving_ms', metric_kind='WORK',
+             basis=DG, scope='chunk-A..D/aggregate_work', statistic='median', unit='ms',
+             value='23157', source='fixture')
+    d.update(kw)
+    return '\t'.join(d[c] for c in ('metric_id', 'metric_kind', 'basis', 'scope', 'statistic',
+                                    'unit', 'value', 'source'))
 
 
 def _opp_row(**kw):
@@ -323,23 +421,39 @@ def self_test():
     controls = 0
     fails = 0
 
-    def run(perf_body, opp_body, digest=DG, head='', changed=False):
+    def run(perf_body, opp_body, digest=DG, head='', changed=False, mi_body=None):
         f = []
         notices = []
         summary = set()
         mds = set()
+        refs = []
         check_perf(CLEAN_PERF + perf_body, digest, f, mds, head, notices, changed)
-        check_opps(CLEAN_OPP + opp_body, mds, f, summary)
+        check_opps(CLEAN_OPP + opp_body, mds, f, summary, refs)
+        default_mi = (_mi_row() + '\n'
+                      + _mi_row(metric_id='run.final-1.complete_path.wall_span_ms',
+                                metric_kind='SPAN',
+                                scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall',
+                                statistic='measured', value='89000') + '\n')
+        metrics = read_metric_index(CLEAN_MI + (mi_body if mi_body is not None else default_mi), f)
+        check_derived_refs(refs, metrics, f)
+        check_run_links(CLEAN_PERF + perf_body, metrics, f)
+        check_onedag_bound(CLEAN_OPP + opp_body, metrics, f)
         for oid in summary:
             if oid not in (CLEAN_PERF + perf_body):
                 f.append(f'summary omits {oid}')
         return f, notices
 
     # the clean fixture: all three scenarios present for BOTH required relations (a baseline-only file is
-    # itself a defect), the OPEN_MATERIAL opportunity named in a summary comment
+    # itself a defect), the cold final row exactly linked to its event graph via run_id, and the
+    # OPEN_MATERIAL opportunity named in a summary comment
+    cold_final = _perf_row(scenario='COLD_COMPLETE', relation='final-candidate', run_id='final-1')
+    run_mi = _mi_row(metric_id='run.final-1.complete_path.wall_span_ms', metric_kind='SPAN',
+                     scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall', statistic='measured',
+                     value='89000')
     clean_perf = ('\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n'
-                  + '\n'.join(_perf_row(scenario=s, relation='final-candidate')
-                               for s in REQUIRED_OF['final-candidate'])
+                  + '\n'.join(cold_final if s == 'COLD_COMPLETE'
+                              else _perf_row(scenario=s, relation='final-candidate')
+                              for s in REQUIRED_OF['final-candidate'])
                   + '\n# summary: PERF-COMP-X\n')
     cf, cn = run(clean_perf, _opp_row() + '\n')
     if cf:
@@ -359,13 +473,13 @@ def self_test():
 
     cases = [
         ('incomplete path cannot satisfy required scenario coverage',
-         '\n'.join(_perf_row(scenario=x, relation='final-candidate') for x in REQUIRED_OF['final-candidate'])
-         + '\n' + _perf_row(scenario='COLD_COMPLETE', relation='final-candidate', exit='0', complete='no')
-         + '\n' + '\n'.join(_perf_row(scenario=x) for x in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
+         clean_perf.replace('# summary',
+                            _perf_row(scenario='COLD_COMPLETE', relation='final-candidate',
+                                      exit='0', complete='no', run_id='final-1') + '\n# summary'),
          _opp_row() + '\n'),
         ('baseline-only file passes as current evidence',
          '\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
-         _opp_row() + '\n'),
+         _opp_row() + '\n', dict(mi_body=_mi_row() + '\n')),
         ('missing scenario (only COLD)', _perf_row(scenario='COLD_COMPLETE') + '\n', _opp_row(status='IMPLEMENTED', commit='deadbeef') + '\n'),
         ('unknown scenario', _perf_row(scenario='NOPE') + '\n', _opp_row(status='IMPLEMENTED', commit='deadbeef') + '\n'),
         ('unknown status', clean_perf, _opp_row(status='NOPE') + '\n'),
@@ -375,10 +489,17 @@ def self_test():
         ('missing machine identity', _perf_row(scenario='COLD_COMPLETE', memory='') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('failed path presented as passing', _perf_row(scenario='COLD_COMPLETE', exit='1', complete='yes') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('published final-candidate rows bound to a basis other than the one measured',
-         '\n'.join(_perf_row(scenario=x, relation='final-candidate', digest='b' * 64)
+         '\n'.join(_perf_row(scenario=x, relation='final-candidate', digest='b' * 64,
+                             run_id='final-1' if x == 'COLD_COMPLETE' else '-')
                     for x in REQUIRED_OF['final-candidate'])
          + '\n' + '\n'.join(_perf_row(scenario=x) for x in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
-         _opp_row(basis='b' * 64) + '\n', dict(changed=True)),
+         _opp_row(basis='b' * 64, work_gain='MEASURED:~24s at basis b',
+                  span_gain='MEASURED:~5s at basis b') + '\n',
+         dict(changed=True,
+              mi_body=_mi_row(metric_id='run.final-1.complete_path.wall_span_ms',
+                              metric_kind='SPAN', basis='b' * 64,
+                              scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall',
+                              statistic='measured', value='89000') + '\n')),
         ('malformed digest', _perf_row(scenario='COLD_COMPLETE', digest='xyz') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('IMPLEMENTED without commit', clean_perf, _opp_row(status='IMPLEMENTED', commit='n/a') + '\n'),
         ('OPEN_MATERIAL omitted from summary', '\n'.join(_perf_row(scenario=s) for s in SCENARIOS) + '\n', _opp_row(id='PERF-ORCH-Y') + '\n'),
@@ -388,8 +509,59 @@ def self_test():
          _opp_row(span_gain='QUALITATIVE:see work_gain; span not separately claimed') + '\n'),
         ('gain without an explicit evidence form', clean_perf,
          _opp_row(work_gain='30s faster') + '\n'),
-        ('DERIVED reference without file and metric', clean_perf,
-         _opp_row(work_gain='DERIVED:only-a-file') + '\n'),
+        ('filename/substring DERIVED resolution retired', clean_perf,
+         _opp_row(work_gain='DERIVED:verification-dag-work-span.tsv:PROJECT_VERIFICATION') + '\n'),
+        ('copied current number beside a DERIVED reference', clean_perf,
+         _opp_row(work_gain='DERIVED:evidence_observation.max_aggregate_work_saving_ms (23157ms)')
+         + '\n'),
+        ('work_gain pointing to a wall-saving SPAN metric', clean_perf,
+         _opp_row(work_gain='DERIVED:evidence_observation.median_max_complete_path_wall_saving_ms')
+         + '\n',
+         dict(mi_body=run_mi + '\n'
+              + _mi_row(metric_id='evidence_observation.median_max_complete_path_wall_saving_ms',
+                        metric_kind='SPAN', scope='COMPLETE_PATH/wall', value='4693') + '\n')),
+        ('span_gain pointing to an aggregate-work WORK metric', clean_perf,
+         _opp_row(span_gain='DERIVED:evidence_observation.max_aggregate_work_saving_ms') + '\n'),
+        ('missing metric id', clean_perf,
+         _opp_row(work_gain='DERIVED:onedag.nonexistent.metric') + '\n'),
+        ('duplicate metric id in the index', clean_perf, _opp_row() + '\n',
+         dict(mi_body=run_mi + '\n' + _mi_row() + '\n' + _mi_row() + '\n')),
+        ('wrong metric kind for a gain (COUNT)', clean_perf,
+         _opp_row(work_gain='DERIVED:validation.solve_count') + '\n',
+         dict(mi_body=run_mi + '\n' + _mi_row(metric_id='validation.solve_count',
+                                              metric_kind='COUNT', scope='topology', unit='count',
+                                              value='1') + '\n')),
+        ('wrong metric unit for a gain', clean_perf,
+         _opp_row(work_gain='DERIVED:evidence_observation.max_aggregate_work_saving_ms') + '\n',
+         dict(mi_body=run_mi + '\n' + _mi_row(unit='count') + '\n')),
+        ('current opportunity pointing to a foreign-basis metric', clean_perf,
+         _opp_row(work_gain='DERIVED:evidence_observation.max_aggregate_work_saving_ms') + '\n',
+         dict(mi_body=run_mi + '\n' + _mi_row(basis='b' * 64) + '\n')),
+        ('a work-subject RATIO cannot satisfy span_gain', clean_perf,
+         _opp_row(span_gain='DERIVED:onedag.project_verification.aggregate_work_reduction_pct')
+         + '\n',
+         dict(mi_body=run_mi + '\n'
+              + _mi_row(metric_id='onedag.project_verification.aggregate_work_reduction_pct',
+                        metric_kind='RATIO', scope='PROJECT_VERIFICATION/aggregate_work',
+                        unit='pct', value='27.6') + '\n')),
+        ('cold scenario row without an exact run link',
+         clean_perf.replace(cold_final, _perf_row(scenario='COLD_COMPLETE',
+                                                  relation='final-candidate', run_id='-')),
+         _opp_row() + '\n'),
+        ('run_id naming an absent complete-wall metric',
+         clean_perf.replace(cold_final, _perf_row(scenario='COLD_COMPLETE',
+                                                  relation='final-candidate', run_id='ghost-1')),
+         _opp_row() + '\n'),
+        ('scenario wall disagreeing with the generated complete wall',
+         clean_perf.replace(cold_final, _perf_row(scenario='COLD_COMPLETE',
+                                                  relation='final-candidate', run_id='final-1',
+                                                  wall_s='120')),
+         _opp_row() + '\n'),
+        ('an unlinked current cold event graph (best-run selection)', clean_perf, _opp_row() + '\n',
+         dict(mi_body=run_mi + '\n' + _mi_row() + '\n'
+              + _mi_row(metric_id='run.final-9.complete_path.wall_span_ms', metric_kind='SPAN',
+                        scope='COLD_COMPLETE/final-9/COMPLETE_PATH/wall', statistic='measured',
+                        value='96000') + '\n')),
     ]
     for case in cases:
         label, perf_body, opp_body = case[0], case[1], case[2]
@@ -411,7 +583,7 @@ def self_test():
             os.makedirs(os.path.join(d, 'tools'))
             # the clean baseline: exactly one engine implementation, nothing else
             open(os.path.join(d, 'tools/perf-work-span.py'), 'w').write(
-                'def longest' + '_path():\n    pass\n')
+                'def terminal' + '_path():\n    pass\n')
             clean = []
             check_single_owner(d, clean)
             if clean:
@@ -432,31 +604,33 @@ def self_test():
         os.path.join(d, 'tools/witness-profile-attribution.py'), 'w').write('OPPS_OF = {}\n'),
         'forbidden derived-judgment token')
     owner_case('a second longest-path implementation', lambda d: open(
-        os.path.join(d, 'tools/peer.py'), 'w').write('def longest' + '_path():\n    pass\n'),
+        os.path.join(d, 'tools/peer.py'), 'w').write('def terminal' + '_path():\n    pass\n'),
         'longest-path implementation')
 
-    # the one-DAG floor: an IMPLEMENTED claim over a generated reduction below 15% is a false success
+    # the one-DAG floor: an IMPLEMENTED claim over a generated typed reduction below 15% is a
+    # false success (the metric index, never the human summary, is the resolution authority)
     controls += 1
-    with tempfile.TemporaryDirectory() as d:
-        os.makedirs(os.path.join(d, '.review/perf'))
-        open(os.path.join(d, WS_SUMMARY), 'w').write(
-            'run\tlevel\twall_span_s\nDELTA\tPROJECT_VERIFICATION_work_reduction_pct\t12.0\n')
-        opp = (ONEDAG_ID + '\t' + DG + '\tORCHESTRATION\tIMPLEMENTED\tcold\tDERIVED:x:y\t'
-               'DERIVED:x:y\th\tc\tabc123\tr\tn/a\n')
-        f = []
-        check_onedag_bound(d, opp, f)
-        good = []
-        check_onedag_bound(d, opp.replace('\tIMPLEMENTED\t', '\tREJECTED_MEASURED\t'), good)
-        if not any('below the required' in x for x in f) or good:
-            print('  FAIL  one-DAG IMPLEMENTED below its lower-bound reduction — not caught through '
-                  f'its own rule (got {f}; non-implemented control got {good})')
-            fails += 1
+    low = read_metric_index(
+        CLEAN_MI + _mi_row(metric_id=ONEDAG_METRIC, metric_kind='RATIO',
+                           scope='PROJECT_VERIFICATION/aggregate_work', unit='pct',
+                           value='12.0') + '\n', [])
+    opp = (ONEDAG_ID + '\t' + DG + '\tORCHESTRATION\tIMPLEMENTED\tcold\tDERIVED:' + ONEDAG_METRIC
+           + '\tDERIVED:x\th\tc\tabc123\tr\tn/a\n')
+    f = []
+    check_onedag_bound(opp, low, f)
+    good = []
+    check_onedag_bound(opp.replace('\tIMPLEMENTED\t', '\tREJECTED_MEASURED\t'), low, good)
+    if not any('below the required' in x for x in f) or good:
+        print('  FAIL  one-DAG IMPLEMENTED below its lower-bound reduction — not caught through '
+              f'its own rule (got {f}; non-implemented control got {good})')
+        fails += 1
     if fails:
         raise SystemExit(f'perf-evidence self-test: {fails} defect class(es) not caught')
     print(f'fido: perf-evidence-validate self-test OK — {controls} adversarial controls '
-          '(successful-complete coverage incl. the complete=no and baseline-only adversaries, enums, '
-          'cache/machine identity, three-way basis binding, opportunity currentness) '
-          '+ clean current and basis-moved fixtures accepted with honest wording')
+          '(successful-complete coverage, enums, cache/machine identity, three-way basis binding, '
+          'typed DERIVED metric resolution incl. kind/basis/unit swaps, exact run links, the one-DAG '
+          'floor, opportunity currentness) + clean current and basis-moved fixtures accepted with '
+          'honest wording')
 
 
 def main():

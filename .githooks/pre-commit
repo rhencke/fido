@@ -50,18 +50,20 @@ staged_all() {
   fido_py tools/host-python-gate.py --root /repo --self-test || return $?
   fido_py tools/host-python-gate.py --root /repo || return $?
   # (2a2) staged performance-evidence currentness: the digest of the exact STAGED INDEX, the committed HEAD
-  #       digest, and whether the proposed commit itself changes the evidence files — all fed to the STAGED
-  #       validator over the STAGED evidence bytes and the STAGED digest algorithm.  Malformed evidence, an
+  #       digest, and whether the proposed commit changes the MEASUREMENT CONTENT (the projection owned by
+  #       tools/perf-evidence-changed.sh) — all fed to the STAGED validator and engine.  Malformed evidence, an
   #       incomplete required row, missing final-candidate coverage, or newly published rows bound to any
   #       basis but the staged one fail HERE, before proof/e2e publication.  No benchmark runs in the hook.
   pd=$(sh "$ctx/tools/performance-input-digest.sh") || return $?
   ph=$(sh "$ctx/tools/performance-input-digest.sh" --head) || return $?
-  pec=$(git diff --cached --quiet -- .review/PERFORMANCE.tsv && echo no || echo yes)
+  pec=$(sh "$ctx/tools/perf-evidence-changed.sh")
   fido_py tools/build-graph-gate.py --self-test || return $?
   fido_py tools/build-graph-gate.py --root /repo || return $?
   fido_py tools/perf-work-span.py --self-test || return $?
   sh "$ctx/tools/verify-performance-bases.sh" "$ctx/.review/perf/performance-bases.tsv" || return $?
-  fido_py tools/perf-work-span.py --root /repo --check-generated || return $?
+  fido_py tools/perf-work-span.py --root /repo --check-generated \
+    --current-digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
+  fido_py tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf || return $?
   fido_py tools/perf-evidence-validate.py --self-test || return $?
   fido_py tools/perf-evidence-validate.py --digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
   # (2b) BUDGET-EDGE integrity (§7.5): one owner in check-budget.sh (no Make variable), and both make check and

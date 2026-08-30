@@ -90,7 +90,7 @@ make prove       dune build + module coverage + layer-dependency gate + whole-th
 make e2e         emit + pristine generated-module + go build ./... + differentials + witness vs goldens
 make regenerate  rebuild and publish the canonical module through the sink, after the validated go build (cache-valid)
 make regen-guard proves `sync` is unbuildable when go-e2e validation fails
-make perf-evidence  verifies the basis registry, regenerates + byte-compares the generated summaries,
+make perf-evidence  verifies the basis registry, regenerates + byte-compares all five generated products,
                     and validates the measurement + opportunity ledgers
 ```
 

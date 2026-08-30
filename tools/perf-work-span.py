@@ -1,33 +1,29 @@
 #!/usr/bin/env python3
 """The sole performance accounting and successor-reachability authority.
 
-Consumes the verified basis registry, the normalized event table, and the raw sentence attribution; enforces
-the required-event grammar of each supported measurement topology; computes every governing metric from
-measured intervals and declared predecessors; and deterministically generates the committed summaries, which
-the gates regenerate into temporary output and byte-compare.
+Consumes the verified basis registry, the normalized event table, and the raw sentence attribution;
+enforces the EXACT event grammar of each supported topology version (event identities, roles, classes,
+parents, complete predecessor sets, boundary membership, and the terminal sink); computes every governing
+metric from measured intervals; and deterministically generates the committed human summaries plus the one
+typed machine metric index, all regenerated and byte-compared by the normal and staged gates.
 
-Metrics (never conflated, none called CPU time — no direct CPU accounting exists through BuildKit, so
+Metrics per boundary (never conflated, none called CPU time — BuildKit exposes no CPU accounting, so
 elapsed task time is the declared work proxy):
 
-  wall_span_s              measured start-to-finish wall of the boundary
-  aggregate_task_elapsed_s sum of the required non-nested WORK_LEAF durations
-  critical_path_span_s     LONGEST PREDECESSOR-RESPECTING PATH through the required leaf DAG
-  interval_union_span_s    union of measured leaf intervals — descriptive only, never called critical path
-  parallel_overlap_s       aggregate task elapsed minus critical-path span
-  unclassified_s           wall not covered by the declared partition (<=5% complete-path law)
+  wall_span_s                  boundary terminal end minus boundary start (boundary-specific, never the
+                               whole-run root wall reused)
+  aggregate_task_elapsed_s     sum of the boundary's required WORK_LEAF durations
+  critical_path_span_s         longest predecessor path ENDING AT THE EXACT BOUNDARY TERMINAL
+  interval_union_span_s        union of the boundary's leaf intervals
+  temporal_overlap_s           aggregate work minus interval union (time two tasks truly coexist)
+  work_outside_critical_path_s aggregate work minus the terminal-bound critical path
+  unclassified_s               boundary wall minus interval union
 
-Topology grammar: a run declares its basis, whose registry row names one supported topology; the required
-event classes, solve counts, Dune counts, predecessor edges, and terminal are enforced — omitting the proof
-event (or any required event) is rejected even when the remaining rows are internally consistent, and
-unexpected WORK_LEAF/CONTAINER classes are rejected until the registry owns them.
-
-Boundaries are explicit per topology: PROJECT_VERIFICATION = every required work leaf after the policy gates
-through the final generated-artifact byte comparison (the historical root-level artifact operation included);
-COMPLETE_PATH adds the policy gates.  Entry/final comparisons are like-for-like by construction.
-
-Reachability (the evidence-observation ceiling) uses measured per-worker intervals and same-basis sentence
-targets — no universal worker-load or serial-overhead constants, no aggregate/worker-count division, and
-aggregate removable work is never copied into a wall-saving claim.
+Every boundary member must be reachable from the exact boundary start and reach the exact terminal; the
+terminal has no successor and no work leaf runs past it.  The one CURRENT registry basis is joined to the
+candidate digest under the same three-frame law the scenario validator uses (current / committed-historical
+/ foreign).  Reachability (the evidence-observation ceiling) uses measured per-worker intervals and
+same-basis sentence targets — no universal worker-load, serial-overhead, or wave constants.
 """
 import argparse
 import csv
@@ -38,37 +34,78 @@ from pathlib import Path
 BASES = '.review/perf/performance-bases.tsv'
 EVENTS = '.review/perf/verification-dag-events.tsv'
 SENTENCES = '.review/perf/witnessreject-sentences.tsv'
+GEN_WORK_SPAN = 'verification-dag-work-span.tsv'
+GEN_REACH = 'verification-dag-reachability.tsv'
+GEN_METRICS = 'performance-derived-metrics.tsv'
 
 ROLES = ('CONTAINER', 'WORK_LEAF', 'ATTRIBUTION')
-CLASSES = ('POLICY', 'THEORY', 'PROOF', 'EMIT', 'FIXTURE_WORKER', 'GO', 'JOIN_EXPORT',
-           'ARTIFACT_COMPARE', 'WAIT_OR_OVERHEAD', 'UNCLASSIFIED')
 TARGET_POPS = ('ISSUE_TABLE', 'CAUSE_VIEW', 'REQ_VIEW', 'GROUP_VIEW')
 WORKER_CHUNKS = {'chunk-A': 'e2e/WitnessRejectA.v', 'chunk-B': 'e2e/WitnessRejectB.v',
                  'chunk-C': 'e2e/WitnessRejectC.v', 'chunk-D': 'e2e/WitnessRejectD.v'}
 TOL = 1500  # ms clock tolerance
 
-# the fixed registry of supported measurement topologies: required WORK_LEAF class multiset, required
-# verification-solve operation count, Dune (THEORY) count, terminal class, and required predecessor edges
-# over classes (every target-class leaf must declare a source-class predecessor)
+
+def _ev(role, cls, parent, preds, solve=False):
+    return {'role': role, 'class': cls, 'parent': parent, 'preds': frozenset(preds), 'solve': solve}
+
+
+# each topology version owns one exact measured graph: exact event identities, roles, classes, parents,
+# complete predecessor sets, the solve-operation events (by identity, never a string count), exact
+# attribution events, and both boundary definitions (start / terminal / external source edge)
+_ONE_DAG_EVENTS = {
+    'root':    _ev('CONTAINER', 'UNCLASSIFIED', '', ()),
+    'policy':  _ev('WORK_LEAF', 'POLICY', 'root', ()),
+    'solve':   _ev('CONTAINER', 'UNCLASSIFIED', 'root', ('policy',), solve=True),
+    'setup':   _ev('WORK_LEAF', 'WAIT_OR_OVERHEAD', 'solve', ('policy',)),
+    'theory':  _ev('WORK_LEAF', 'THEORY', 'solve', ('setup',)),
+    'proof':   _ev('WORK_LEAF', 'PROOF', 'solve', ('theory',)),
+    'emit':    _ev('WORK_LEAF', 'EMIT', 'solve', ('theory',)),
+    'go':      _ev('WORK_LEAF', 'GO', 'solve', ('emit',)),
+    'join':    _ev('WORK_LEAF', 'JOIN_EXPORT', 'solve', ('proof', 'go')),
+    'compare': _ev('WORK_LEAF', 'ARTIFACT_COMPARE', 'root', ('join',)),
+}
+_ONE_DAG_BOUNDS = {
+    'COMPLETE_PATH': {'start': 'policy', 'terminal': 'compare', 'exclude': ()},
+    'PROJECT_VERIFICATION': {'start': 'setup', 'terminal': 'compare', 'exclude': ('policy',),
+                             'external_source': ('policy', 'setup')},
+}
 TOPOLOGIES = {
-    'ONE_DAG_V1': {
-        'leaf_classes': {'POLICY': 1, 'WAIT_OR_OVERHEAD': (0, 3), 'THEORY': 1, 'PROOF': 1,
-                         'EMIT': 1, 'GO': 1, 'JOIN_EXPORT': 1, 'ARTIFACT_COMPARE': 1},
-        'solve_ops': 1,
-        'dune': 1,
-        'terminal': 'ARTIFACT_COMPARE',
-        'edges': [('THEORY', 'PROOF'), ('THEORY', 'EMIT'), ('EMIT', 'GO'),
-                  ('PROOF', 'JOIN_EXPORT'), ('GO', 'JOIN_EXPORT'), ('JOIN_EXPORT', 'ARTIFACT_COMPARE')],
-        'serial': False,
-    },
     'THREE_SOLVE_POST_CHUNKING_V1': {
-        'leaf_classes': {'POLICY': 1, 'WAIT_OR_OVERHEAD': (2, 4), 'THEORY': 2, 'PROOF': 1,
-                         'EMIT': 1, 'GO': 1, 'JOIN_EXPORT': 1},
-        'solve_ops': 3,
+        'events': {
+            'root':      _ev('CONTAINER', 'UNCLASSIFIED', '', ()),
+            'policy':    _ev('WORK_LEAF', 'POLICY', 'root', ()),
+            's1':        _ev('CONTAINER', 'UNCLASSIFIED', 'root', ('policy',), solve=True),
+            'p-context': _ev('WORK_LEAF', 'WAIT_OR_OVERHEAD', 's1', ('policy',)),
+            'p-dune':    _ev('WORK_LEAF', 'THEORY', 's1', ('p-context',)),
+            'p-gates':   _ev('WORK_LEAF', 'PROOF', 's1', ('p-dune',)),
+            'p-tail':    _ev('WORK_LEAF', 'WAIT_OR_OVERHEAD', 's1', ('p-gates',)),
+            's2':        _ev('CONTAINER', 'UNCLASSIFIED', 'root', ('s1',), solve=True),
+            'e-context': _ev('WORK_LEAF', 'WAIT_OR_OVERHEAD', 's2', ('p-tail',)),
+            'e-dune':    _ev('WORK_LEAF', 'THEORY', 's2', ('e-context',)),
+            'e-emit':    _ev('WORK_LEAF', 'EMIT', 's2', ('p-gates', 'e-dune')),
+            'e-go':      _ev('WORK_LEAF', 'GO', 's2', ('e-emit',)),
+            'art':       _ev('WORK_LEAF', 'JOIN_EXPORT', 'root', ('e-go',), solve=True),
+        },
+        'attribution': {'e-wave2': {'parent': 'e-emit', 'worker': 'chunk-workers', 'required': False}},
+        'boundaries': {
+            'COMPLETE_PATH': {'start': 'policy', 'terminal': 'art', 'exclude': ()},
+            'PROJECT_VERIFICATION': {'start': 'p-context', 'terminal': 'art', 'exclude': ('policy',),
+                                     'external_source': ('policy', 'p-context')},
+        },
         'dune': 2,
-        'terminal': 'JOIN_EXPORT',
-        'edges': [('PROOF', 'EMIT'), ('EMIT', 'GO'), ('GO', 'JOIN_EXPORT')],
-        'serial': True,
+    },
+    'ONE_DAG_V1': {
+        'events': _ONE_DAG_EVENTS,
+        'attribution': {'wave2': {'parent': 'emit', 'worker': 'chunk-workers', 'required': False}},
+        'boundaries': _ONE_DAG_BOUNDS,
+        'dune': 1,
+    },
+    'ONE_DAG_CHUNK_TIMED_V2': {
+        'events': _ONE_DAG_EVENTS,
+        'attribution': {tag: {'parent': 'emit', 'worker': tag, 'required': True}
+                        for tag in WORKER_CHUNKS},
+        'boundaries': _ONE_DAG_BOUNDS,
+        'dune': 1,
     },
 }
 
@@ -103,107 +140,135 @@ def check_bases(bases, findings):
     return reg, (current[0] if current else None)
 
 
-# ---------------- events: structure + grammar ----------------
-def check_events(events, reg, findings):
-    by_run = defaultdict(list)
-    for e in events:
-        by_run[(e['basis'], e['scenario'], e['run_id'])].append(e)
-    for key, evs in by_run.items():
-        basis = key[0]
-        if basis not in reg:
-            findings.append(f'{key}: unregistered basis {basis[:12]}')
+def check_currency(current, current_digest, head_digest, evidence_changed, findings, notices):
+    """Join the registry CURRENT basis to the candidate digest (three-frame, like the scenario law)."""
+    if not current or not current_digest:
+        return
+    if current == current_digest:
+        notices.append('registry CURRENT basis equals the candidate digest — evidence is CURRENT')
+    elif evidence_changed:
+        findings.append(f'{BASES}: performance evidence changed but the CURRENT basis '
+                        f'{current[:12]} differs from the candidate digest {current_digest[:12]}')
+    elif head_digest and current == head_digest:
+        notices.append('registry CURRENT basis is the committed candidate digest; the proposed tree '
+                       'has not re-frozen — evidence is HISTORICAL for this exact tree')
+    else:
+        findings.append(f'{BASES}: CURRENT basis {current[:12]} is neither the candidate digest '
+                        f'{current_digest[:12]} nor the committed candidate digest — a promoted or '
+                        f'foreign CURRENT basis is rejected')
+
+
+# ---------------- exact event grammar ----------------
+def check_run(evs, spec, findings, key):
+    ids = {}
+    for e in evs:
+        if e['event_id'] in ids:
+            findings.append(f'{key}: duplicate event_id {e["event_id"]}')
+        ids[e['event_id']] = e
+        try:
+            s, en, el = int(e['start_ms']), int(e['end_ms']), int(e['elapsed_ms'])
+            if abs((en - s) - el) > TOL:
+                findings.append(f'{key}:{e["event_id"]}: elapsed {el} != end-start {en - s}')
+        except ValueError:
+            findings.append(f'{key}:{e["event_id"]}: non-numeric interval')
+            return ids
+    req = spec['events']
+    attr = spec['attribution']
+    actual_core = {i for i, e in ids.items() if e['role'] in ('CONTAINER', 'WORK_LEAF')}
+    for missing in sorted(set(req) - actual_core):
+        findings.append(f'{key}: required event {missing} is missing — the topology owns the exact set')
+    for extra in sorted(actual_core - set(req)):
+        findings.append(f'{key}: unexpected {ids[extra]["role"]} {extra} — no arbitrary extra work leaf '
+                        f'or container is allowed')
+    for i, e in ids.items():
+        if e['role'] not in ROLES:
+            findings.append(f'{key}:{i}: unknown role {e["role"]!r}')
+        if e['role'] == 'ATTRIBUTION':
+            if i not in attr:
+                findings.append(f'{key}:{i}: attribution event not owned by this topology version')
+                continue
+            a = attr[i]
+            if e['parent_id'] != a['parent']:
+                findings.append(f'{key}:{i}: attribution parent {e["parent_id"]} != {a["parent"]}')
+            if e['worker_or_stage'] != a['worker']:
+                findings.append(f'{key}:{i}: attribution worker tag {e["worker_or_stage"]!r} != '
+                                f'{a["worker"]!r}')
+            if e['result'] != 'ok':
+                findings.append(f'{key}:{i}: attribution result must be ok')
+            if set(filter(None, e['predecessors'].split(','))):
+                findings.append(f'{key}:{i}: attribution events declare no predecessors')
             continue
-        topo_id = reg[basis]['topology_id']
-        spec = TOPOLOGIES[topo_id]
-        ids = {}
-        for e in evs:
-            if e['event_id'] in ids:
-                findings.append(f'{key}: duplicate event_id {e["event_id"]}')
-            ids[e['event_id']] = e
-            if e['role'] not in ROLES:
-                findings.append(f'{key}:{e["event_id"]}: unknown role {e["role"]!r}')
-            if e['class'] not in CLASSES:
-                findings.append(f'{key}:{e["event_id"]}: unknown class {e["class"]!r}')
-            try:
-                s, en, el = int(e['start_ms']), int(e['end_ms']), int(e['elapsed_ms'])
-                if abs((en - s) - el) > TOL:
-                    findings.append(f'{key}:{e["event_id"]}: elapsed {el} != end-start {en - s}')
-            except ValueError:
-                findings.append(f'{key}:{e["event_id"]}: non-numeric interval')
-                continue
-            if e['role'] == 'WORK_LEAF' and e['result'] != 'ok':
-                findings.append(f'{key}:{e["event_id"]}: a failed task cannot be counted as work')
-        for e in evs:
-            if e['parent_id'] and e['parent_id'] not in ids:
-                findings.append(f'{key}:{e["event_id"]}: missing parent {e["parent_id"]}')
-                continue
-            if e['parent_id']:
-                p = ids[e['parent_id']]
-                if int(e['start_ms']) < int(p['start_ms']) - TOL or int(e['end_ms']) > int(p['end_ms']) + TOL:
-                    findings.append(f'{key}:{e["event_id"]}: interval outside its parent {p["event_id"]}')
-            for pred in filter(None, e['predecessors'].split(',')):
-                if pred not in ids:
-                    findings.append(f'{key}:{e["event_id"]}: unknown predecessor {pred}')
-                elif int(e['start_ms']) < int(ids[pred]['end_ms']) - TOL:
-                    findings.append(f'{key}:{e["event_id"]}: starts before predecessor {pred} ends')
-
-        def ancestors(e):
-            seen = set()
-            while e['parent_id'] and e['parent_id'] in ids and e['parent_id'] not in seen:
-                seen.add(e['parent_id'])
-                e = ids[e['parent_id']]
-                yield e
-        for e in evs:
-            if e['role'] == 'WORK_LEAF':
-                for a in ancestors(e):
-                    if a['role'] == 'WORK_LEAF':
-                        findings.append(f'{key}:{e["event_id"]}: WORK_LEAF nested under WORK_LEAF '
-                                        f'{a["event_id"]}')
-
-        # required-event grammar: the topology owns the complete leaf set
-        leaves = [e for e in evs if e['role'] == 'WORK_LEAF']
-        counts = defaultdict(int)
-        for e in leaves:
-            counts[e['class']] += 1
-        for cls, want in spec['leaf_classes'].items():
-            lo, hi = want if isinstance(want, tuple) else (want, want)
-            if not lo <= counts.get(cls, 0) <= hi:
-                findings.append(f'{key}: topology {topo_id} requires {want} {cls} work leaf/leaves, '
-                                f'found {counts.get(cls, 0)}')
-        for cls, n in counts.items():
-            if cls not in spec['leaf_classes'] and n:
-                findings.append(f'{key}: unexpected {cls} work leaf — the topology registry does not own it')
-        solves = sum(1 for e in evs if e['worker_or_stage'] == 'verification-solve')
-        if solves != spec['solve_ops']:
-            findings.append(f'{key}: topology {topo_id} requires {spec["solve_ops"]} verification-solve '
-                            f'operation(s), found {solves}')
-        if counts.get('THEORY', 0) != spec['dune']:
-            findings.append(f'{key}: topology {topo_id} requires {spec["dune"]} Dune invocation(s), '
-                            f'found {counts.get("THEORY", 0)}')
-        by_cls = defaultdict(list)
-        for e in leaves:
-            by_cls[e['class']].append(e)
-        for src_cls, dst_cls in spec['edges']:
-            for dst in by_cls.get(dst_cls, []):
-                preds = [ids[p]['class'] for p in filter(None, dst['predecessors'].split(','))
-                         if p in ids]
-                if src_cls not in preds:
-                    findings.append(f'{key}: {dst_cls} leaf {dst["event_id"]} must declare a {src_cls} '
-                                    f'predecessor (topology {topo_id})')
-        terms = by_cls.get(spec['terminal'], [])
-        if len(terms) != 1:
-            findings.append(f'{key}: topology {topo_id} requires exactly one terminal '
-                            f'{spec["terminal"]} leaf')
-        if spec['serial']:
-            ordered = sorted(leaves, key=lambda e: int(e['start_ms']))
-            for a, b in zip(ordered, ordered[1:]):
-                if int(b['start_ms']) < int(a['end_ms']) - TOL:
-                    findings.append(f'{key}: serial topology violated — {b["event_id"]} overlaps '
-                                    f'{a["event_id"]}')
-    return by_run
+        if i not in req:
+            continue
+        r = req[i]
+        if e['role'] != r['role'] or e['class'] != r['class']:
+            findings.append(f'{key}:{i}: role/class {e["role"]}/{e["class"]} != required '
+                            f'{r["role"]}/{r["class"]}')
+        if e['parent_id'] != r['parent']:
+            findings.append(f'{key}:{i}: parent {e["parent_id"]!r} != required {r["parent"]!r}')
+        actual_preds = set(filter(None, e['predecessors'].split(',')))
+        if actual_preds != set(r['preds']):
+            findings.append(f'{key}:{i}: predecessor set {sorted(actual_preds)} != required '
+                            f'{sorted(r["preds"])} — missing and extra predecessors both reject')
+        want_solve = 'verification-solve' if r['solve'] else None
+        if r['solve'] and e['worker_or_stage'] != 'verification-solve':
+            findings.append(f'{key}:{i}: this event is a solve operation and must carry the '
+                            f'verification-solve tag')
+        if not r['solve'] and e['worker_or_stage'] == 'verification-solve':
+            findings.append(f'{key}:{i}: verification-solve tag on a non-solve event')
+        del want_solve
+        if e['role'] == 'WORK_LEAF' and e['result'] != 'ok':
+            findings.append(f'{key}:{i}: a failed task cannot be counted as work')
+    for tag, a in attr.items():
+        if a['required'] and tag not in ids:
+            findings.append(f'{key}: required attribution event {tag} is missing')
+    # containment + parent reachability to the one root
+    roots = [i for i, e in ids.items() if e['role'] != 'ATTRIBUTION' and not e['parent_id']]
+    if len(roots) != 1:
+        findings.append(f'{key}: exactly one root container required, found {sorted(roots)}')
+    for i, e in ids.items():
+        if e['parent_id'] and e['parent_id'] not in ids:
+            findings.append(f'{key}:{i}: missing parent {e["parent_id"]}')
+            continue
+        if e['parent_id']:
+            p = ids[e['parent_id']]
+            if int(e['start_ms']) < int(p['start_ms']) - TOL or int(e['end_ms']) > int(p['end_ms']) + TOL:
+                findings.append(f'{key}:{i}: interval outside its parent {p["event_id"]}')
+        seen, cur = set(), e
+        while cur['parent_id']:
+            if cur['parent_id'] in seen or cur['parent_id'] not in ids:
+                findings.append(f'{key}:{i}: parent chain does not reach the root (cycle or missing)')
+                break
+            seen.add(cur['parent_id'])
+            cur = ids[cur['parent_id']]
+    # timing against declared predecessors
+    for i, e in ids.items():
+        for pr in filter(None, e['predecessors'].split(',')):
+            if pr in ids and int(e['start_ms']) < int(ids[pr]['end_ms']) - TOL:
+                findings.append(f'{key}:{i}: starts before predecessor {pr} ends')
+    return ids
 
 
-# ---------------- metrics ----------------
+def check_terminal(ids, spec, findings, key):
+    """The terminal has no successor and no work leaf runs past it."""
+    for bname, b in spec['boundaries'].items():
+        t = b['terminal']
+        if t not in ids:
+            continue
+        for i, e in ids.items():
+            if t in set(filter(None, e['predecessors'].split(','))) and i not in {
+                    b2['terminal'] for b2 in spec['boundaries'].values()} - {t}:
+                # the only lawful consumer of a boundary terminal is another boundary's identical terminal
+                if i != t:
+                    findings.append(f'{key}: terminal {t} has successor {i} — work after the declared '
+                                    f'terminal is rejected')
+        tend = int(ids[t]['end_ms'])
+        for i, e in ids.items():
+            if e['role'] == 'WORK_LEAF' and int(e['end_ms']) > tend + TOL:
+                findings.append(f'{key}: work leaf {i} runs past the {bname} terminal {t}')
+
+
+# ---------------- boundary metrics ----------------
 def union_len(iv):
     total, cs, ce = 0, None, None
     for s, e in sorted(iv):
@@ -218,57 +283,88 @@ def union_len(iv):
     return total
 
 
-def longest_path(leaves, ids, findings, key):
-    """The real predecessor-respecting longest path (DP over the declared WORK_LEAF DAG)."""
+def terminal_path(members, edges, terminal, findings, key):
+    """Longest predecessor path ending at the EXACT terminal (DP with cycle detection)."""
     dist, state = {}, {}
-    leaf_ids = {e['event_id'] for e in leaves}
 
-    def visit(e):
-        eid = e['event_id']
-        if state.get(eid) == 1:
-            findings.append(f'{key}: predecessor cycle at {eid}')
+    def visit(m):
+        if state.get(m) == 1:
+            findings.append(f'{key}: predecessor cycle at {m}')
             return 0
-        if eid in dist:
-            return dist[eid]
-        state[eid] = 1
+        if m in dist:
+            return dist[m]
+        state[m] = 1
         best = 0
-        for p in filter(None, e['predecessors'].split(',')):
-            if p in ids and p in leaf_ids:
-                best = max(best, visit(ids[p]))
-        dist[eid] = best + int(e['elapsed_ms'])
-        state[eid] = 2
-        return dist[eid]
+        for p in edges.get(m, ()):
+            best = max(best, visit(p))
+        dist[m] = best + members[m]
+        state[m] = 2
+        return dist[m]
 
-    return max((visit(e) for e in leaves), default=0)
+    return visit(terminal)
 
 
-def run_totals(evs, findings, key):
-    ids = {e['event_id']: e for e in evs}
-    leaves = [e for e in evs if e['role'] == 'WORK_LEAF']
-    root = [e for e in evs if not e['parent_id']]
-    wall = max(int(e['end_ms']) for e in root) - min(int(e['start_ms']) for e in root)
-    # explicit topology-owned boundaries: PV = every required leaf except POLICY; COMPLETE = all leaves
-    pv = [e for e in leaves if e['class'] != 'POLICY']
-
-    def m(sel):
-        work = sum(int(e['elapsed_ms']) for e in sel)
-        cp = longest_path(sel, ids, findings, key)
-        un = union_len([(int(e['start_ms']), int(e['end_ms'])) for e in sel])
-        return {'work': work, 'critical': cp, 'union': un, 'overlap': work - cp}
-
-    comp, pvm = m(leaves), m(pv)
-    covered = union_len([(int(e['start_ms']), int(e['end_ms'])) for e in leaves])
-    uncl = wall - covered
-    if wall and uncl / wall > 0.05:
-        findings.append(f'{key}: unclassified complete-path time {uncl}ms above 5% of the {wall}ms wall')
-    for label, t in (('complete', comp), ('pv', pvm)):
-        if t['critical'] > wall + TOL:
-            findings.append(f'{key}: {label} critical path {t["critical"]} exceeds the wall {wall}')
-        if t['critical'] > t['work'] + TOL:
-            findings.append(f'{key}: {label} critical path exceeds aggregate work')
-        if t['union'] > wall + TOL:
-            findings.append(f'{key}: {label} interval union exceeds the wall')
-    return {'wall': wall, 'complete': comp, 'pv': pvm, 'unclassified': uncl}
+def boundary_metrics(ids, spec, bname, findings, key):
+    b = spec['boundaries'][bname]
+    member_ids = [i for i, r in spec['events'].items()
+                  if r['role'] == 'WORK_LEAF' and i not in b['exclude']]
+    missing = [m for m in member_ids if m not in ids]
+    if missing:
+        return None
+    start, terminal = b['start'], b['terminal']
+    ext = b.get('external_source')
+    weights, edges = {}, {}
+    for m in member_ids:
+        weights[m] = int(ids[m]['elapsed_ms'])
+        preds = set(filter(None, ids[m]['predecessors'].split(',')))
+        inside = preds & set(member_ids)
+        outside = preds - set(member_ids)
+        for o in sorted(outside):
+            if not (ext and m == ext[1] and o == ext[0]):
+                findings.append(f'{key}: {bname} member {m} has outside predecessor {o} the topology '
+                                f'does not own as the boundary source')
+        edges[m] = inside
+    # every member reachable from the start; every member reaches the terminal
+    fwd = {start}
+    changed = True
+    while changed:
+        changed = False
+        for m in member_ids:
+            if m not in fwd and edges[m] & fwd:
+                fwd.add(m)
+                changed = True
+    for m in sorted(set(member_ids) - fwd):
+        findings.append(f'{key}: {bname} member {m} is not reachable from the boundary start {start}')
+    back = {terminal}
+    changed = True
+    while changed:
+        changed = False
+        for m in member_ids:
+            if m in back:
+                for p in edges[m]:
+                    if p not in back:
+                        back.add(p)
+                        changed = True
+    for m in sorted(set(member_ids) - back):
+        findings.append(f'{key}: {bname} member {m} cannot reach the boundary terminal {terminal}')
+    cp = terminal_path(weights, edges, terminal, findings, key)
+    wall = int(ids[terminal]['end_ms']) - int(ids[start]['start_ms'])
+    work = sum(weights.values())
+    un = union_len([(int(ids[m]['start_ms']), int(ids[m]['end_ms'])) for m in member_ids])
+    t = {'wall': wall, 'work': work, 'critical': cp, 'union': un,
+         'temporal_overlap': work - un, 'off_critical': work - cp, 'unclassified': wall - un}
+    if not (0 <= cp <= work + TOL):
+        findings.append(f'{key}: {bname} critical path {cp} outside [0, aggregate work {work}]')
+    if cp > wall + TOL:
+        findings.append(f'{key}: {bname} critical path {cp} exceeds the boundary wall {wall}')
+    if un > wall + TOL:
+        findings.append(f'{key}: {bname} interval union exceeds the boundary wall')
+    if t['temporal_overlap'] < -TOL or t['off_critical'] < -TOL or t['unclassified'] < -TOL:
+        findings.append(f'{key}: {bname} negative derived metric — inconsistent intervals')
+    if bname == 'COMPLETE_PATH' and wall and t['unclassified'] / wall > 0.05:
+        findings.append(f'{key}: unclassified complete-path time {t["unclassified"]}ms above 5% of '
+                        f'the {wall}ms wall')
+    return t
 
 
 # ---------------- reachability (per-worker, measured) ----------------
@@ -287,8 +383,8 @@ def chunk_targets(sent_rows, basis, findings):
                                **{f't_{t}': 0.0 for t in TARGET_POPS}})
     bad = {r['basis'] for r in sent_rows if r['basis'] != basis}
     if bad:
-        findings.append(f'{SENTENCES}: rows carry bases {sorted(b[:12] for b in bad)} but the current '
-                        f'projection requires {basis[:12]} — one projection uses one exact basis')
+        findings.append(f'{SENTENCES}: rows carry bases {sorted(b[:12] for b in bad)} but every profile '
+                        f'row must use the one CURRENT basis {basis[:12]}')
     for r in sent_rows:
         f = r['file']
         per[f]['total'] += float(r['secs'])
@@ -325,55 +421,123 @@ def reachability(per, workers, findings, key):
             'max_fixture_wall_saving_ms': wave_saving, 'max_agg_work_saving_ms': agg_target}
 
 
-def complete_path_projection(evs, wave_saving_ms, findings, key):
-    """Recompute the longest path with the EMIT leaf reduced by the fixture-wave saving."""
-    reduced = []
-    for e in evs:
-        if e['role'] == 'WORK_LEAF' and e['class'] == 'EMIT':
-            e = dict(e, elapsed_ms=str(max(0, int(e['elapsed_ms']) - int(wave_saving_ms))))
-        reduced.append(e)
-    rids = {e['event_id']: e for e in reduced}
-    leaves = [e for e in reduced if e['role'] == 'WORK_LEAF']
-    return longest_path(leaves, rids, findings, key)
+def zero_cost_projection(ids, spec, wave_saving_ms, findings, key):
+    """Terminal-bound COMPLETE_PATH critical path with the EMIT leaf reduced by the wave saving."""
+    b = spec['boundaries']['COMPLETE_PATH']
+    member_ids = [i for i, r in spec['events'].items() if r['role'] == 'WORK_LEAF']
+    weights, edges = {}, {}
+    for m in member_ids:
+        el = int(ids[m]['elapsed_ms'])
+        if spec['events'][m]['class'] == 'EMIT':
+            el = max(0, el - int(wave_saving_ms))
+        weights[m] = el
+        edges[m] = set(filter(None, ids[m]['predecessors'].split(','))) & set(member_ids)
+    return terminal_path(weights, edges, b['terminal'], findings, key)
 
 
-# ---------------- deterministic generation ----------------
-def gen_work_span(totals_by_run, current=None):
-    lines = ['# GENERATED by tools/perf-work-span.py from verification-dag-events.tsv — regenerated and',
-             '# byte-compared by the gates; a hand edit fails validation.  critical_path_span is the real',
-             '# predecessor longest path; interval_union_span is a separate descriptive metric; work and',
-             '# span are never conflated and neither is CPU time.',
-             'run\tlevel\twall_span_s\taggregate_task_elapsed_s\tcritical_path_span_s\t'
-             'interval_union_span_s\tparallel_overlap_s\tunclassified_s']
-    for key in sorted(totals_by_run):
-        t = totals_by_run[key]
-        for lvl, name in (('pv', 'PROJECT_VERIFICATION'), ('complete', 'COMPLETE_PATH')):
-            m = t[lvl]
-            lines.append(f'{key[2]}\t{name}\t{t["wall"]/1000:.1f}\t{m["work"]/1000:.1f}\t'
-                         f'{m["critical"]/1000:.1f}\t{m["union"]/1000:.1f}\t{m["overlap"]/1000:.1f}\t'
-                         f'{t["unclassified"]/1000:.1f}')
-    entry = [k for k in sorted(totals_by_run) if k[2].startswith('entry')]
-    # the entry/final delta compares the verified historical entry against CURRENT-basis final runs only;
-    # a historical one-DAG run informs its own rows but never the current claim
-    final = [k for k in sorted(totals_by_run)
-             if k[2].startswith('final') and (current is None or k[0] == current)]
-    if entry and final:
-        e = totals_by_run[entry[0]]
-        for lvl, name in (('pv', 'PROJECT_VERIFICATION'), ('complete', 'COMPLETE_PATH')):
-            works = sorted(totals_by_run[k][lvl]['work'] for k in final)
-            crits = sorted(totals_by_run[k][lvl]['critical'] for k in final)
+# ---------------- one metric assembly, three generated renderings ----------------
+def assemble(reg, current, totals, reach):
+    """Build the one in-memory metric list every generated product renders from."""
+    metrics = []
+
+    def add(mid, kind, basis, scope, statistic, unit, value, source):
+        metrics.append({'metric_id': mid, 'metric_kind': kind, 'basis': basis, 'scope': scope,
+                        'statistic': statistic, 'unit': unit, 'value': value, 'source': source})
+
+    entry = [k for k in sorted(totals) if k[2].startswith('entry')]
+    finals = [k for k in sorted(totals) if k[2].startswith('final') and k[0] == current]
+    for key in finals:
+        t = totals[key]
+        add(f'run.{key[2]}.complete_path.wall_span_ms', 'SPAN', key[0],
+            f'{key[1]}/{key[2]}/COMPLETE_PATH/wall', 'measured', 'ms',
+            t['COMPLETE_PATH']['wall'], 'verification-dag-events.tsv')
+    if entry and finals:
+        e = totals[entry[0]]
+        ebasis = entry[0][0]
+        for bname, tag in (('PROJECT_VERIFICATION', 'project_verification'),
+                           ('COMPLETE_PATH', 'complete_path')):
+            works = sorted(totals[k][bname]['work'] for k in finals)
+            crits = sorted(totals[k][bname]['critical'] for k in finals)
             med_w, med_c = works[len(works) // 2], crits[len(crits) // 2]
-            lines.append(f'DELTA\t{name}_work_reduction_pct\t'
-                         f'{100 * (e[lvl]["work"] - med_w) / e[lvl]["work"]:.1f}\t\t\t\t\t')
-            lines.append(f'DELTA\t{name}_critical_span_reduction_pct\t'
-                         f'{100 * (e[lvl]["critical"] - med_c) / e[lvl]["critical"]:.1f}\t\t\t\t\t')
+            add(f'onedag.{tag}.aggregate_work_reduction_pct', 'RATIO', current,
+                f'{bname}/aggregate_work', 'median_vs_entry', 'pct',
+                round(100 * (e[bname]['work'] - med_w) / e[bname]['work'], 1),
+                f'current {current[:12]} vs historical {ebasis[:12]}')
+            add(f'onedag.{tag}.critical_span_reduction_pct', 'RATIO', current,
+                f'{bname}/critical_span', 'median_vs_entry', 'pct',
+                round(100 * (e[bname]['critical'] - med_c) / e[bname]['critical'], 1),
+                f'current {current[:12]} vs historical {ebasis[:12]}')
+    if reach:
+        savings = sorted(r['max_complete_path_wall_saving_ms'] for r in reach.values())
+        aggs = sorted(r['max_agg_work_saving_ms'] for r in reach.values())
+        lows = sorted(r['zero_cost_complete_lower_bound_ms'] for r in reach.values())
+        add('evidence_observation.max_aggregate_work_saving_ms', 'WORK', current,
+            'chunk-A..D/aggregate_work', 'median', 'ms', aggs[len(aggs) // 2],
+            'measured worker intervals + sentence targets')
+        add('evidence_observation.median_max_complete_path_wall_saving_ms', 'SPAN', current,
+            'COMPLETE_PATH/wall', 'median', 'ms', savings[len(savings) // 2],
+            'terminal-bound zero-cost projection')
+        add('evidence_observation.conservative_max_complete_path_wall_saving_ms', 'SPAN', current,
+            'COMPLETE_PATH/wall', 'min', 'ms', savings[0], 'terminal-bound zero-cost projection')
+        add('evidence_observation.zero_cost_complete_path_lower_bound_ms', 'BOUND', current,
+            'COMPLETE_PATH/wall', 'median', 'ms', lows[len(lows) // 2],
+            'zero-cost critical path + unclassified')
+    if current and reg.get(current):
+        spec = TOPOLOGIES[reg[current]['topology_id']]
+        add('validation.solve_count', 'COUNT', current, 'topology', 'exact', 'count',
+            sum(1 for r in spec['events'].values() if r['solve']), reg[current]['topology_id'])
+        add('validation.dune_invocation_count', 'COUNT', current, 'topology', 'exact', 'count',
+            spec['dune'], reg[current]['topology_id'])
+    seen = set()
+    for m in metrics:
+        if m['metric_id'] in seen:
+            raise SystemExit(f'fido: PERF-WORK-SPAN INTERNAL — duplicate metric id {m["metric_id"]}')
+        seen.add(m['metric_id'])
+    return metrics
+
+
+def gen_metrics(metrics):
+    lines = ['# CLASS: GENERATED_VIEW — the one typed machine metric index, generated by',
+             '# tools/perf-work-span.py from the same internal results as the human summaries;',
+             '# regenerated and byte-compared by the gates.  DERIVED: ledger references resolve here',
+             '# by exact metric_id; RATIO gain-compatibility is the scope suffix (/aggregate_work vs',
+             '# /critical_span or /wall), never a substring search.',
+             'metric_id\tmetric_kind\tbasis\tscope\tstatistic\tunit\tvalue\tsource']
+    for m in sorted(metrics, key=lambda m: m['metric_id']):
+        v = m['value']
+        vs = f'{v:.1f}' if isinstance(v, float) else str(v)
+        lines.append('\t'.join([m['metric_id'], m['metric_kind'], m['basis'], m['scope'],
+                                m['statistic'], m['unit'], vs, m['source']]))
     return '\n'.join(lines) + '\n'
 
 
-def gen_reachability(per, reach_by_run):
-    lines = ['# GENERATED by tools/perf-work-span.py — the evidence-observation ceiling from measured',
-             '# per-worker intervals + same-basis sentence targets; zero-cost wave end = max over workers of',
-             '# (measured start offset + zero-cost residual); aggregate target work is never a wall claim.',
+def gen_work_span(totals, metrics):
+    lines = ['# CLASS: GENERATED_VIEW — human work/span summary generated by tools/perf-work-span.py',
+             '# from verification-dag-events.tsv; regenerated and byte-compared by the gates.  Each',
+             '# boundary has its own wall (terminal end minus boundary start); critical_path_span is',
+             '# the longest predecessor path ending at the exact terminal; temporal_overlap is work',
+             '# minus interval union; work_outside_critical_path is work minus the critical path.',
+             'run\tboundary\twall_span_s\taggregate_task_elapsed_s\tcritical_path_span_s\t'
+             'interval_union_span_s\ttemporal_overlap_s\twork_outside_critical_path_s\tunclassified_s']
+    for key in sorted(totals):
+        for bname in ('PROJECT_VERIFICATION', 'COMPLETE_PATH'):
+            t = totals[key][bname]
+            lines.append(f'{key[2]}\t{bname}\t{t["wall"]/1000:.1f}\t{t["work"]/1000:.1f}\t'
+                         f'{t["critical"]/1000:.1f}\t{t["union"]/1000:.1f}\t'
+                         f'{t["temporal_overlap"]/1000:.1f}\t{t["off_critical"]/1000:.1f}\t'
+                         f'{t["unclassified"]/1000:.1f}')
+    for m in sorted(metrics, key=lambda m: m['metric_id']):
+        if m['metric_id'].startswith('onedag.'):
+            lines.append(f'DELTA\t{m["metric_id"]}\t{m["value"]:.1f}\t\t\t\t\t\t')
+    return '\n'.join(lines) + '\n'
+
+
+def gen_reachability(per, reach, metrics):
+    lines = ['# CLASS: GENERATED_VIEW — the evidence-observation ceiling, generated by',
+             '# tools/perf-work-span.py from measured per-worker intervals + same-basis sentence',
+             '# targets; regenerated and byte-compared by the gates.  Zero-cost wave end = max over',
+             '# workers of (measured start + zero-cost residual); aggregate target work is never a',
+             '# wall claim; the successor critical path is terminal-bound.',
              'chunk\tprofile_total_s\ttarget_issue_s\ttarget_cause_s\ttarget_req_s\ttarget_group_s\t'
              'target_total_s\tresidual_s']
     for tag in sorted(WORKER_CHUNKS):
@@ -384,61 +548,82 @@ def gen_reachability(per, reach_by_run):
                      f'{p["target"]:.2f}\t{p["total"] - p["target"]:.2f}')
     lines.append('')
     lines.append('run\tmetric\tvalue_ms')
-    savings = []
-    for key in sorted(reach_by_run):
-        r = reach_by_run[key]
+    for key in sorted(reach):
+        r = reach[key]
         for tag in sorted(WORKER_CHUNKS):
             w = r['rows'][tag]
             lines.append(f'{key[2]}\tworker_{tag}_wall\t{w["worker_wall_ms"]:.0f}')
             lines.append(f'{key[2]}\tworker_{tag}_target\t{w["target_ms"]:.0f}')
             lines.append(f'{key[2]}\tworker_{tag}_overhead\t{w["overhead_ms"]:.0f}')
         for metric in ('cur_wave_span_ms', 'zero_wave_span_ms', 'max_fixture_wall_saving_ms',
-                       'max_agg_work_saving_ms', 'cp_now_ms', 'cp_zero_ms',
+                       'max_agg_work_saving_ms', 'cp_now_ms', 'successor_critical_path_ms',
                        'max_complete_path_wall_saving_ms', 'zero_cost_complete_lower_bound_ms'):
             if metric in r:
                 lines.append(f'{key[2]}\t{metric}\t{r[metric]:.0f}')
-        if 'max_complete_path_wall_saving_ms' in r:
-            savings.append(r['max_complete_path_wall_saving_ms'])
-    if savings:
-        s = sorted(savings)
-        lines.append(f'ALL\tmedian_max_complete_path_wall_saving_ms\t{s[len(s) // 2]:.0f}')
-        lines.append(f'ALL\tconservative_max_complete_path_wall_saving_ms\t{s[0]:.0f}')
+    for m in sorted(metrics, key=lambda m: m['metric_id']):
+        if m['metric_id'].startswith('evidence_observation.'):
+            lines.append(f'ALL\t{m["metric_id"]}\t{m["value"]:.0f}')
     lines.append('ALL\trealistic_expected_saving\tUNKNOWN_PENDING_SPIKE')
     return '\n'.join(lines) + '\n'
 
 
 # ---------------- validation entry ----------------
-def validate(root):
-    findings = []
+def validate(root, current_digest=None, head_digest=None, evidence_changed=False):
+    findings, notices = [], []
     reg, current = check_bases(read_tsv(root / BASES), findings)
-    by_run = check_events(read_tsv(root / EVENTS), reg, findings)
-    totals, reach = {}, {}
+    check_currency(current, current_digest, head_digest, evidence_changed, findings, notices)
+    events = read_tsv(root / EVENTS)
+    by_run = defaultdict(list)
+    for e in events:
+        by_run[(e['basis'], e['scenario'], e['run_id'])].append(e)
+    totals, reach, ids_of = {}, {}, {}
     per = None
+    for key, evs in sorted(by_run.items()):
+        basis = key[0]
+        if basis not in reg:
+            findings.append(f'{key}: unregistered basis {basis[:12]}')
+            continue
+        spec = TOPOLOGIES[reg[basis]['topology_id']]
+        ids = check_run(evs, spec, findings, str(key))
+        if findings:
+            continue
+        check_terminal(ids, spec, findings, str(key))
+        ids_of[key] = (ids, spec)
+        t = {}
+        for bname in spec['boundaries']:
+            bm = boundary_metrics(ids, spec, bname, findings, str(key))
+            if bm is not None:
+                t[bname] = bm
+        if len(t) == 2:
+            totals[key] = t
     if not findings:
         sent = read_tsv(root / SENTENCES)
-        for key, evs in sorted(by_run.items()):
-            totals[key] = run_totals(evs, findings, str(key))
-        cur_finals = [k for k in sorted(by_run) if k[0] == current and k[2].startswith('final')]
-        if cur_finals:
+        cur_finals = [k for k in sorted(totals) if k[0] == current and k[2].startswith('final')]
+        if current and sent:
             per = chunk_targets(sent, current, findings)
         for key in cur_finals:
+            ids, spec = ids_of[key]
+            if not spec['attribution'] or not any(a['required'] for a in spec['attribution'].values()):
+                continue
             workers = worker_intervals(by_run[key])
             missing = sorted(set(WORKER_CHUNKS) - set(workers))
             if missing:
                 findings.append(f'{key}: reachability requires measured worker intervals; '
                                 f'missing {missing}')
                 continue
-            if findings:
+            if findings or per is None:
                 continue
             r = reachability(per, workers, findings, str(key))
-            r['cp_now_ms'] = totals[key]['complete']['critical']
-            cp_zero = complete_path_projection(by_run[key], r['max_fixture_wall_saving_ms'],
-                                               findings, str(key))
-            r['cp_zero_ms'] = cp_zero
+            r['cp_now_ms'] = totals[key]['COMPLETE_PATH']['critical']
+            cp_zero = zero_cost_projection(ids, spec, r['max_fixture_wall_saving_ms'],
+                                           findings, str(key))
+            r['successor_critical_path_ms'] = cp_zero
             r['max_complete_path_wall_saving_ms'] = r['cp_now_ms'] - cp_zero
-            r['zero_cost_complete_lower_bound_ms'] = cp_zero + totals[key]['unclassified']
+            r['zero_cost_complete_lower_bound_ms'] = (cp_zero
+                                                      + totals[key]['COMPLETE_PATH']['unclassified'])
             reach[key] = r
-    return findings, reg, current, totals, per, reach
+    metrics = [] if findings else assemble(reg, current, totals, reach)
+    return findings, notices, reg, current, totals, per, reach, metrics
 
 
 def main():
@@ -446,27 +631,38 @@ def main():
     ap.add_argument('--root', default='.')
     ap.add_argument('--self-test', action='store_true')
     ap.add_argument('--report', action='store_true')
+    ap.add_argument('--current-digest', default='',
+                    help='the candidate performance-input digest (index for make, staged index for the '
+                         'hook); joined to the registry CURRENT basis under the three-frame law')
+    ap.add_argument('--head-digest', default='',
+                    help='digest of the committed HEAD tree — lets a committed candidate basis be '
+                         'honestly historical for a proposed tree that has not re-frozen')
+    ap.add_argument('--evidence-changed', choices=['yes', 'no'], default='no')
     ap.add_argument('--emit-tables', default='',
-                    help='write the generated summaries here (the gates generate to a temp dir and '
-                         'byte-compare the committed files)')
+                    help='write the generated summaries + metric index here')
     ap.add_argument('--check-generated', action='store_true',
-                    help='regenerate every summary in memory and byte-compare the committed files — '
-                         'the one generated-summary law shared by make perf-evidence, the staged hook '
-                         'and the mutation harness')
+                    help='regenerate every generated product in memory and byte-compare the committed '
+                         'files — the one generated-summary law shared by make perf-evidence, the '
+                         'staged hook and the mutation harness')
     args = ap.parse_args()
     if args.self_test:
         sys.path.insert(0, str(Path(__file__).parent))
         from perf_work_span_selftest import run_self_test
         return run_self_test()
     root = Path(args.root)
-    findings, reg, current, totals, per, reach = validate(root)
+    findings, notices, reg, current, totals, per, reach, metrics = validate(
+        root, args.current_digest or None, args.head_digest or None,
+        args.evidence_changed == 'yes')
+    for n in notices:
+        print('fido: perf-work-span — ' + n)
     if findings:
         for f in findings:
             print('perf-work-span: ' + f, file=sys.stderr)
         raise SystemExit(f'fido: PERF-WORK-SPAN FAILED — {len(findings)} violation(s)')
-    expected = {'verification-dag-work-span.tsv': gen_work_span(totals, current)}
+    expected = {GEN_WORK_SPAN: gen_work_span(totals, metrics),
+                GEN_METRICS: gen_metrics(metrics)}
     if per is not None and reach:
-        expected['verification-dag-reachability.tsv'] = gen_reachability(per, reach)
+        expected[GEN_REACH] = gen_reachability(per, reach, metrics)
     if args.emit_tables:
         out = Path(args.emit_tables)
         out.mkdir(parents=True, exist_ok=True)
@@ -474,7 +670,7 @@ def main():
             (out / name).write_text(text, encoding='utf-8')
     if args.check_generated:
         problems = []
-        for name in ('verification-dag-work-span.tsv', 'verification-dag-reachability.tsv'):
+        for name in (GEN_WORK_SPAN, GEN_REACH, GEN_METRICS):
             p = root / '.review/perf' / name
             if name in expected and not p.exists():
                 problems.append(f'generated-summary law: {name}: the generator produces this summary '
@@ -488,19 +684,23 @@ def main():
         if problems:
             for pr in problems:
                 print('perf-work-span: ' + pr, file=sys.stderr)
-            raise SystemExit(f'fido: PERF-WORK-SPAN FAILED — {len(problems)} generated-summary violation(s)')
-        print('fido: generated summaries byte-identical to the committed files')
+            raise SystemExit(f'fido: PERF-WORK-SPAN FAILED — {len(problems)} generated-summary '
+                             f'violation(s)')
+        print('fido: generated summaries + metric index byte-identical to the committed files')
     if args.report:
         for key in sorted(totals):
             t = totals[key]
-            print(f'{key[2]}: wall={t["wall"]/1000:.0f}s '
-                  f'PV work/cp/union/overlap={t["pv"]["work"]/1000:.0f}/{t["pv"]["critical"]/1000:.0f}/'
-                  f'{t["pv"]["union"]/1000:.0f}/{t["pv"]["overlap"]/1000:.0f}s '
-                  f'COMPLETE work/cp={t["complete"]["work"]/1000:.0f}/'
-                  f'{t["complete"]["critical"]/1000:.0f}s uncl={t["unclassified"]/1000:.1f}s')
-    print('fido: perf-work-span OK — bases registered, required topology complete for every run, critical '
-          'path computed as the predecessor longest path (interval union reported separately), boundaries '
-          'like-for-like, reachability from measured per-worker intervals')
+            print(f'{key[2]}: COMPLETE wall={t["COMPLETE_PATH"]["wall"]/1000:.0f}s '
+                  f'work/cp/union={t["COMPLETE_PATH"]["work"]/1000:.0f}/'
+                  f'{t["COMPLETE_PATH"]["critical"]/1000:.0f}/'
+                  f'{t["COMPLETE_PATH"]["union"]/1000:.0f}s  PV wall={t["PROJECT_VERIFICATION"]["wall"]/1000:.0f}s '
+                  f'work/cp={t["PROJECT_VERIFICATION"]["work"]/1000:.0f}/'
+                  f'{t["PROJECT_VERIFICATION"]["critical"]/1000:.0f}s '
+                  f'overlap/offcp={t["PROJECT_VERIFICATION"]["temporal_overlap"]/1000:.1f}/'
+                  f'{t["PROJECT_VERIFICATION"]["off_critical"]/1000:.1f}s')
+    print('fido: perf-work-span OK — exact topology-owned event graphs, terminal-bound critical paths, '
+          'boundary-specific walls, temporal overlap separated from off-critical work, one CURRENT '
+          'basis joined to the candidate digest, reachability from measured per-worker intervals')
     return 0
 
 

@@ -34,36 +34,62 @@ WORKSPAN = 'tools/perf-work-span.py'
 
 # (tool, label, anchor, replacement, controls that MUST appear among the failures)
 MUTANTS = (
-    (WORKSPAN, 'the leaf-partition law, so a parent and its child cannot both be counted as work',
-     "                    if a['role'] == 'WORK_LEAF':",
-     "                    if False:",
-     ('a work leaf nested under another work leaf',)),
+    (WORKSPAN, 'the exact parent law, so an event cannot move to another container',
+     "        if e['parent_id'] != r['parent']:",
+     "        if False:",
+     ('proof moved outside the solve container', 'emit moved outside the solve container')),
 
     (WORKSPAN, 'the elapsed-consistency law, so a false elapsed value cannot enter the totals',
-     "                if abs((en - s) - el) > TOL:",
-     "                if False:",
+     "            if abs((en - s) - el) > TOL:",
+     "            if False:",
      ('false elapsed value',)),
 
     (WORKSPAN, 'the unclassified ceiling, so unattributed wall time stays visible',
-     "    if wall and uncl / wall > 0.05:",
+     "    if bname == 'COMPLETE_PATH' and wall and t['unclassified'] / wall > 0.05:",
      "    if False:",
      ('unclassified complete-path above 5% rejected',)),
 
-    (WORKSPAN, 'the leaf-class multiset law, so an event set cannot carry more or fewer required leaves',
-     "            if not lo <= counts.get(cls, 0) <= hi:",
-     "            if False:",
-     ('duplicated proof leaf beyond the topology count',)),
+    (WORKSPAN, 'the exact-set extra-event law, so no arbitrary work leaf or container can be added',
+     "    for extra in sorted(actual_core - set(req)):",
+     "    for extra in ():",
+     ('duplicated proof leaf beyond the topology set', 'extra WAIT work leaf', 'extra container')),
 
-    (WORKSPAN, 'the solve-operation count, so a hidden extra solve is caught',
-     "        if solves != spec['solve_ops']:",
+    (WORKSPAN, 'the exact-set missing-event law, so a required event cannot be omitted',
+     "    for missing in sorted(set(req) - actual_core):",
+     "    for missing in ():",
+     ('omitted compare (terminal)',)),
+
+    (WORKSPAN, 'the exact predecessor-set law, so an extra predecessor cannot slip in',
+     "        if actual_preds != set(r['preds']):",
      "        if False:",
-     ('extra unexpected solve',)),
+     ('an extra predecessor beyond the topology set',)),
+
+    (WORKSPAN, 'the solve-tag ownership law, so a non-solve event cannot claim a solve operation',
+     "        if not r['solve'] and e['worker_or_stage'] == 'verification-solve':",
+     "        if False:",
+     ('verification-solve tag on a non-solve event',)),
+
+    (WORKSPAN, 'the solve-tag requirement, so a solve operation cannot lose its identity',
+     "        if r['solve'] and e['worker_or_stage'] != 'verification-solve':",
+     "        if False:",
+     ('solve container lost its verification-solve tag',)),
 
     (WORKSPAN, 'the predecessor accumulation in the longest path, so it cannot degrade to max-single-leaf',
-     "        dist[eid] = best + int(e['elapsed_ms'])",
-     "        dist[eid] = int(e['elapsed_ms'])",
-     ('final PV critical path is the longest predecessor path',
-      'entry serial: work equals critical path')),
+     "        dist[m] = best + members[m]",
+     "        dist[m] = members[m]",
+     ('final PV critical path is terminal-bound',
+      'entry serial: work equals critical path and both walls')),
+
+    (WORKSPAN, 'the terminal binding of the critical path, so max-over-arbitrary-leaves cannot return',
+     "    return visit(terminal)",
+     "    return max(visit(m) for m in list(members))",
+     ('terminal-bound critical path differs from max-over-arbitrary-leaves',)),
+
+    (WORKSPAN, 'the currency join, so a foreign or promoted CURRENT basis cannot pass as historical',
+     "    elif head_digest and current == head_digest:",
+     "    elif True:",
+     ('CURRENT basis differing from the candidate digest',
+      'historical basis promoted to CURRENT')),
 
     (GRAPH, 'the helper-one-solve law, so a hidden second solve inside the canonical helper is caught',
      "        builds = body.count('docker buildx build')",
@@ -111,9 +137,25 @@ MUTANTS = (
      ('a second longest-path implementation',)),
 
     (PERFEV, 'the one-DAG reduction floor, so an IMPLEMENTED claim cannot stand under 15%',
-     "            if v < ONEDAG_MIN_PCT:",
-     "            if False:",
+     "    if m['value_num'] < ONEDAG_MIN_PCT:",
+     "    if False:",
      ('one-DAG IMPLEMENTED below its lower-bound reduction',)),
+
+    (PERFEV, 'the typed gain-kind law, so a work gain cannot cite a span metric',
+     "        if not ok:",
+     "        if False:",
+     ('work_gain pointing to a wall-saving SPAN metric',
+      'span_gain pointing to an aggregate-work WORK metric')),
+
+    (PERFEV, 'the metric basis-compatibility law, so a current opportunity cannot cite a foreign metric',
+     "        if opp_basis != m['basis']:",
+     "        if False:",
+     ('current opportunity pointing to a foreign-basis metric',)),
+
+    (PERFEV, 'the unlinked-graph rejection, so a median cannot silently drop a measured run',
+     "    for rid in sorted(set(run_metrics) - linked):",
+     "    for rid in ():",
+     ('an unlinked current cold event graph (best-run selection)',)),
 
     (PERFEV, 'the gain-deferral rejection, so one gain field cannot point at the other',
      "            if 'see work_gain' in v or 'see span_gain' in v:",
@@ -251,7 +293,12 @@ MUTANTS = (
 # change here fails loudly instead of silently testing nothing.
 WS_SUM = '.review/perf/verification-dag-work-span.tsv'
 REACH_SUM = '.review/perf/verification-dag-reachability.tsv'
+METRICS_SUM = '.review/perf/performance-derived-metrics.tsv'
 EVENTS_RAW = '.review/perf/verification-dag-events.tsv'
+SENT_RAW = '.review/perf/witnessreject-sentences.tsv'
+PROGS_VIEW = '.review/perf/witnessreject-programs.tsv'
+POPS_VIEW = '.review/perf/witnessreject-populations.tsv'
+ATTR = 'tools/witness-profile-attribution.py'
 
 
 def _mut_reduction_999(work: Path):
@@ -293,11 +340,58 @@ def _mut_delete_row(work: Path):
 def _mut_stronger_header(work: Path):
     p = work / WS_SUM
     text = p.read_text(encoding='utf-8')
-    anchor = 'byte-compared by the gates; a hand edit fails validation.'
+    anchor = 'regenerated and byte-compared by the gates.'
     if text.count(anchor) != 1:
         return f'header anchor occurs {text.count(anchor)} time(s), expected exactly 1'
     p.write_text(text.replace(anchor, 'PROVEN OPTIMAL; no further work reduction exists.'),
                  encoding='utf-8')
+
+
+def _mut_metric_kind(work: Path):
+    p = work / METRICS_SUM
+    text = p.read_text(encoding='utf-8')
+    anchor = '\tWORK\t'
+    if anchor not in text:
+        return 'no WORK metric row to mutate'
+    p.write_text(text.replace(anchor, '\tSPAN\t', 1), encoding='utf-8')
+
+
+def _mut_sentence_secs(work: Path):
+    p = work / SENT_RAW
+    lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        f = ln.rstrip('\n').split('\t')
+        if not ln.startswith('#') and len(f) == 12 and f[10] == 'ISSUE_TABLE':
+            try:
+                f[6] = f'{float(f[6]) + 2.0:.3f}'
+            except ValueError:
+                return f'non-numeric secs in sentence row {i}'
+            lines[i] = '\t'.join(f) + '\n'
+            p.write_text(''.join(lines), encoding='utf-8')
+            return
+    return 'no ISSUE_TABLE sentence row found'
+
+
+def _mut_population_total(work: Path):
+    p = work / POPS_VIEW
+    text = p.read_text(encoding='utf-8')
+    out, n = re.subn(r'(\tISSUE_TABLE\t\d+\t)[\d.]+', r'\g<1>99.999', text, count=1)
+    if n != 1:
+        return 'no ISSUE_TABLE population row to mutate'
+    p.write_text(out, encoding='utf-8')
+
+
+def _mut_program_total(work: Path):
+    p = work / PROGS_VIEW
+    lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
+    for i, ln in enumerate(lines):
+        f = ln.rstrip('\n').split('\t')
+        if not ln.startswith('#') and len(f) == 7 and f[0] != 'basis':
+            f[3] = '99.999'
+            lines[i] = '\t'.join(f) + '\n'
+            p.write_text(''.join(lines), encoding='utf-8')
+            return
+    return 'no program view data row to mutate'
 
 
 def _mut_raw_without_regen(work: Path):
@@ -327,7 +421,7 @@ def _mut_hand_recalculation(work: Path):
     lines = p.read_text(encoding='utf-8').splitlines(keepends=True)
     for i, ln in enumerate(lines):
         f = ln.rstrip('\n').split('\t')
-        if len(f) == 8 and f[1] == 'PROJECT_VERIFICATION' and f[3] != f[4]:
+        if len(f) == 9 and f[1] == 'PROJECT_VERIFICATION' and f[3] != f[4]:
             f[3] = f[4]
             lines[i] = '\t'.join(f) + '\n'
             p.write_text(''.join(lines), encoding='utf-8')
@@ -335,24 +429,33 @@ def _mut_hand_recalculation(work: Path):
     return 'no PROJECT_VERIFICATION row where aggregate work differs from the critical path'
 
 
+# (label, transform, runner, expected-substring): 'engine' runs perf-work-span --check-generated,
+# 'attr' runs witness-profile-attribution --check-generated — the exact modes the gates run
 EVIDENCE_MUTANTS = (
-    ('a hand-set 99.9 work reduction in the committed summary', _mut_reduction_999,
+    ('a hand-set 99.9 work reduction in the committed summary', _mut_reduction_999, 'engine',
      'verification-dag-work-span.tsv'),
-    ('a hand-set 99 maximum complete-path saving', _mut_saving_99,
+    ('a hand-set 99 maximum complete-path saving', _mut_saving_99, 'engine',
      'verification-dag-reachability.tsv'),
-    ('a deleted generated row', _mut_delete_row, 'verification-dag-work-span.tsv'),
-    ('a generated header edited to a stronger claim', _mut_stronger_header,
+    ('a deleted generated row', _mut_delete_row, 'engine', 'verification-dag-work-span.tsv'),
+    ('a generated header edited to a stronger claim', _mut_stronger_header, 'engine',
      'verification-dag-work-span.tsv'),
-    ('raw events modified without regenerating the summary', _mut_raw_without_regen,
+    ('raw events modified without regenerating the summary', _mut_raw_without_regen, 'engine',
      'verification-dag-work-span.tsv'),
-    ('a modified generator kept with stale committed output', _mut_generator_drift,
+    ('a modified generator kept with stale committed output', _mut_generator_drift, 'engine',
      'verification-dag-work-span.tsv'),
-    ('committed output replaced by a second hand calculation', _mut_hand_recalculation,
+    ('committed output replaced by a second hand calculation', _mut_hand_recalculation, 'engine',
      'verification-dag-work-span.tsv'),
+    ('a hand-edited metric kind in the typed index', _mut_metric_kind, 'engine',
+     'performance-derived-metrics.tsv'),
+    ('a raw sentence-table edit with stale generated output', _mut_sentence_secs, 'attr',
+     'witnessreject-'),
+    ('a hand-edited population total', _mut_population_total, 'attr',
+     'witnessreject-populations.tsv'),
+    ('a hand-edited program total', _mut_program_total, 'attr', 'witnessreject-programs.tsv'),
 )
 
 
-def run_evidence_mutant(root: Path, transform):
+def run_evidence_mutant(root: Path, transform, runner):
     with tempfile.TemporaryDirectory() as d:
         work = Path(d) / 'tree'
         shutil.copytree(root, work, symlinks=True,
@@ -361,8 +464,12 @@ def run_evidence_mutant(root: Path, transform):
         err = transform(work)
         if err is not None:
             return None, err
-        proc = subprocess.run([sys.executable, str(work / WORKSPAN), '--root', str(work),
-                               '--check-generated'], capture_output=True, text=True, cwd=work)
+        if runner == 'attr':
+            cmd = [sys.executable, str(work / ATTR), '--check-generated',
+                   '--perf-dir', str(work / '.review/perf')]
+        else:
+            cmd = [sys.executable, str(work / WORKSPAN), '--root', str(work), '--check-generated']
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=work)
         return proc, None
 
 
@@ -487,20 +594,21 @@ def main() -> int:
     # the --check-generated law through its named summary file (the mode make perf-evidence and the
     # staged hook both run, so the same detection holds in the ordinary and staged gates).
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as pool:
-        eran = list(pool.map(lambda m: run_evidence_mutant(root, m[1]), EVIDENCE_MUTANTS))
-    for (label, _fn, expected_file), (proc, err) in zip(EVIDENCE_MUTANTS, eran):
+        eran = list(pool.map(lambda m: run_evidence_mutant(root, m[1], m[2]), EVIDENCE_MUTANTS))
+    for (label, _fn, runner, expected_file), (proc, err) in zip(EVIDENCE_MUTANTS, eran):
         if err is not None or proc is None:
             failures.append(f'evidence mutation: {label}: {err}')
             continue
         blob = proc.stdout + proc.stderr
+        law = 'generated-summary law' if runner == 'engine' else 'generated-view law'
         if proc.returncode == 0:
             failures.append(f'evidence mutation: {label}: --check-generated still PASSED — the '
                             f'byte-compare law did not detect it')
-        elif f'generated-summary law: {expected_file}' not in blob:
-            failures.append(f'evidence mutation: {label}: failed, but not through the generated-summary '
-                            f'law on {expected_file}; output: {blob.strip().splitlines()[:3]}')
+        elif f'{law}: {expected_file}' not in blob:
+            failures.append(f'evidence mutation: {label}: failed, but not through the {law} on '
+                            f'{expected_file}; output: {blob.strip().splitlines()[:3]}')
         else:
-            print(f'  detected  {label}  (generated-summary byte-compare)')
+            print(f'  detected  {label}  ({law} byte-compare)')
 
     # The layer-dependency gate (a POSIX-sh decision block in the Dockerfile), under the same authority.
     layer_selected = list(LAYER_MUTANTS)
