@@ -281,12 +281,26 @@ governance, and any criterion later registered — answers its one whole-system 
 immutable candidate: the frozen source ZIP Rob supplies is the authoritative review object, and its comment
 commit may be compared with the branch tip as a sanity check — never as an identity ceremony. Each inspects
 public types and constructor topology before proof bodies, freezes one
-findings report, and grades it; the candidate's grade is the weakest pass grade, never an average. A separate
-synthesis role reads all frozen reports, maps their convergence, conflict, asymmetry and silence, and
-produces one dependency-ordered implementation contract. The submitted archive carries Rob's trusted attestation that its required gates passed before
-handoff, so a review inspects gate definitions, coverage and retained artifacts but never reruns the pinned
-toolchain and never treats local tool absence as missing evidence. Reviewers propose; no pass and no synthesis
-accepts; Rob alone accepts, and no work is manufactured after the reviewed frontier has survived review.
+findings report, and grades it; the candidate's grade is the weakest pass grade, never an average. The
+submitted archive carries Rob's trusted attestation that its required gates passed before handoff, so a
+review inspects gate definitions, coverage and retained artifacts but never reruns the pinned toolchain and
+never treats local tool absence as missing evidence.
+
+The release sequence is exact and ordered. First, every required criterion report over the one immutable
+candidate is completed and frozen. Only after that join does one fresh role produce a private synthesis and
+causal recommendation for Rob; that private synthesis creates no work contract and authorizes no work.
+Rob explicitly authorizes one exact lawful causal-root slice, after separately selecting it, before any
+outbound contract exists; only after that authorization does a fresh context create one self-contained
+outbound work contract containing exactly the authorized substantive work, and that later contract stands on
+its own — a work agent needs only the candidate and its direct substantive requirements, never private
+review material or review history, and may not select, enlarge, substitute, or reinterpret the slice.
+If Rob authorizes no slice, the process stops at the private recommendation and creates or releases no
+contract, draft side effect, implementation prompt, or implementation task; the no-authorization state is
+terminal. An implemented retained slice returns as a new immutable candidate for a fresh whole-candidate
+review before another review-derived implementation task. Reviewers and the synthesis propose; none of them
+accepts. Rob alone accepts, and work authorization and candidate acceptance are distinct Rob decisions —
+authorizing an exact slice of work is not accepting the candidate, and acceptance is not implicit
+authorization.
 `life.md` is outside this protocol and outside every actor's authority.
 
 **Strict checkpoint scope.** Whole-system inspection remains mandatory, but a finding blocks the active

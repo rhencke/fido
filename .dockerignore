@@ -33,5 +33,3 @@ vendor/
 .DS_Store
 *.swp
 *.swo
-# The diagnostic timing record: it changes on every `make perf` and is an input to nothing.
-.review/PERFORMANCE.tsv

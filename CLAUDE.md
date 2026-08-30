@@ -80,7 +80,8 @@ grab bags.
 13. Shadow implementations are forbidden. A scratch check answers one isolated question, defines no subsystem
     or public surface, never enters the build or repository, and is deleted before terminal verification and
     reported with the decision it informed.
-14. Rob alone changes scope or accepts.
+14. Rob alone changes scope, authorizes one exact review-derived work slice, or accepts a candidate; these
+    are three distinct actions and none implies another.
 15. Whole-system review is mandatory, but a finding blocks the active checkpoint only if it breaks that
     checkpoint's accepted contract or leaves a prerequisite it consumes unestablished; tooling, gate,
     coverage, documentation, performance and hygiene findings are mandatory concurrent work with a named
@@ -107,11 +108,19 @@ the supplied frozen source ZIP, which is the authoritative review object (its co
 sanity-checked against the branch tip).
 
 In the exhaustive review, every registered criterion is graded independently over that one archive, the final
-grade is the weakest criterion, and one synthesis reads all the criterion reports and produces one
-dependency-ordered implementation contract. The archive carries Rob's trusted attestation that its required
-gates passed before handoff, so reviewers inspect gate definitions and retained artifacts but never rerun the
-pinned toolchain. Rob alone accepts. `ARCHITECTURE.md` §1 "Review and acceptance" owns the rule; `life.md` is
-outside it and outside every actor's authority.
+grade is the weakest criterion. The archive carries Rob's trusted attestation that its required gates passed
+before handoff, so reviewers inspect gate definitions and retained artifacts but never rerun the pinned
+toolchain. The release sequence is exact and ordered: once every criterion report is frozen, one fresh role
+produces a private synthesis and causal recommendation for Rob; that synthesis creates no work contract and
+authorizes no work. Rob explicitly authorizes one exact review-derived slice, after separately selecting it,
+before any outbound contract exists; only then does a fresh context write one self-contained work contract
+containing exactly that authorized slice, stating its own substantive requirements and needing no private
+review material or history, and it may not enlarge or substitute the slice. If Rob authorizes no slice, the
+process stops at the private recommendation and no work contract, draft, implementation prompt, or task
+exists. A retained implementation returns as a new immutable candidate for a fresh whole-candidate review
+before another review-derived task. Rob alone accepts; work authorization and candidate acceptance are
+distinct Rob decisions, neither implying the other. `ARCHITECTURE.md` §1 "Review and acceptance" owns the
+rule; `life.md` is outside it and outside every actor's authority.
 
 ## Commands
 

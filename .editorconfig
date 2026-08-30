@@ -47,8 +47,8 @@ insert_final_newline = false
 
 # ---- tabular data: a trailing tab is a MEANINGFUL empty final field ----
 
-# e.g. PROBE_ENVIRONMENT.tsv pins `GOFLAGS` and `GODEBUG` to the EMPTY value as a trailing tab.  Trimming it
-# deletes the field.
+# A trailing tab (or comma) can encode a meaningful final field pinned to the EMPTY value; trimming it
+# deletes that field and changes the record.
 [*.{tsv,csv}]
 indent_style = tab
 trim_trailing_whitespace = false
