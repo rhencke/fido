@@ -1,30 +1,25 @@
 #!/usr/bin/env python3
-"""The sole performance accounting and successor-reachability authority.
+"""The sole performance accounting, comparison-series, and reachability authority.
 
-Consumes the verified basis registry, the normalized event table, and the raw sentence attribution;
-enforces the EXACT event grammar of each supported topology version (event identities, roles, classes,
-parents, complete predecessor sets, boundary membership, and the terminal sink); computes every governing
-metric from measured intervals; and deterministically generates the committed human summaries plus the one
-typed machine metric index, all regenerated and byte-compared by the normal and staged gates.
+Consumes the verified basis registry, the status ledger (.review/PERFORMANCE.tsv), the normalized event
+table, and the raw sentence attribution.  The status ledger declares the governed run series by exact
+relation + scenario + basis; this module selects the HistoricalComparisonSeries and the CurrentColdSeries
+from those declarations, keyed by the composite RunKey = (basis, scenario, run_id), and requires an exact
+bijection with the retained event graphs.  NO run-name prefix (entry*/final*), row position, notes text, or
+event-file presence carries selection authority.
+
+It then enforces the EXACT event grammar of each supported topology version (event identities, roles,
+classes, parents, complete predecessor sets, attribution role/class, the terminal sink), computes every
+governing metric from measured intervals with a per-source timing tolerance, and deterministically
+generates the committed human summaries plus the one typed machine metric index — all regenerated and
+byte-compared by the normal and staged gates.
 
 Metrics per boundary (never conflated, none called CPU time — BuildKit exposes no CPU accounting, so
-elapsed task time is the declared work proxy):
-
-  wall_span_s                  boundary terminal end minus boundary start (boundary-specific, never the
-                               whole-run root wall reused)
-  aggregate_task_elapsed_s     sum of the boundary's required WORK_LEAF durations
-  critical_path_span_s         longest predecessor path ENDING AT THE EXACT BOUNDARY TERMINAL
-  interval_union_span_s        union of the boundary's leaf intervals
-  temporal_overlap_s           aggregate work minus interval union (time two tasks truly coexist)
-  work_outside_critical_path_s aggregate work minus the terminal-bound critical path
-  unclassified_s               boundary wall minus interval union
-
-Every boundary member must be reachable from the exact boundary start and reach the exact terminal; the
-terminal has no successor and no work leaf runs past it.  The one CURRENT registry basis is joined to the
-candidate digest: equal is CURRENT, unchanged-but-different is honestly HISTORICAL, and any change to the
-evidence content (the perf-evidence-changed projection) must bind CURRENT to the exact candidate digest.
-Reachability (the evidence-observation ceiling) uses measured per-worker intervals and same-basis sentence
-targets — no universal worker-load, serial-overhead, or wave constants.
+elapsed task time is the declared work proxy): wall_span, aggregate_task_elapsed, terminal-bound
+critical_path_span, interval_union_span, temporal_overlap (work − union), work_outside_critical_path
+(work − critical path), unclassified (wall − union).  Current cold medians are the ordinary mathematical
+median (even count = mean of the two middle values) over exactly the selected current cold series; the
+one-DAG delta is that current median versus the one verified historical representative run.
 """
 import argparse
 import csv
@@ -35,6 +30,7 @@ from pathlib import Path
 BASES = '.review/perf/performance-bases.tsv'
 EVENTS = '.review/perf/verification-dag-events.tsv'
 SENTENCES = '.review/perf/witnessreject-sentences.tsv'
+PERF = '.review/PERFORMANCE.tsv'
 GEN_WORK_SPAN = 'verification-dag-work-span.tsv'
 GEN_REACH = 'verification-dag-reachability.tsv'
 GEN_METRICS = 'performance-derived-metrics.tsv'
@@ -43,16 +39,36 @@ ROLES = ('CONTAINER', 'WORK_LEAF', 'ATTRIBUTION')
 TARGET_POPS = ('ISSUE_TABLE', 'CAUSE_VIEW', 'REQ_VIEW', 'GROUP_VIEW')
 WORKER_CHUNKS = {'chunk-A': 'e2e/WitnessRejectA.v', 'chunk-B': 'e2e/WitnessRejectB.v',
                  'chunk-C': 'e2e/WitnessRejectC.v', 'chunk-D': 'e2e/WitnessRejectD.v'}
-TOL = 1500  # ms clock tolerance
+PERF_COLS = ['scenario', 'relation', 'digest', 'command', 'cores', 'memory', 'boundary',
+             'toolchain', 'cache', 'exit', 'wall_s', 'complete', 'dominant', 'notes', 'run_id']
+# the current cold series must share every one of these; wall_s/dominant/notes/run_id may differ
+SERIES_MATCH = ('command', 'cores', 'memory', 'boundary', 'toolchain')
+CACHE_KEYS = ('builder', 'project', 'dune-build', 'dune-cache', 'buildkit', 'base', 'prior')
+CURRENT_COLD_CACHE = {'project': 'cold', 'dune-build': 'cold', 'dune-cache': 'off',
+                      'buildkit': 'project-stages-invalidated', 'base': 'primed', 'prior': 'none'}
+# historical comparability: exact machine/toolchain equality, comparable cold semantics; command and
+# buildkit topology may differ because the comparison's whole purpose is three-solve vs one-DAG
+HIST_EXACT = ('cores', 'memory', 'boundary', 'toolchain')
+HIST_COLD = ('project', 'dune-build', 'dune-cache', 'base', 'prior')
+
+# timing sources: native resolution floor (a row cannot claim finer precision than its source); DERIVED
+# rows state the coarsest relevant resolution and carry no native floor
+SOURCE_NATIVE_MS = {'HOST_SECONDS': 1000, 'PROC_UPTIME_10MS': 10, 'BUILDKIT_LOG_OFFSET': 100, 'DERIVED': 0}
+RECONCILE_MS = 1500  # cross-clock reconciliation slack (Rocq -time seconds vs /proc/uptime ms)
 
 
 def _ev(role, cls, parent, preds, solve=False):
     return {'role': role, 'class': cls, 'parent': parent, 'preds': frozenset(preds), 'solve': solve}
 
 
+def _attr(chunk, required):
+    return {'role': 'ATTRIBUTION', 'class': 'FIXTURE_WORKER', 'parent': 'emit', 'worker': chunk,
+            'required': required}
+
+
 # each topology version owns one exact measured graph: exact event identities, roles, classes, parents,
-# complete predecessor sets, the solve-operation events (by identity, never a string count), exact
-# attribution events, and both boundary definitions (start / terminal / external source edge)
+# complete predecessor sets, solve-operation events (by identity), exact attribution role/class/parent/tag,
+# and both boundary definitions (start / terminal / external source edge)
 _ONE_DAG_EVENTS = {
     'root':    _ev('CONTAINER', 'UNCLASSIFIED', '', ()),
     'policy':  _ev('WORK_LEAF', 'POLICY', 'root', ()),
@@ -87,7 +103,7 @@ TOPOLOGIES = {
             'e-go':      _ev('WORK_LEAF', 'GO', 's2', ('e-emit',)),
             'art':       _ev('WORK_LEAF', 'JOIN_EXPORT', 'root', ('e-go',), solve=True),
         },
-        'attribution': {'e-wave2': {'parent': 'e-emit', 'worker': 'chunk-workers', 'required': False}},
+        'attribution': {},
         'boundaries': {
             'COMPLETE_PATH': {'start': 'policy', 'terminal': 'art', 'exclude': ()},
             'PROJECT_VERIFICATION': {'start': 'p-context', 'terminal': 'art', 'exclude': ('policy',),
@@ -97,14 +113,14 @@ TOPOLOGIES = {
     },
     'ONE_DAG_V1': {
         'events': _ONE_DAG_EVENTS,
-        'attribution': {'wave2': {'parent': 'emit', 'worker': 'chunk-workers', 'required': False}},
+        'attribution': {'wave2': {'role': 'ATTRIBUTION', 'class': 'FIXTURE_WORKER', 'parent': 'emit',
+                                  'worker': 'chunk-workers', 'required': False}},
         'boundaries': _ONE_DAG_BOUNDS,
         'dune': 1,
     },
     'ONE_DAG_CHUNK_TIMED_V2': {
         'events': _ONE_DAG_EVENTS,
-        'attribution': {tag: {'parent': 'emit', 'worker': tag, 'required': True}
-                        for tag in WORKER_CHUNKS},
+        'attribution': {tag: _attr(tag, True) for tag in WORKER_CHUNKS},
         'boundaries': _ONE_DAG_BOUNDS,
         'dune': 1,
     },
@@ -115,6 +131,34 @@ def read_tsv(path):
     with open(path, encoding='utf-8') as f:
         rows = [ln for ln in f if ln.strip() and not ln.lstrip().startswith('#')]
     return list(csv.DictReader(rows, delimiter='\t'))
+
+
+def read_perf(path):
+    """Status ledger rows as dicts (positional, header dropped)."""
+    out = []
+    with open(path, encoding='utf-8') as f:
+        seen_header = False
+        for ln in f:
+            if not ln.strip() or ln.lstrip().startswith('#'):
+                continue
+            if not seen_header:
+                seen_header = True
+                continue
+            cells = ln.rstrip('\n').split('\t')
+            if len(cells) == len(PERF_COLS):
+                out.append(dict(zip(PERF_COLS, cells)))
+    return out
+
+
+def parse_cache(s):
+    out = {}
+    for part in s.split(';'):
+        part = part.strip()
+        if not part:
+            continue
+        k, _, v = part.partition('=')
+        out.setdefault(k.strip(), []).append(v.strip())
+    return out
 
 
 # ---------------- basis registry ----------------
@@ -144,9 +188,8 @@ def check_bases(bases, findings):
 def check_currency(current, current_digest, evidence_changed, findings, notices):
     """Join the registry CURRENT basis to the candidate digest.
 
-    Unchanged evidence on an earlier committed basis is honestly HISTORICAL; any change to the
-    evidence content (measurements, registry currency, raw rows — decided by the one
-    perf-evidence-changed projection) must bind CURRENT to the exact candidate digest, so a
+    Unchanged evidence on an earlier committed basis is honestly HISTORICAL; any change to the evidence
+    content (the perf-evidence-changed projection) must bind CURRENT to the exact candidate digest, so a
     promoted or fabricated CURRENT basis is rejected where it is published."""
     if not current or not current_digest:
         return
@@ -161,17 +204,133 @@ def check_currency(current, current_digest, evidence_changed, findings, notices)
                        'has not re-frozen — evidence is HISTORICAL for this exact tree')
 
 
+# ---------------- comparison-series selection (status ledger is the authority) ----------------
+def _series_row_ok(r, reg, findings, label):
+    ok = True
+    if r['run_id'] in ('', '-'):
+        findings.append(f'{PERF}: {label} row for scenario {r["scenario"]} has no exact run_id'); ok = False
+    if r['complete'] != 'yes' or r['exit'] != '0':
+        findings.append(f'{PERF}: {label} run {r["run_id"]} is not a successful complete row'); ok = False
+    try:
+        float(r['wall_s'])
+    except ValueError:
+        findings.append(f'{PERF}: {label} run {r["run_id"]} has non-numeric wall_s'); ok = False
+    if r['digest'] not in reg:
+        findings.append(f'{PERF}: {label} run {r["run_id"]} uses unregistered basis {r["digest"][:12]}')
+        ok = False
+    return ok
+
+
+def select_series(perf_rows, reg, current, findings):
+    """Select the two governed series from exact relation + scenario + basis — never a run-name prefix."""
+    hist = [r for r in perf_rows
+            if r['relation'] == 'comparison-baseline' and r['scenario'] == 'COLD_COMPLETE']
+    cur = [r for r in perf_rows if r['relation'] == 'final-candidate'
+           and r['scenario'] == 'COLD_COMPLETE' and r['digest'] == current]
+    for r in hist:
+        _series_row_ok(r, reg, findings, 'comparison-baseline')
+    for r in cur:
+        _series_row_ok(r, reg, findings, 'final-candidate cold')
+
+    def keys(rows):
+        return [(r['digest'], r['scenario'], r['run_id']) for r in rows]
+
+    hk, ck = keys(hist), keys(cur)
+    if len(set(hk)) != len(hk):
+        findings.append(f'{PERF}: duplicate comparison-baseline RunKey')
+    if len(set(ck)) != len(ck):
+        findings.append(f'{PERF}: duplicate current-cold RunKey')
+    if len(set(hk)) != 1:
+        findings.append(f'{PERF}: HistoricalComparisonSeries requires exactly one run, found {len(set(hk))}')
+    if len(set(ck)) < 3:
+        findings.append(f'{PERF}: CurrentColdSeries requires at least three unique runs, found '
+                        f'{len(set(ck))}')
+    # §8.1/8.2 current-series machine/cache uniformity
+    if cur:
+        base = cur[0]
+        for r in cur[1:]:
+            for col in SERIES_MATCH:
+                if r[col] != base[col]:
+                    findings.append(f'{PERF}: current-cold series {col} not uniform ({r[col]!r} vs '
+                                    f'{base[col]!r})')
+        for r in cur:
+            cm = parse_cache(r['cache'])
+            dup = sorted(k for k, v in cm.items() if len(v) > 1)
+            if dup:
+                findings.append(f'{PERF}: current-cold run {r["run_id"]} duplicate cache keys {dup}')
+            if set(cm) != set(CACHE_KEYS):
+                findings.append(f'{PERF}: current-cold run {r["run_id"]} cache keys '
+                                f'{sorted(cm)} != required {sorted(CACHE_KEYS)}')
+            for k, want in CURRENT_COLD_CACHE.items():
+                if cm.get(k, [None])[0] != want:
+                    findings.append(f'{PERF}: current-cold run {r["run_id"]} cache {k}='
+                                    f'{cm.get(k, ["?"])[0]} != required {want}')
+            if r['cores'] != '4':
+                findings.append(f'{PERF}: current-cold run {r["run_id"]} is not 4 cores')
+            if '15GB' not in r['memory']:
+                findings.append(f'{PERF}: current-cold run {r["run_id"]} is not the 15GB memory class')
+            if r['boundary'] != 'container':
+                findings.append(f'{PERF}: current-cold run {r["run_id"]} boundary is not container')
+        # cache uniformity across the series (values, order-insensitive)
+        norm = {tuple(sorted((k, v[0]) for k, v in parse_cache(r['cache']).items())) for r in cur}
+        if len(norm) > 1:
+            findings.append(f'{PERF}: current-cold series cache state is not uniform')
+    # §8.3 historical comparability
+    if hist and cur:
+        h, c = hist[0], cur[0]
+        for col in HIST_EXACT:
+            if h[col] != c[col]:
+                findings.append(f'{PERF}: historical comparison {col} {h[col]!r} != current {c[col]!r}')
+        hc, cc = parse_cache(h['cache']), parse_cache(c['cache'])
+        for k in HIST_COLD:
+            if hc.get(k, [None])[0] != cc.get(k, [None])[0]:
+                findings.append(f'{PERF}: historical comparison cache {k}={hc.get(k, ["?"])[0]} not '
+                                f'comparable to current {cc.get(k, ["?"])[0]}')
+    return {'historical': sorted(set(hk)), 'current': sorted(set(ck)),
+            'rows': {(r['digest'], r['scenario'], r['run_id']): r for r in hist + cur}}
+
+
+def standard_median(vals):
+    s = sorted(vals)
+    n = len(s)
+    if n == 0:
+        return 0.0
+    if n % 2:
+        return float(s[n // 2])
+    return (s[n // 2 - 1] + s[n // 2]) / 2.0
+
+
 # ---------------- exact event grammar ----------------
+def ev_res(e):
+    try:
+        return int(e['resolution_ms'])
+    except (ValueError, KeyError):
+        return RECONCILE_MS
+
+
 def check_run(evs, spec, findings, key):
     ids = {}
     for e in evs:
         if e['event_id'] in ids:
             findings.append(f'{key}: duplicate event_id {e["event_id"]}')
         ids[e['event_id']] = e
+        clock = e.get('clock', '')
+        if clock not in SOURCE_NATIVE_MS:
+            findings.append(f'{key}:{e["event_id"]}: unknown clock {clock!r}')
+        else:
+            try:
+                res = int(e['resolution_ms'])
+                if res < SOURCE_NATIVE_MS[clock]:
+                    findings.append(f'{key}:{e["event_id"]}: claimed resolution {res}ms is finer than '
+                                    f'the {clock} source ({SOURCE_NATIVE_MS[clock]}ms) — over-claimed '
+                                    f'precision')
+            except ValueError:
+                findings.append(f'{key}:{e["event_id"]}: non-numeric resolution_ms')
         try:
             s, en, el = int(e['start_ms']), int(e['end_ms']), int(e['elapsed_ms'])
-            if abs((en - s) - el) > TOL:
-                findings.append(f'{key}:{e["event_id"]}: elapsed {el} != end-start {en - s}')
+            if abs((en - s) - el) > ev_res(e):
+                findings.append(f'{key}:{e["event_id"]}: elapsed {el} != end-start {en - s} beyond the '
+                                f'{ev_res(e)}ms source resolution')
         except ValueError:
             findings.append(f'{key}:{e["event_id"]}: non-numeric interval')
             return ids
@@ -191,6 +350,9 @@ def check_run(evs, spec, findings, key):
                 findings.append(f'{key}:{i}: attribution event not owned by this topology version')
                 continue
             a = attr[i]
+            if e['role'] != a['role'] or e['class'] != a['class']:
+                findings.append(f'{key}:{i}: attribution role/class {e["role"]}/{e["class"]} != required '
+                                f'{a["role"]}/{a["class"]}')
             if e['parent_id'] != a['parent']:
                 findings.append(f'{key}:{i}: attribution parent {e["parent_id"]} != {a["parent"]}')
             if e['worker_or_stage'] != a['worker']:
@@ -213,19 +375,16 @@ def check_run(evs, spec, findings, key):
         if actual_preds != set(r['preds']):
             findings.append(f'{key}:{i}: predecessor set {sorted(actual_preds)} != required '
                             f'{sorted(r["preds"])} — missing and extra predecessors both reject')
-        want_solve = 'verification-solve' if r['solve'] else None
         if r['solve'] and e['worker_or_stage'] != 'verification-solve':
             findings.append(f'{key}:{i}: this event is a solve operation and must carry the '
                             f'verification-solve tag')
         if not r['solve'] and e['worker_or_stage'] == 'verification-solve':
             findings.append(f'{key}:{i}: verification-solve tag on a non-solve event')
-        del want_solve
         if e['role'] == 'WORK_LEAF' and e['result'] != 'ok':
             findings.append(f'{key}:{i}: a failed task cannot be counted as work')
     for tag, a in attr.items():
         if a['required'] and tag not in ids:
             findings.append(f'{key}: required attribution event {tag} is missing')
-    # containment + parent reachability to the one root
     roots = [i for i, e in ids.items() if e['role'] != 'ATTRIBUTION' and not e['parent_id']]
     if len(roots) != 1:
         findings.append(f'{key}: exactly one root container required, found {sorted(roots)}')
@@ -235,7 +394,8 @@ def check_run(evs, spec, findings, key):
             continue
         if e['parent_id']:
             p = ids[e['parent_id']]
-            if int(e['start_ms']) < int(p['start_ms']) - TOL or int(e['end_ms']) > int(p['end_ms']) + TOL:
+            tol = max(ev_res(e), ev_res(p))
+            if int(e['start_ms']) < int(p['start_ms']) - tol or int(e['end_ms']) > int(p['end_ms']) + tol:
                 findings.append(f'{key}:{i}: interval outside its parent {p["event_id"]}')
         seen, cur = set(), e
         while cur['parent_id']:
@@ -244,11 +404,12 @@ def check_run(evs, spec, findings, key):
                 break
             seen.add(cur['parent_id'])
             cur = ids[cur['parent_id']]
-    # timing against declared predecessors
     for i, e in ids.items():
         for pr in filter(None, e['predecessors'].split(',')):
-            if pr in ids and int(e['start_ms']) < int(ids[pr]['end_ms']) - TOL:
-                findings.append(f'{key}:{i}: starts before predecessor {pr} ends')
+            if pr in ids:
+                tol = max(ev_res(e), ev_res(ids[pr]))
+                if int(e['start_ms']) < int(ids[pr]['end_ms']) - tol:
+                    findings.append(f'{key}:{i}: starts before predecessor {pr} ends')
     return ids
 
 
@@ -259,15 +420,12 @@ def check_terminal(ids, spec, findings, key):
         if t not in ids:
             continue
         for i, e in ids.items():
-            if t in set(filter(None, e['predecessors'].split(','))) and i not in {
-                    b2['terminal'] for b2 in spec['boundaries'].values()} - {t}:
-                # the only lawful consumer of a boundary terminal is another boundary's identical terminal
-                if i != t:
-                    findings.append(f'{key}: terminal {t} has successor {i} — work after the declared '
-                                    f'terminal is rejected')
+            if t in set(filter(None, e['predecessors'].split(','))) and i != t:
+                findings.append(f'{key}: terminal {t} has successor {i} — work after the declared '
+                                f'terminal is rejected')
         tend = int(ids[t]['end_ms'])
         for i, e in ids.items():
-            if e['role'] == 'WORK_LEAF' and int(e['end_ms']) > tend + TOL:
+            if e['role'] == 'WORK_LEAF' and int(e['end_ms']) > tend + max(ev_res(e), ev_res(ids[t])):
                 findings.append(f'{key}: work leaf {i} runs past the {bname} terminal {t}')
 
 
@@ -311,31 +469,28 @@ def boundary_metrics(ids, spec, bname, findings, key):
     b = spec['boundaries'][bname]
     member_ids = [i for i, r in spec['events'].items()
                   if r['role'] == 'WORK_LEAF' and i not in b['exclude']]
-    missing = [m for m in member_ids if m not in ids]
-    if missing:
+    if [m for m in member_ids if m not in ids]:
         return None
     start, terminal = b['start'], b['terminal']
     ext = b.get('external_source')
+    tol = max(ev_res(ids[m]) for m in member_ids)
     weights, edges = {}, {}
     for m in member_ids:
         weights[m] = int(ids[m]['elapsed_ms'])
         preds = set(filter(None, ids[m]['predecessors'].split(',')))
         inside = preds & set(member_ids)
-        outside = preds - set(member_ids)
-        for o in sorted(outside):
+        for o in sorted(preds - set(member_ids)):
             if not (ext and m == ext[1] and o == ext[0]):
                 findings.append(f'{key}: {bname} member {m} has outside predecessor {o} the topology '
                                 f'does not own as the boundary source')
         edges[m] = inside
-    # every member reachable from the start; every member reaches the terminal
     fwd = {start}
     changed = True
     while changed:
         changed = False
         for m in member_ids:
             if m not in fwd and edges[m] & fwd:
-                fwd.add(m)
-                changed = True
+                fwd.add(m); changed = True
     for m in sorted(set(member_ids) - fwd):
         findings.append(f'{key}: {bname} member {m} is not reachable from the boundary start {start}')
     back = {terminal}
@@ -346,8 +501,7 @@ def boundary_metrics(ids, spec, bname, findings, key):
             if m in back:
                 for p in edges[m]:
                     if p not in back:
-                        back.add(p)
-                        changed = True
+                        back.add(p); changed = True
     for m in sorted(set(member_ids) - back):
         findings.append(f'{key}: {bname} member {m} cannot reach the boundary terminal {terminal}')
     cp = terminal_path(weights, edges, terminal, findings, key)
@@ -356,13 +510,13 @@ def boundary_metrics(ids, spec, bname, findings, key):
     un = union_len([(int(ids[m]['start_ms']), int(ids[m]['end_ms'])) for m in member_ids])
     t = {'wall': wall, 'work': work, 'critical': cp, 'union': un,
          'temporal_overlap': work - un, 'off_critical': work - cp, 'unclassified': wall - un}
-    if not (0 <= cp <= work + TOL):
+    if not (0 <= cp <= work + tol):
         findings.append(f'{key}: {bname} critical path {cp} outside [0, aggregate work {work}]')
-    if cp > wall + TOL:
+    if cp > wall + tol:
         findings.append(f'{key}: {bname} critical path {cp} exceeds the boundary wall {wall}')
-    if un > wall + TOL:
+    if un > wall + tol:
         findings.append(f'{key}: {bname} interval union exceeds the boundary wall')
-    if t['temporal_overlap'] < -TOL or t['off_critical'] < -TOL or t['unclassified'] < -TOL:
+    if t['temporal_overlap'] < -tol or t['off_critical'] < -tol or t['unclassified'] < -tol:
         findings.append(f'{key}: {bname} negative derived metric — inconsistent intervals')
     if bname == 'COMPLETE_PATH' and wall and t['unclassified'] / wall > 0.05:
         findings.append(f'{key}: unclassified complete-path time {t["unclassified"]}ms above 5% of '
@@ -398,14 +552,13 @@ def chunk_targets(sent_rows, basis, findings):
 
 
 def reachability(per, workers, findings, key):
-    """Zero-cost projection from measured per-worker intervals + same-basis sentence targets."""
     rows, zero_ends, cur_ends, starts = {}, [], [], []
     for tag, chunk in WORKER_CHUNKS.items():
         w = workers[tag]
         prof = per[chunk]['total'] * 1000
         targ = per[chunk]['target'] * 1000
         overhead = w['elapsed'] - prof
-        if overhead < -TOL:
+        if overhead < -RECONCILE_MS:
             findings.append(f'{key}: {tag} profile total {prof:.0f}ms exceeds its measured worker '
                             f'interval {w["elapsed"]}ms — unreconciled clocks')
         zero_dur = w['elapsed'] - targ
@@ -418,14 +571,13 @@ def reachability(per, workers, findings, key):
     zero_span = max(zero_ends) - min(starts)
     wave_saving = max(cur_ends) - max(zero_ends)
     agg_target = sum(r['target_ms'] for r in rows.values())
-    if wave_saving > agg_target + TOL:
+    if wave_saving > agg_target + RECONCILE_MS:
         findings.append(f'{key}: wall saving cannot exceed the aggregate target work')
     return {'rows': rows, 'cur_wave_span_ms': cur_span, 'zero_wave_span_ms': zero_span,
             'max_fixture_wall_saving_ms': wave_saving, 'max_agg_work_saving_ms': agg_target}
 
 
 def zero_cost_projection(ids, spec, wave_saving_ms, findings, key):
-    """Terminal-bound COMPLETE_PATH critical path with the EMIT leaf reduced by the wave saving."""
     b = spec['boundaries']['COMPLETE_PATH']
     member_ids = [i for i, r in spec['events'].items() if r['role'] == 'WORK_LEAF']
     weights, edges = {}, {}
@@ -439,51 +591,68 @@ def zero_cost_projection(ids, spec, wave_saving_ms, findings, key):
 
 
 # ---------------- one metric assembly, three generated renderings ----------------
-def assemble(reg, current, totals, reach):
-    """Build the one in-memory metric list every generated product renders from."""
+def assemble(reg, current, series, totals, reach):
+    """Build the one in-memory metric list from the EXACT selected series (no run-name prefix)."""
     metrics = []
 
     def add(mid, kind, basis, scope, statistic, unit, value, source):
         metrics.append({'metric_id': mid, 'metric_kind': kind, 'basis': basis, 'scope': scope,
                         'statistic': statistic, 'unit': unit, 'value': value, 'source': source})
 
-    entry = [k for k in sorted(totals) if k[2].startswith('entry')]
-    finals = [k for k in sorted(totals) if k[2].startswith('final') and k[0] == current]
-    for key in finals:
+    hist = [k for k in series['historical'] if k in totals]
+    cur = [k for k in series['current'] if k in totals]
+    for key in cur:
         t = totals[key]
-        add(f'run.{key[2]}.complete_path.wall_span_ms', 'SPAN', key[0],
+        add(f'run.{key[1]}.{key[2]}.complete_path.wall_span_ms', 'SPAN', key[0],
             f'{key[1]}/{key[2]}/COMPLETE_PATH/wall', 'measured', 'ms',
             t['COMPLETE_PATH']['wall'], 'verification-dag-events.tsv')
-    if entry and finals:
-        e = totals[entry[0]]
-        ebasis = entry[0][0]
+    add('series.current_cold.run_count', 'COUNT', current, 'CurrentColdSeries', 'exact', 'count',
+        len(cur), PERF)
+    add('series.historical_comparison.run_count', 'COUNT', current, 'HistoricalComparisonSeries',
+        'exact', 'count', len(hist), PERF)
+    if cur:
+        wall_med = standard_median([totals[k]['COMPLETE_PATH']['wall'] for k in cur])
+        add('series.current_cold.complete_path.wall_median_ms', 'SPAN', current,
+            'CurrentColdSeries/COMPLETE_PATH/wall', 'standard_median', 'ms', wall_med, PERF)
+        pv_work_med = standard_median([totals[k]['PROJECT_VERIFICATION']['work'] for k in cur])
+        add('series.current_cold.project_verification.aggregate_work_median_ms', 'WORK', current,
+            'CurrentColdSeries/PROJECT_VERIFICATION/aggregate_work', 'standard_median', 'ms',
+            pv_work_med, PERF)
+        pv_crit_med = standard_median([totals[k]['PROJECT_VERIFICATION']['critical'] for k in cur])
+        add('series.current_cold.project_verification.critical_span_median_ms', 'SPAN', current,
+            'CurrentColdSeries/PROJECT_VERIFICATION/critical_span', 'standard_median', 'ms',
+            pv_crit_med, PERF)
+    if hist and cur:
+        e = totals[hist[0]]
+        ebasis = hist[0][0]
+        src = (f'current cold standard median of {len(cur)} runs vs verified historical representative '
+               f'{hist[0][2]} ({ebasis[:12]})')
         for bname, tag in (('PROJECT_VERIFICATION', 'project_verification'),
                            ('COMPLETE_PATH', 'complete_path')):
-            works = sorted(totals[k][bname]['work'] for k in finals)
-            crits = sorted(totals[k][bname]['critical'] for k in finals)
-            med_w, med_c = works[len(works) // 2], crits[len(crits) // 2]
+            med_w = standard_median([totals[k][bname]['work'] for k in cur])
+            med_c = standard_median([totals[k][bname]['critical'] for k in cur])
             add(f'onedag.{tag}.aggregate_work_reduction_pct', 'RATIO', current,
-                f'{bname}/aggregate_work', 'median_vs_entry', 'pct',
-                round(100 * (e[bname]['work'] - med_w) / e[bname]['work'], 1),
-                f'current {current[:12]} vs historical {ebasis[:12]}')
+                f'{bname}/aggregate_work', 'current_median_vs_historical_representative', 'pct',
+                round(100 * (e[bname]['work'] - med_w) / e[bname]['work'], 1), src)
             add(f'onedag.{tag}.critical_span_reduction_pct', 'RATIO', current,
-                f'{bname}/critical_span', 'median_vs_entry', 'pct',
-                round(100 * (e[bname]['critical'] - med_c) / e[bname]['critical'], 1),
-                f'current {current[:12]} vs historical {ebasis[:12]}')
-    if reach:
-        savings = sorted(r['max_complete_path_wall_saving_ms'] for r in reach.values())
-        aggs = sorted(r['max_agg_work_saving_ms'] for r in reach.values())
-        lows = sorted(r['zero_cost_complete_lower_bound_ms'] for r in reach.values())
+                f'{bname}/critical_span', 'current_median_vs_historical_representative', 'pct',
+                round(100 * (e[bname]['critical'] - med_c) / e[bname]['critical'], 1), src)
+    rk = [k for k in cur if k in reach]
+    if rk:
+        savings = sorted(reach[k]['max_complete_path_wall_saving_ms'] for k in rk)
+        aggs = sorted(reach[k]['max_agg_work_saving_ms'] for k in rk)
+        lows = sorted(reach[k]['zero_cost_complete_lower_bound_ms'] for k in rk)
         add('evidence_observation.max_aggregate_work_saving_ms', 'WORK', current,
-            'chunk-A..D/aggregate_work', 'median', 'ms', aggs[len(aggs) // 2],
-            'measured worker intervals + sentence targets')
+            'CurrentColdSeries/chunk-A..D/aggregate_work', 'standard_median', 'ms',
+            standard_median(aggs), 'measured worker intervals + sentence targets')
         add('evidence_observation.median_max_complete_path_wall_saving_ms', 'SPAN', current,
-            'COMPLETE_PATH/wall', 'median', 'ms', savings[len(savings) // 2],
+            'CurrentColdSeries/COMPLETE_PATH/wall', 'standard_median', 'ms', standard_median(savings),
             'terminal-bound zero-cost projection')
         add('evidence_observation.conservative_max_complete_path_wall_saving_ms', 'SPAN', current,
-            'COMPLETE_PATH/wall', 'min', 'ms', savings[0], 'terminal-bound zero-cost projection')
+            'CurrentColdSeries/COMPLETE_PATH/wall', 'min', 'ms', float(savings[0]),
+            'terminal-bound zero-cost projection')
         add('evidence_observation.zero_cost_complete_path_lower_bound_ms', 'BOUND', current,
-            'COMPLETE_PATH/wall', 'median', 'ms', lows[len(lows) // 2],
+            'CurrentColdSeries/COMPLETE_PATH/wall', 'standard_median', 'ms', standard_median(lows),
             'zero-cost critical path + unclassified')
     if current and reg.get(current):
         spec = TOPOLOGIES[reg[current]['topology_id']]
@@ -499,6 +668,10 @@ def assemble(reg, current, totals, reach):
     return metrics
 
 
+def _fmt(v):
+    return f'{v:.1f}' if isinstance(v, float) else str(v)
+
+
 def gen_metrics(metrics):
     lines = ['# CLASS: GENERATED_VIEW — the one typed machine metric index, generated by',
              '# tools/perf-work-span.py from the same internal results as the human summaries;',
@@ -507,19 +680,17 @@ def gen_metrics(metrics):
              '# /critical_span or /wall), never a substring search.',
              'metric_id\tmetric_kind\tbasis\tscope\tstatistic\tunit\tvalue\tsource']
     for m in sorted(metrics, key=lambda m: m['metric_id']):
-        v = m['value']
-        vs = f'{v:.1f}' if isinstance(v, float) else str(v)
         lines.append('\t'.join([m['metric_id'], m['metric_kind'], m['basis'], m['scope'],
-                                m['statistic'], m['unit'], vs, m['source']]))
+                                m['statistic'], m['unit'], _fmt(m['value']), m['source']]))
     return '\n'.join(lines) + '\n'
 
 
-def gen_work_span(totals, metrics):
+def gen_work_span(series, totals, metrics):
     lines = ['# CLASS: GENERATED_VIEW — human work/span summary generated by tools/perf-work-span.py',
-             '# from verification-dag-events.tsv; regenerated and byte-compared by the gates.  Each',
-             '# boundary has its own wall (terminal end minus boundary start); critical_path_span is',
-             '# the longest predecessor path ending at the exact terminal; temporal_overlap is work',
-             '# minus interval union; work_outside_critical_path is work minus the critical path.',
+             '# from .review/PERFORMANCE.tsv (the exact series authority) + verification-dag-events.tsv;',
+             '# regenerated and byte-compared by the gates.  The SERIES rows name the exact selected',
+             '# comparison baseline and current cold RunKeys; the one-DAG DELTA is the current cold',
+             '# standard median (even = mean of two middle) versus the verified historical representative.',
              'run\tboundary\twall_span_s\taggregate_task_elapsed_s\tcritical_path_span_s\t'
              'interval_union_span_s\ttemporal_overlap_s\twork_outside_critical_path_s\tunclassified_s']
     for key in sorted(totals):
@@ -529,6 +700,10 @@ def gen_work_span(totals, metrics):
                          f'{t["critical"]/1000:.1f}\t{t["union"]/1000:.1f}\t'
                          f'{t["temporal_overlap"]/1000:.1f}\t{t["off_critical"]/1000:.1f}\t'
                          f'{t["unclassified"]/1000:.1f}')
+    for k in series['historical']:
+        lines.append(f'SERIES_HISTORICAL\t{k[2]}\t{k[0]}\tCOLD_COMPLETE')
+    lines.append(f'SERIES_CURRENT\t{",".join(k[2] for k in series["current"])}\t'
+                 f'{len(series["current"])}\tstandard_median_of_COMPLETE_PATH_wall')
     for m in sorted(metrics, key=lambda m: m['metric_id']):
         if m['metric_id'].startswith('onedag.'):
             lines.append(f'DELTA\t{m["metric_id"]}\t{m["value"]:.1f}\t\t\t\t\t\t')
@@ -538,9 +713,9 @@ def gen_work_span(totals, metrics):
 def gen_reachability(per, reach, metrics):
     lines = ['# CLASS: GENERATED_VIEW — the evidence-observation ceiling, generated by',
              '# tools/perf-work-span.py from measured per-worker intervals + same-basis sentence',
-             '# targets; regenerated and byte-compared by the gates.  Zero-cost wave end = max over',
-             '# workers of (measured start + zero-cost residual); aggregate target work is never a',
-             '# wall claim; the successor critical path is terminal-bound.',
+             '# targets over exactly the current cold series; regenerated and byte-compared by the',
+             '# gates.  Zero-cost wave end = max over workers of (measured start + zero-cost residual);',
+             '# aggregate target work is never a wall claim; the successor critical path is terminal-bound.',
              'chunk\tprofile_total_s\ttarget_issue_s\ttarget_cause_s\ttarget_req_s\ttarget_group_s\t'
              'target_total_s\tresidual_s']
     for tag in sorted(WORKER_CHUNKS):
@@ -575,10 +750,20 @@ def validate(root, current_digest=None, evidence_changed=False):
     findings, notices = [], []
     reg, current = check_bases(read_tsv(root / BASES), findings)
     check_currency(current, current_digest, evidence_changed, findings, notices)
+    perf_rows = read_perf(root / PERF)
+    series = select_series(perf_rows, reg, current, findings)
     events = read_tsv(root / EVENTS)
     by_run = defaultdict(list)
     for e in events:
         by_run[(e['basis'], e['scenario'], e['run_id'])].append(e)
+    # §5 exact bijection: retained event RunKeys == selected series RunKeys, both ways
+    selected = set(series['historical']) | set(series['current'])
+    retained = set(by_run)
+    for k in sorted(selected - retained):
+        findings.append(f'{PERF}: selected run {k[2]} (basis {k[0][:12]}) has no matching event graph')
+    for k in sorted(retained - selected):
+        findings.append(f'{EVENTS}: event graph {k[2]} (basis {k[0][:12]}) is not a selected series '
+                        f'run — retain only the comparison baseline and current cold graphs')
     totals, reach, ids_of = {}, {}, {}
     per = None
     for key, evs in sorted(by_run.items()):
@@ -599,34 +784,41 @@ def validate(root, current_digest=None, evidence_changed=False):
                 t[bname] = bm
         if len(t) == 2:
             totals[key] = t
+    # §5.1 wall agreement: each selected status row vs its graph COMPLETE_PATH wall
+    if not findings:
+        for key in series['current'] + series['historical']:
+            row = series['rows'].get(key)
+            if row and key in totals:
+                gwall = totals[key]['COMPLETE_PATH']['wall']
+                if abs(float(row['wall_s']) * 1000 - gwall) > RECONCILE_MS:
+                    findings.append(f'{PERF}: run {key[2]} wall {row["wall_s"]}s disagrees with its '
+                                    f'graph COMPLETE_PATH wall {gwall/1000:.1f}s')
     if not findings:
         sent = read_tsv(root / SENTENCES)
-        cur_finals = [k for k in sorted(totals) if k[0] == current and k[2].startswith('final')]
         if current and sent:
             per = chunk_targets(sent, current, findings)
-        for key in cur_finals:
+        for key in series['current']:
+            if key not in ids_of or key not in totals:
+                continue
             ids, spec = ids_of[key]
-            if not spec['attribution'] or not any(a['required'] for a in spec['attribution'].values()):
+            if not any(a['required'] for a in spec['attribution'].values()):
                 continue
             workers = worker_intervals(by_run[key])
             missing = sorted(set(WORKER_CHUNKS) - set(workers))
             if missing:
-                findings.append(f'{key}: reachability requires measured worker intervals; '
-                                f'missing {missing}')
+                findings.append(f'{key}: reachability requires measured worker intervals; missing {missing}')
                 continue
             if findings or per is None:
                 continue
             r = reachability(per, workers, findings, str(key))
             r['cp_now_ms'] = totals[key]['COMPLETE_PATH']['critical']
-            cp_zero = zero_cost_projection(ids, spec, r['max_fixture_wall_saving_ms'],
-                                           findings, str(key))
+            cp_zero = zero_cost_projection(ids, spec, r['max_fixture_wall_saving_ms'], findings, str(key))
             r['successor_critical_path_ms'] = cp_zero
             r['max_complete_path_wall_saving_ms'] = r['cp_now_ms'] - cp_zero
-            r['zero_cost_complete_lower_bound_ms'] = (cp_zero
-                                                      + totals[key]['COMPLETE_PATH']['unclassified'])
+            r['zero_cost_complete_lower_bound_ms'] = cp_zero + totals[key]['COMPLETE_PATH']['unclassified']
             reach[key] = r
-    metrics = [] if findings else assemble(reg, current, totals, reach)
-    return findings, notices, reg, current, totals, per, reach, metrics
+    metrics = [] if findings else assemble(reg, current, series, totals, reach)
+    return findings, notices, reg, current, series, totals, per, reach, metrics
 
 
 def main():
@@ -635,34 +827,30 @@ def main():
     ap.add_argument('--self-test', action='store_true')
     ap.add_argument('--report', action='store_true')
     ap.add_argument('--current-digest', default='',
-                    help='the candidate performance-input digest (index for make, staged index for the '
-                         'hook); joined to the registry CURRENT basis — unchanged evidence on an '
-                         'earlier committed basis is honestly historical, changed evidence must bind '
-                         'exactly')
+                    help='the candidate performance-input digest; joined to the registry CURRENT basis — '
+                         'unchanged evidence on an earlier committed basis is honestly historical, changed '
+                         'evidence must bind exactly')
     ap.add_argument('--evidence-changed', choices=['yes', 'no'], default='no')
-    ap.add_argument('--emit-tables', default='',
-                    help='write the generated summaries + metric index here')
+    ap.add_argument('--emit-tables', default='', help='write the generated summaries + metric index here')
     ap.add_argument('--check-generated', action='store_true',
                     help='regenerate every generated product in memory and byte-compare the committed '
-                         'files — the one generated-summary law shared by make perf-evidence, the '
-                         'staged hook and the mutation harness')
+                         'files — the one generated law shared by make perf-evidence, the staged hook '
+                         'and the mutation harness')
     args = ap.parse_args()
     if args.self_test:
         sys.path.insert(0, str(Path(__file__).parent))
         from perf_work_span_selftest import run_self_test
         return run_self_test()
     root = Path(args.root)
-    findings, notices, reg, current, totals, per, reach, metrics = validate(
-        root, args.current_digest or None,
-        args.evidence_changed == 'yes')
+    findings, notices, reg, current, series, totals, per, reach, metrics = validate(
+        root, args.current_digest or None, args.evidence_changed == 'yes')
     for n in notices:
         print('fido: perf-work-span — ' + n)
     if findings:
         for f in findings:
             print('perf-work-span: ' + f, file=sys.stderr)
         raise SystemExit(f'fido: PERF-WORK-SPAN FAILED — {len(findings)} violation(s)')
-    expected = {GEN_WORK_SPAN: gen_work_span(totals, metrics),
-                GEN_METRICS: gen_metrics(metrics)}
+    expected = {GEN_WORK_SPAN: gen_work_span(series, totals, metrics), GEN_METRICS: gen_metrics(metrics)}
     if per is not None and reach:
         expected[GEN_REACH] = gen_reachability(per, reach, metrics)
     if args.emit_tables:
@@ -686,23 +874,22 @@ def main():
         if problems:
             for pr in problems:
                 print('perf-work-span: ' + pr, file=sys.stderr)
-            raise SystemExit(f'fido: PERF-WORK-SPAN FAILED — {len(problems)} generated-summary '
-                             f'violation(s)')
+            raise SystemExit(f'fido: PERF-WORK-SPAN FAILED — {len(problems)} generated-summary violation(s)')
         print('fido: generated summaries + metric index byte-identical to the committed files')
     if args.report:
         for key in sorted(totals):
             t = totals[key]
             print(f'{key[2]}: COMPLETE wall={t["COMPLETE_PATH"]["wall"]/1000:.0f}s '
-                  f'work/cp/union={t["COMPLETE_PATH"]["work"]/1000:.0f}/'
-                  f'{t["COMPLETE_PATH"]["critical"]/1000:.0f}/'
-                  f'{t["COMPLETE_PATH"]["union"]/1000:.0f}s  PV wall={t["PROJECT_VERIFICATION"]["wall"]/1000:.0f}s '
+                  f'work/cp={t["COMPLETE_PATH"]["work"]/1000:.0f}/{t["COMPLETE_PATH"]["critical"]/1000:.0f}s '
+                  f'PV wall={t["PROJECT_VERIFICATION"]["wall"]/1000:.0f}s '
                   f'work/cp={t["PROJECT_VERIFICATION"]["work"]/1000:.0f}/'
-                  f'{t["PROJECT_VERIFICATION"]["critical"]/1000:.0f}s '
-                  f'overlap/offcp={t["PROJECT_VERIFICATION"]["temporal_overlap"]/1000:.1f}/'
-                  f'{t["PROJECT_VERIFICATION"]["off_critical"]/1000:.1f}s')
-    print('fido: perf-work-span OK — exact topology-owned event graphs, terminal-bound critical paths, '
-          'boundary-specific walls, temporal overlap separated from off-critical work, one CURRENT '
-          'basis joined to the candidate digest, reachability from measured per-worker intervals')
+                  f'{t["PROJECT_VERIFICATION"]["critical"]/1000:.0f}s')
+        print(f'series: historical={[k[2] for k in series["historical"]]} '
+              f'current={[k[2] for k in series["current"]]}')
+    print('fido: perf-work-span OK — exact status-declared comparison series (no run-name prefix), '
+          'RunKey status/event bijection, terminal-bound critical paths, boundary-specific walls, '
+          'per-source timing tolerance, standard-median current series, reachability from measured '
+          'per-worker intervals')
     return 0
 
 

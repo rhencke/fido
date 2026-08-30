@@ -1920,6 +1920,14 @@ echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
 T0=$(date +%s)
 tl() { echo "fido-timeline: $1 t=$(( $(date +%s) - T0 ))s"; }
+# direct monotonic millisecond clock from /proc/uptime (10ms native): the first field is seconds with two
+# decimals; stripping one leading zero from the centisecond field keeps dash's arithmetic base-10 so 08/09
+# do not read as octal.  The chunk workers use this so their subsecond intervals are truthful
+# (PROC_UPTIME_10MS), never a whole-second guess; scheduling, worker count, commands, proof contents and
+# failure propagation are unchanged.
+upms() { u=$(cut -d' ' -f1 /proc/uptime); s=${u%.*}; f=${u#*.}; f=${f#0}; echo $(( s * 1000 + ${f:-0} * 10 )); }
+T0MS=$(upms)
+tlms() { echo "fido-timeline-ms: $1 t=$(( $(upms) - T0MS ))ms"; }
 tl "wave1-start prelude+evidence+neg+provenance"
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectPrelude.v > /tmp/emit-rejpre.log 2>&1 & p_pre=$!
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEvidence.v   > /tmp/emit-ev.log     2>&1 & p_ev=$!
@@ -1933,10 +1941,10 @@ tl "wave1-done"
 tl "wave2-start chunks A-D"
 # per-worker interval events: the reachability model consumes each chunk worker's measured start/done,
 # so no universal load or overhead constant ever substitutes for a measurement
-{ tl "worker chunk-A start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectA.v > /tmp/emit-rej-a.log 2>&1; rc=$?; tl "worker chunk-A done rc=$rc"; exit $rc; } & p_ca=$!
-{ tl "worker chunk-B start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectB.v > /tmp/emit-rej-b.log 2>&1; rc=$?; tl "worker chunk-B done rc=$rc"; exit $rc; } & p_cb=$!
-{ tl "worker chunk-C start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectC.v > /tmp/emit-rej-c.log 2>&1; rc=$?; tl "worker chunk-C done rc=$rc"; exit $rc; } & p_cc=$!
-{ tl "worker chunk-D start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectD.v > /tmp/emit-rej-d.log 2>&1; rc=$?; tl "worker chunk-D done rc=$rc"; exit $rc; } & p_cd=$!
+{ tlms "worker chunk-A start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectA.v > /tmp/emit-rej-a.log 2>&1; rc=$?; tlms "worker chunk-A done rc=$rc"; exit $rc; } & p_ca=$!
+{ tlms "worker chunk-B start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectB.v > /tmp/emit-rej-b.log 2>&1; rc=$?; tlms "worker chunk-B done rc=$rc"; exit $rc; } & p_cb=$!
+{ tlms "worker chunk-C start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectC.v > /tmp/emit-rej-c.log 2>&1; rc=$?; tlms "worker chunk-C done rc=$rc"; exit $rc; } & p_cc=$!
+{ tlms "worker chunk-D start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectD.v > /tmp/emit-rej-d.log 2>&1; rc=$?; tlms "worker chunk-D done rc=$rc"; exit $rc; } & p_cd=$!
 wait "$p_ca" || { cat /tmp/emit-rej-a.log; fail "WitnessReject chunk A FAILED — a rejection-matrix fixture broke"; }
 wait "$p_cb" || { cat /tmp/emit-rej-b.log; fail "WitnessReject chunk B FAILED — a rejection-matrix fixture broke"; }
 wait "$p_cc" || { cat /tmp/emit-rej-c.log; fail "WitnessReject chunk C FAILED — a rejection-matrix fixture broke"; }

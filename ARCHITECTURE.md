@@ -763,7 +763,16 @@ the exact boundary terminal; temporal overlap (work minus interval union) and wo
 path (work minus critical path) are distinct metrics. Machine-derived claims travel as typed metrics
 (`performance-derived-metrics.tsv`: id, kind WORK/SPAN/COUNT/RATIO/BOUND, basis, scope, unit, value), and
 ledger `DERIVED:` references resolve by exact metric id with work/span-kind, basis, and unit compatibility
-— a work gain and a span gain are distinct claims and cannot cite each other's metrics. Raw measurement is
+— a work gain and a span gain are distinct claims and cannot cite each other's metrics. The status ledger
+`.review/PERFORMANCE.tsv` owns exact comparison-series membership: each run declares its series role
+(`comparison-baseline` / `final-candidate` / `tooling-baseline`), the event table owns the exact measured
+task graphs, and the accounting engine consumes their exact `(basis, scenario, run_id)` RunKey bijection —
+run names are descriptive only, current cold medians include every selected current cold graph (ordinary
+median, even count = mean of the two middle), the comparison role is explicit, and machine/toolchain/cache
+uniformity is enforced within the governed series. A generated summary cannot repair a wrong input
+population, so the exact series and its status/event bijection are checked before any total is computed.
+Each event states its timing clock and native resolution (`HOST_SECONDS` / `PROC_UPTIME_10MS` /
+`BUILDKIT_LOG_OFFSET` / `DERIVED`) and no row may claim finer precision than its source. Raw measurement is
 the documented non-destructive scenario commands, never a publisher that overwrites candidate evidence.
 
 ---

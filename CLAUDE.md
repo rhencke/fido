@@ -128,9 +128,13 @@ make regen-guard  proves `sync` is unbuildable when go-e2e validation fails
 make diet         the permanent .v comment law
 make hostpython   the permanent no-host-Python boundary
 make fmt          the .editorconfig whitespace report (reports, never rewrites)
-make perf-evidence      verifies the basis registry against Git, regenerates + byte-compares all five
+make perf-evidence      verifies the basis registry against Git, selects the exact comparison series
+                        from .review/PERFORMANCE.tsv (status-declared RunKeys, never a run-name prefix)
+                        in bijection with the event graphs, regenerates + byte-compares all five
                         generated products (work/span, reachability, typed metric index, program and
-                        population views), and validates the measurement + opportunity ledgers
+                        population views), and validates the measurement + opportunity ledgers — every
+                        governed run is retained and included; an unusual or slow run name cannot
+                        exclude a result
 make perf-attribution   raw per-declaration profile classification + its generated table projections
                         (no derived accounting — the engine owns every judgment)
 make prove-errors just the Rocq File/Error lines, which Buildx otherwise buries

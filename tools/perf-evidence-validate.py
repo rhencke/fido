@@ -33,7 +33,10 @@ SCENARIOS = ('COLD_COMPLETE', 'WARM_COMPLETE', 'STAGED_PRE_COMMIT',
 REQUIRED_OF = {'tooling-baseline': ('COLD_COMPLETE', 'WARM_COMPLETE', 'STAGED_PRE_COMMIT'),
                'final-candidate': ('COLD_COMPLETE', 'WARM_COMPLETE',
                                    'PROJECT_COLD_STAGED_PRE_COMMIT', 'IMMEDIATE_WARM_STAGED_PRE_COMMIT')}
-RELATIONS = ('tooling-baseline', 'final-candidate')
+# comparison-baseline is the exact historical event-graph work/span comparison run; it carries no
+# scenario-coverage trio and never substitutes for tooling-baseline coverage
+RELATIONS = ('tooling-baseline', 'final-candidate', 'comparison-baseline')
+COVERAGE_RELATIONS = ('tooling-baseline', 'final-candidate')
 COMPLETE = ('yes', 'no')
 OPP_CLASS = ('COMPUTATIONAL', 'INCREMENTAL', 'ORCHESTRATION', 'CACHE', 'RETAINED_SPACE', 'SCALING')
 OPP_STATUS = ('OPEN_MATERIAL', 'IMPLEMENTED', 'REJECTED_MEASURED', 'REJECTED_BY_ARCHITECTURE',
@@ -108,7 +111,7 @@ def check_perf(text, digest, findings, mdigests, head_digest='', notices=None, e
             seen.add((row['scenario'], row['relation']))
     # every scenario must be covered by a successful complete row for every present relation, and the
     # final-candidate relation is REQUIRED: a baseline-only file cannot pass as current evidence
-    for rel in RELATIONS:
+    for rel in COVERAGE_RELATIONS:
         present = {sc for (sc, rl) in seen if rl == rel}
         required = set(REQUIRED_OF[rel])
         # inherited HISTORICAL final rows are judged by the coverage model they were measured under (the
@@ -288,33 +291,65 @@ def check_derived_refs(derived_refs, metrics, findings):
                             f'foreign or historical metric')
 
 
+def check_comparison_baseline(perf_text, findings):
+    """§14.1 — exactly one successful complete COLD comparison-baseline row with an exact run_id."""
+    rows_cb = [dict(zip(PERF_COLS, r)) for r in rows(perf_text)
+               if len(r) == len(PERF_COLS) and r[1] == 'comparison-baseline']
+    cold = [r for r in rows_cb if r['scenario'] == 'COLD_COMPLETE'
+            and r['complete'] == 'yes' and r['exit'] == '0' and r['run_id'] not in ('', '-')]
+    if len(cold) != 1:
+        findings.append(f'{PERF}: exactly one successful complete COLD_COMPLETE comparison-baseline '
+                        f'row with an exact run_id is required, found {len(cold)}')
+    for r in rows_cb:
+        if not HEX64.match(r['digest']):
+            findings.append(f'{PERF}: comparison-baseline row basis is not a 64-hex digest')
+
+
 def check_run_links(perf_text, metrics, findings):
-    """Current cold scenario rows and current cold event graphs are 1:1 by exact run_id."""
-    run_metrics = {mid.split('.')[1]: m for mid, m in metrics.items()
-                   if mid.startswith('run.') and mid.endswith('.complete_path.wall_span_ms')}
+    """CONSUMER of the engine's series metrics: every current cold status row must have the engine's
+    scenario+run_id complete-wall metric, and the generated current-cold run count must match and be
+    at least three.  This validator does NOT select the series or recompute the median — the accounting
+    owner does; here we only confirm the ledger and the generated series metrics agree."""
+    run_metrics = {}
+    for mid, m in metrics.items():
+        if mid.startswith('run.') and mid.endswith('.complete_path.wall_span_ms'):
+            parts = mid.split('.')
+            if len(parts) >= 4:
+                run_metrics[(parts[1], parts[2])] = m  # (scenario, run_id)
     linked = set()
+    cold_rows = 0
     for i, r in enumerate(rows(perf_text), 1):
         if len(r) != len(PERF_COLS):
             continue
         row = dict(zip(PERF_COLS, r))
         if row['relation'] != 'final-candidate' or row['scenario'] != 'COLD_COMPLETE':
             continue
-        rid = row['run_id'].strip()
-        m = run_metrics.get(rid)
+        cold_rows += 1
+        rk = (row['scenario'], row['run_id'].strip())
+        m = run_metrics.get(rk)
         if m is None:
-            findings.append(f'{PERF}:{i}: run_id {rid!r} has no generated complete-wall metric — '
-                            f'every cold scenario row names and links exactly one current event graph')
+            findings.append(f'{PERF}:{i}: current cold run {row["run_id"]!r} has no generated '
+                            f'scenario-qualified complete-wall metric — the ledger and the engine series '
+                            f'disagree')
             continue
-        linked.add(rid)
+        linked.add(rk)
         if m['value_num'] is not None and abs(float(row['wall_s']) * 1000 - m['value_num']) > 1500:
             findings.append(f'{PERF}:{i}: wall {row["wall_s"]}s disagrees with the generated '
-                            f'COMPLETE_PATH wall {m["value_num"]:.0f}ms for {rid}')
+                            f'COMPLETE_PATH wall {m["value_num"]:.0f}ms for {row["run_id"]}')
         if m['basis'] != row['digest']:
-            findings.append(f'{PERF}:{i}: run {rid} basis {row["digest"][:12]} differs from the '
-                            f'generated metric basis {m["basis"][:12]}')
-    for rid in sorted(set(run_metrics) - linked):
-        findings.append(f'{PERF}: current cold event graph {rid} has no linked scenario row — the '
+            findings.append(f'{PERF}:{i}: run {row["run_id"]} basis {row["digest"][:12]} differs from '
+                            f'the generated metric basis {m["basis"][:12]}')
+    for rk in sorted(set(run_metrics) - linked):
+        findings.append(f'{PERF}: generated current cold metric for {rk[1]} has no ledger row — the '
                         f'median must use exactly the linked runs, never a selected subset')
+    # the >=3 sample-size law is the engine's (select_series); here we only confirm the generated
+    # run-count and the ledger agree, so the two cannot silently drift
+    cnt = metrics.get('series.current_cold.run_count')
+    if cnt is None or cnt['value_num'] is None:
+        findings.append('performance-derived-metrics.tsv: no series.current_cold.run_count metric')
+    elif int(cnt['value_num']) != cold_rows:
+        findings.append(f'{PERF}: series.current_cold.run_count {int(cnt["value_num"])} != '
+                        f'{cold_rows} current cold ledger rows')
 
 
 # the one-DAG IMPLEMENTED claim stands only while the generated comparable lower-bound work reduction
@@ -357,6 +392,7 @@ def validate(root, digest, head_digest='', evidence_changed=False):
     check_single_owner(root, findings)
     check_perf(open(perf_path, encoding='utf-8').read(), digest, findings, mdigests, head_digest, notices,
                evidence_changed)
+    check_comparison_baseline(open(perf_path, encoding='utf-8').read(), findings)
     derived_refs = []
     opp_text = open(opp_path, encoding='utf-8').read()
     check_opps(opp_text, mdigests, findings, summary_ids, derived_refs)
@@ -428,12 +464,16 @@ def self_test():
         mds = set()
         refs = []
         check_perf(CLEAN_PERF + perf_body, digest, f, mds, head, notices, changed)
+        check_comparison_baseline(CLEAN_PERF + perf_body, f)
         check_opps(CLEAN_OPP + opp_body, mds, f, summary, refs)
         default_mi = (_mi_row() + '\n'
-                      + _mi_row(metric_id='run.final-1.complete_path.wall_span_ms',
+                      + _mi_row(metric_id='run.COLD_COMPLETE.final-1.complete_path.wall_span_ms',
                                 metric_kind='SPAN',
                                 scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall',
-                                statistic='measured', value='89000') + '\n')
+                                statistic='measured', value='89000') + '\n'
+                      + _mi_row(metric_id='series.current_cold.run_count', metric_kind='COUNT',
+                                scope='CurrentColdSeries', statistic='exact', unit='count',
+                                value='1') + '\n')
         metrics = read_metric_index(CLEAN_MI + (mi_body if mi_body is not None else default_mi), f)
         check_derived_refs(refs, metrics, f)
         check_run_links(CLEAN_PERF + perf_body, metrics, f)
@@ -447,14 +487,18 @@ def self_test():
     # itself a defect), the cold final row exactly linked to its event graph via run_id, and the
     # OPEN_MATERIAL opportunity named in a summary comment
     cold_final = _perf_row(scenario='COLD_COMPLETE', relation='final-candidate', run_id='final-1')
-    run_mi = _mi_row(metric_id='run.final-1.complete_path.wall_span_ms', metric_kind='SPAN',
-                     scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall', statistic='measured',
-                     value='89000')
+    comparison = _perf_row(scenario='COLD_COMPLETE', relation='comparison-baseline', run_id='entry-1')
+    count_mi = _mi_row(metric_id='series.current_cold.run_count', metric_kind='COUNT',
+                       scope='CurrentColdSeries', statistic='exact', unit='count', value='1')
+    # a valid link fixture: the scenario-qualified per-run metric plus the agreeing run-count
+    run_mi = (_mi_row(metric_id='run.COLD_COMPLETE.final-1.complete_path.wall_span_ms',
+                      metric_kind='SPAN', scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall',
+                      statistic='measured', value='89000') + '\n' + count_mi)
     clean_perf = ('\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n'
                   + '\n'.join(cold_final if s == 'COLD_COMPLETE'
                               else _perf_row(scenario=s, relation='final-candidate')
                               for s in REQUIRED_OF['final-candidate'])
-                  + '\n# summary: PERF-COMP-X\n')
+                  + '\n' + comparison + '\n# summary: PERF-COMP-X\n')
     cf, cn = run(clean_perf, _opp_row() + '\n')
     if cf:
         raise SystemExit('self-test: the clean fixture was rejected: ' + str(cf))
@@ -472,14 +516,22 @@ def self_test():
         raise SystemExit('self-test: the basis-moved fixture was not honestly reported as historical')
 
     cases = [
+        # an incomplete WARM row (not COLD, so no run-link interference; WARM stays covered by the clean
+        # complete row) — only the incomplete-path rule objects
         ('incomplete path cannot satisfy required scenario coverage',
          clean_perf.replace('# summary',
-                            _perf_row(scenario='COLD_COMPLETE', relation='final-candidate',
-                                      exit='0', complete='no', run_id='final-1') + '\n# summary'),
+                            _perf_row(scenario='WARM_COMPLETE', relation='final-candidate',
+                                      exit='0', complete='no', run_id='-') + '\n# summary'),
          _opp_row() + '\n'),
+        # a tooling-baseline-only file WITH a comparison-baseline row and a zero current-cold count, so
+        # only the "no final-candidate rows" rule objects
         ('baseline-only file passes as current evidence',
-         '\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
-         _opp_row() + '\n', dict(mi_body=_mi_row() + '\n')),
+         '\n'.join(_perf_row(scenario=s) for s in REQUIRED_OF['tooling-baseline']) + '\n'
+         + comparison + '\n# summary: PERF-COMP-X\n',
+         _opp_row() + '\n',
+         dict(mi_body=_mi_row() + '\n' + _mi_row(metric_id='series.current_cold.run_count',
+                                                 metric_kind='COUNT', scope='CurrentColdSeries',
+                                                 statistic='exact', unit='count', value='0') + '\n')),
         ('missing scenario (only COLD)', _perf_row(scenario='COLD_COMPLETE') + '\n', _opp_row(status='IMPLEMENTED', commit='deadbeef') + '\n'),
         ('unknown scenario', _perf_row(scenario='NOPE') + '\n', _opp_row(status='IMPLEMENTED', commit='deadbeef') + '\n'),
         ('unknown status', clean_perf, _opp_row(status='NOPE') + '\n'),
@@ -492,14 +544,15 @@ def self_test():
          '\n'.join(_perf_row(scenario=x, relation='final-candidate', digest='b' * 64,
                              run_id='final-1' if x == 'COLD_COMPLETE' else '-')
                     for x in REQUIRED_OF['final-candidate'])
-         + '\n' + '\n'.join(_perf_row(scenario=x) for x in REQUIRED_OF['tooling-baseline']) + '\n# summary: PERF-COMP-X\n',
+         + '\n' + '\n'.join(_perf_row(scenario=x) for x in REQUIRED_OF['tooling-baseline'])
+         + '\n' + comparison + '\n# summary: PERF-COMP-X\n',
          _opp_row(basis='b' * 64, work_gain='MEASURED:~24s at basis b',
                   span_gain='MEASURED:~5s at basis b') + '\n',
          dict(changed=True,
-              mi_body=_mi_row(metric_id='run.final-1.complete_path.wall_span_ms',
+              mi_body=_mi_row(metric_id='run.COLD_COMPLETE.final-1.complete_path.wall_span_ms',
                               metric_kind='SPAN', basis='b' * 64,
                               scope='COLD_COMPLETE/final-1/COMPLETE_PATH/wall',
-                              statistic='measured', value='89000') + '\n')),
+                              statistic='measured', value='89000') + '\n' + count_mi + '\n')),
         ('malformed digest', _perf_row(scenario='COLD_COMPLETE', digest='xyz') + '\n' + _perf_row(scenario='WARM_COMPLETE') + '\n' + _perf_row(scenario='STAGED_PRE_COMMIT') + '\n', _opp_row() + '\n'),
         ('IMPLEMENTED without commit', clean_perf, _opp_row(status='IMPLEMENTED', commit='n/a') + '\n'),
         ('OPEN_MATERIAL omitted from summary', '\n'.join(_perf_row(scenario=s) for s in SCENARIOS) + '\n', _opp_row(id='PERF-ORCH-Y') + '\n'),
@@ -559,9 +612,13 @@ def self_test():
          _opp_row() + '\n'),
         ('an unlinked current cold event graph (best-run selection)', clean_perf, _opp_row() + '\n',
          dict(mi_body=run_mi + '\n' + _mi_row() + '\n'
-              + _mi_row(metric_id='run.final-9.complete_path.wall_span_ms', metric_kind='SPAN',
-                        scope='COLD_COMPLETE/final-9/COMPLETE_PATH/wall', statistic='measured',
-                        value='96000') + '\n')),
+              + _mi_row(metric_id='run.COLD_COMPLETE.final-9.complete_path.wall_span_ms',
+                        metric_kind='SPAN', scope='COLD_COMPLETE/final-9/COMPLETE_PATH/wall',
+                        statistic='measured', value='96000') + '\n')),
+        ('comparison-baseline relation missing (no historical comparison row)',
+         clean_perf.replace('\n' + comparison, ''), _opp_row() + '\n'),
+        ('two comparison-baseline cold rows', clean_perf + comparison.replace('entry-1', 'entry-2')
+         + '\n', _opp_row() + '\n'),
     ]
     for case in cases:
         label, perf_body, opp_body = case[0], case[1], case[2]
@@ -628,9 +685,9 @@ def self_test():
         raise SystemExit(f'perf-evidence self-test: {fails} defect class(es) not caught')
     print(f'fido: perf-evidence-validate self-test OK — {controls} adversarial controls '
           '(successful-complete coverage, enums, cache/machine identity, three-way basis binding, '
-          'typed DERIVED metric resolution incl. kind/basis/unit swaps, exact run links, the one-DAG '
-          'floor, opportunity currentness) + clean current and basis-moved fixtures accepted with '
-          'honest wording')
+          'the comparison-baseline relation, typed DERIVED metric resolution incl. kind/basis/unit '
+          'swaps, series-metric run links, the one-DAG floor, opportunity currentness) + clean '
+          'current and basis-moved fixtures accepted with honest wording')
 
 
 def main():

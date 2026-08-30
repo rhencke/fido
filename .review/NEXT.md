@@ -1,4 +1,4 @@
-# Active task: the C4 exact performance-evidence graph and typed metric identity closure candidate
+# Active task: the C4 exact performance comparison-series and run-identity closure candidate
 
 Review: implementation
 
@@ -144,26 +144,25 @@ toolchain is the supported run). Governing truth held by this candidate:
   binder value/type meaning) remains a later root — both honest temporary boundaries (decision `C4-SHORTDECL` in
   `DECISIONS.md`). Material performance opportunities remain explicit in `.review/PERFORMANCE_OPPORTUNITIES.tsv`.
   No C4 completion is claimed.
-- **The active candidate is the exact performance-evidence graph and typed metric identity closure; exact
-  semantic outputs are unchanged.** One-DAG remains implemented — one Dune build and one project
-  verification solve. Each topology version (`THREE_SOLVE_POST_CHUNKING_V1`, `ONE_DAG_V1`,
-  `ONE_DAG_CHUNK_TIMED_V2`) owns its exact measured graph: exact event identities, roles, classes, parents,
-  complete predecessor sets, boundary starts, and the exact terminal sink — omission, renaming,
-  re-parenting, and extra events all reject. The critical path is the longest predecessor path ending at
-  the exact boundary terminal; each boundary (COMPLETE_PATH, PROJECT_VERIFICATION) has its own wall;
-  temporal overlap (work − interval union) and work outside the critical path (work − critical path) are
-  separate generated metrics. The one CURRENT registry basis is joined to the candidate digest by the
-  accounting engine (`tools/perf-work-span.py`), which also generates the human work/span and reachability
-  summaries and the one typed machine metric index
-  (`.review/perf/performance-derived-metrics.tsv`) from the same internal results; the program and
-  population profile tables are deterministic generated projections of the raw sentence table
-  (`tools/witness-profile-attribution.py`); all five generated products are regenerated and byte-compared
-  by `make perf-evidence` and the staged hook — the exact current values live there, never in prose.
-  Ledger `DERIVED:` references resolve by exact metric id with typed work/span, basis, and unit
-  compatibility. The theorem-backed evidence observation is **not** implemented
-  (`realistic_expected_saving = UNKNOWN_PENDING_SPIKE`; a measurement-only spike precedes any
-  implementation contract), and exact declared-and-used local analysis remains the next semantic root. C4
-  remains implemented but not accepted or complete.
+- **The active candidate is the exact performance comparison-series and run-identity closure; exact
+  semantic outputs are unchanged.** Individual event graphs, the terminal-bound longest path, boundary
+  work/span metrics, generated summaries, and typed metric references are already closed and preserved.
+  This slice makes the governed run series intrinsic: `.review/PERFORMANCE.tsv` owns the exact series, the
+  accounting engine (`tools/perf-work-span.py`) consumes the status-declared RunKeys
+  `(basis, scenario, run_id)` — never a run-name prefix — and requires an exact bijection with the
+  retained event graphs. Every retained current cold graph is governed and included in every median; the
+  current cold series requires at least three unique comparable runs and uses the ordinary mathematical
+  median (even count = mean of the two middle values); the historical baseline is the exact
+  `comparison-baseline` row (verified basis `cb7e5810…@c13e3d5`), a single representative run, so the
+  one-DAG delta is the current cold median versus that verified historical representative (a conservative
+  lower bound), never a false `median_vs_entry`. Worker timing precision is direct and truthfully
+  labelled: the chunk workers emit a monotonic `/proc/uptime` millisecond marker (`PROC_UPTIME_10MS`),
+  every event states its clock and native resolution, and no row may claim finer precision than its
+  source. The typed metric index gains `series.*` run-count and median metrics; the retained event table
+  holds exactly one comparison baseline and the current cold graphs, nothing else. The theorem-backed
+  evidence observation is **not** implemented (`realistic_expected_saving = UNKNOWN_PENDING_SPIKE`; a
+  measurement-only spike remains later if the repaired evidence supports it), and exact declared-and-used
+  local analysis remains the next semantic root. C4 remains implemented but not accepted or complete.
 - **The retained single-build verification DAG; exact semantic outputs are unchanged.** One
   `theory-built` parent owns the one Docker copy of the certified source closure and the ONE
   `dune build @install @all`, snapshotting the exact cache-assisted `_build` into an ordinary immutable layer;
@@ -191,8 +190,13 @@ toolchain is the supported run). Governing truth held by this candidate:
   stable; it is not claimed to be unified global source order.
 - The large A–I/Q/S/K catalogue is a pinned-Go behaviour catalogue, while the named one-source cases (gate-enforced, currently fifteen rendered trees) are
   genuine formal-vs-Go comparisons.
-- `.review/PERFORMANCE.tsv` is historical evidence unless its commit/tree metadata matches the frozen candidate; it
-  is not live gate authority.
+- `.review/PERFORMANCE.tsv` is the live, digest-based **exact governed run-series authority**: it declares
+  each measured run's exact series role (`comparison-baseline` / `final-candidate` / `tooling-baseline`),
+  and the accounting engine consumes those declarations — keyed by the composite RunKey
+  `(basis, scenario, run_id)` — as the sole source of series membership, in exact bijection with the
+  retained event graphs. No run-name prefix (`entry*`/`final*`), row position, or notes string carries any
+  selection authority. It is validated on the normal and staged complete paths, never treated as inert
+  history.
 
 ## Stop conditions
 

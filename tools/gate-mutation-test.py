@@ -37,12 +37,17 @@ MUTANTS = (
     (WORKSPAN, 'the exact parent law, so an event cannot move to another container',
      "        if e['parent_id'] != r['parent']:",
      "        if False:",
-     ('proof moved outside the solve container', 'emit moved outside the solve container')),
+     ('proof moved outside the solve container',)),
+
+    (WORKSPAN, 'the timing-precision law, so a row cannot claim finer precision than its source',
+     "                if res < SOURCE_NATIVE_MS[clock]:",
+     "                if False:",
+     ('claimed 10ms precision on a whole-second source',)),
 
     (WORKSPAN, 'the elapsed-consistency law, so a false elapsed value cannot enter the totals',
-     "            if abs((en - s) - el) > TOL:",
+     "            if abs((en - s) - el) > ev_res(e):",
      "            if False:",
-     ('false elapsed value',)),
+     ('false elapsed value beyond the source resolution',)),
 
     (WORKSPAN, 'the unclassified ceiling, so unattributed wall time stays visible',
      "    if bname == 'COMPLETE_PATH' and wall and t['unclassified'] / wall > 0.05:",
@@ -52,17 +57,22 @@ MUTANTS = (
     (WORKSPAN, 'the exact-set extra-event law, so no arbitrary work leaf or container can be added',
      "    for extra in sorted(actual_core - set(req)):",
      "    for extra in ():",
-     ('duplicated proof leaf beyond the topology set', 'extra WAIT work leaf', 'extra container')),
+     ('extra work leaf beyond the topology set',)),
 
     (WORKSPAN, 'the exact-set missing-event law, so a required event cannot be omitted',
      "    for missing in sorted(set(req) - actual_core):",
      "    for missing in ():",
-     ('omitted compare (terminal)',)),
+     ('omitted terminal compare leaf',)),
 
     (WORKSPAN, 'the exact predecessor-set law, so an extra predecessor cannot slip in',
      "        if actual_preds != set(r['preds']):",
      "        if False:",
-     ('an extra predecessor beyond the topology set',)),
+     ('emit predecessor set altered',)),
+
+    (WORKSPAN, 'the exact attribution role/class law, so a worker cannot change kind',
+     "            if e['role'] != a['role'] or e['class'] != a['class']:",
+     "            if False:",
+     ('attribution class chunk-A FIXTURE_WORKER->UNCLASSIFIED',)),
 
     (WORKSPAN, 'the solve-tag ownership law, so a non-solve event cannot claim a solve operation',
      "        if not r['solve'] and e['worker_or_stage'] == 'verification-solve':",
@@ -77,19 +87,53 @@ MUTANTS = (
     (WORKSPAN, 'the predecessor accumulation in the longest path, so it cannot degrade to max-single-leaf',
      "        dist[m] = best + members[m]",
      "        dist[m] = members[m]",
-     ('final PV critical path is terminal-bound',
-      'entry serial: work equals critical path and both walls')),
+     ('longest path accumulates predecessors (not a single leaf)',)),
 
     (WORKSPAN, 'the terminal binding of the critical path, so max-over-arbitrary-leaves cannot return',
      "    return visit(terminal)",
      "    return max(visit(m) for m in list(members))",
-     ('terminal-bound critical path differs from max-over-arbitrary-leaves',)),
+     ('terminal-bound critical path is the path to the terminal, not the longest leaf',)),
+
+    (WORKSPAN, 'the standard even-count median, so upper-middle indexing cannot return',
+     "    return (s[n // 2 - 1] + s[n // 2]) / 2.0",
+     "    return float(s[n // 2])",
+     ('standard even-count median is the mean of the two middle values',)),
+
+    (WORKSPAN, 'the graph->status bijection, so a hidden slow graph cannot escape governance',
+     "    for k in sorted(retained - selected):",
+     "    for k in ():",
+     ('hidden slow run: current cold graph without a status row',
+      'a retained event graph with no governing status row')),
+
+    (WORKSPAN, 'the status->graph bijection, so a selected run must have its measured graph',
+     "    for k in sorted(selected - retained):",
+     "    for k in ():",
+     ('scenario mismatch: current graph relabelled WARM',)),
+
+    (WORKSPAN, 'the current-series sample-size law, so fewer than three runs cannot pass',
+     "    if len(set(ck)) < 3:",
+     "    if False:",
+     ('sample thinning below three current cold runs',)),
+
+    (WORKSPAN, 'the current-series uniqueness law, so a duplicate RunKey cannot pad the series',
+     "    if len(set(ck)) != len(ck):",
+     "    if False:",
+     ('duplicate current-cold status RunKey',)),
+
+    (WORKSPAN, 'the exact-one-comparison law, so the historical baseline is one exact row',
+     "    if len(set(hk)) != 1:",
+     "    if False:",
+     ('historical row relabelled off comparison-baseline',)),
+
+    (WORKSPAN, 'the current-series machine/cache uniformity law',
+     "                if r[col] != base[col]:",
+     "                if False:",
+     ('current cold command not uniform',)),
 
     (WORKSPAN, 'the publication currency bind, so a promoted or foreign CURRENT basis cannot publish',
      "    elif evidence_changed:",
      "    elif False:",
-     ('CURRENT basis differing from the candidate digest at publication',
-      'historical basis promoted to CURRENT')),
+     ('CURRENT basis differing from the candidate digest at publication',)),
 
     (GRAPH, 'the helper-one-solve law, so a hidden second solve inside the canonical helper is caught',
      "        builds = body.count('docker buildx build')",
@@ -153,8 +197,8 @@ MUTANTS = (
      ('current opportunity pointing to a foreign-basis metric',)),
 
     (PERFEV, 'the unlinked-graph rejection, so a median cannot silently drop a measured run',
-     "    for rid in sorted(set(run_metrics) - linked):",
-     "    for rid in ():",
+     "    for rk in sorted(set(run_metrics) - linked):",
+     "    for rk in ():",
      ('an unlinked current cold event graph (best-run selection)',)),
 
     (PERFEV, 'the gain-deferral rejection, so one gain field cannot point at the other',

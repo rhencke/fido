@@ -1,36 +1,35 @@
 #!/bin/sh
-# Prints `yes` iff the STAGED performance-evidence CONTENT differs from HEAD's — the projections a
-# fabricated, promoted, or re-measured claim must move:
-#   1. the PERFORMANCE.tsv measurement projection (scenario, relation, digest, exit, wall_s, complete);
-#   2. the registry's (basis_digest, status) set — flipping or adding a CURRENT basis is a publication;
-#   3. the event-table data rows;
-#   4. the sentence-table data rows.
-# Comments, annotations, schema columns outside the projection, and topology relabels of unchanged
-# bases stay `no`, so an honest re-expression lives in the historical frame while any measurement or
-# currency change must bind to the exact staged basis.  One authority: make perf-evidence and the
-# staged hook both call this.
+# Prints `yes` iff the STAGED performance evidence changes a CURRENT-basis measurement or the currency
+# itself — the projections a fabricated, promoted, or re-measured CURRENT claim must move:
+#   1. which basis is CURRENT (the registry's CURRENT basis_digest);
+#   2. the PERFORMANCE.tsv measurement tuples of rows bound to the CURRENT basis
+#      (scenario, relation, run_id, exit, wall_s, complete);
+#   3. the event-table timing tuples of rows on the CURRENT basis (run_id, event_id, start/end/elapsed);
+#   4. the sentence-table rows on the CURRENT basis (file, secs, population).
+# Historical re-expression stays `no`: adding schema columns (clock/resolution), reclassifying an already
+# measured historical run as the comparison baseline, or deleting a superseded historical graph does not
+# touch any CURRENT-basis measurement, so it lives honestly in the historical frame while any new or
+# altered CURRENT measurement — or a flip of which basis is CURRENT — must bind to the exact staged basis.
+# One authority: make perf-evidence and the staged hook both call this.  Historical bases are anchored by
+# verify-performance-bases (digest reproduces from its source commit) and by the event graph's own terminal
+# wall (§5.1), so a fabricated historical measurement is caught there, not here.
 set -eu
 cd "$(git rev-parse --show-toplevel)"
 show() { git show "$1" 2>/dev/null || true; }
-differs() { [ "$1" != "$2" ]; }
-p_perf() {
-  show "$1:.review/PERFORMANCE.tsv" \
-    | awk -F'\t' '!/^#/ && NF>1 {print $1"\t"$2"\t"$3"\t"$10"\t"$11"\t"$12}' | LC_ALL=C sort
-}
-p_reg() {
+cur_basis() {
   show "$1:.review/perf/performance-bases.tsv" \
-    | awk -F'\t' '!/^#/ && NF>3 && $1!="basis_digest" {print $1"\t"$4}' | LC_ALL=C sort
+    | awk -F'\t' '!/^#/ && NF>3 && $4=="CURRENT" {print $1}'
 }
-p_data() {
-  show "$1:$2" | grep -v '^#' || true
+proj() {
+  ref=$1; cb=$2
+  printf 'CURRENT=%s\n' "$cb"
+  show "$ref:.review/PERFORMANCE.tsv" \
+    | awk -F'\t' -v cb="$cb" '!/^#/ && NF>1 && $3==cb {print "P\t"$1"\t"$2"\t"$15"\t"$10"\t"$11"\t"$12}'
+  show "$ref:.review/perf/verification-dag-events.tsv" \
+    | awk -F'\t' -v cb="$cb" '!/^#/ && NF>1 && $1==cb {print "E\t"$3"\t"$4"\t"$8"\t"$9"\t"$10}'
+  show "$ref:.review/perf/witnessreject-sentences.tsv" \
+    | awk -F'\t' -v cb="$cb" '!/^#/ && NF>1 && $1==cb {print "S\t"$2"\t"$3"\t"$4}'
 }
-if differs "$(p_perf '')" "$(p_perf HEAD)" \
-   || differs "$(p_reg '')" "$(p_reg HEAD)" \
-   || differs "$(p_data '' .review/perf/verification-dag-events.tsv)" \
-              "$(p_data HEAD .review/perf/verification-dag-events.tsv)" \
-   || differs "$(p_data '' .review/perf/witnessreject-sentences.tsv)" \
-              "$(p_data HEAD .review/perf/witnessreject-sentences.tsv)"; then
-  echo yes
-else
-  echo no
-fi
+a=$(proj '' "$(cur_basis '')" | LC_ALL=C sort)
+b=$(proj HEAD "$(cur_basis HEAD)" | LC_ALL=C sort)
+if [ "$a" = "$b" ]; then echo no; else echo yes; fi
