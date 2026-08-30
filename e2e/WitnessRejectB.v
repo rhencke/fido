@@ -47,12 +47,12 @@ Definition o_short_multi_use : Compilable.outsides (prog [ Syntax.ShortVarDecl (
 Definition r_complex_coexist : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; PL [ Syntax.Application (Syntax.Name (Names.predeclared_ordinary Names.PComplex)) [ VNAME "x" ] ] ]). Proof. reject. Qed.
 
 Lemma reader_index : AN.res_index (rres rprobe) = AN.res_index (AN.analyze rprobe).
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_eq rprobe. Qed.
 
 Lemma reader_len :
   Datatypes.length (AN.result_fact_list (rres rprobe))
   = Datatypes.length (AN.result_fact_list (AN.analyze rprobe)).
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_eq rprobe. Qed.
 
 (* substitution-resistance: a rejected program admits no capability, so no rebuilt Result can back one *)
 Definition no_program_for_rejected (p : Syntax.Program) (cp : Compilable.Program p) (Hrej : Compilable.rejects p) : False.
@@ -60,7 +60,7 @@ Proof. unfold Compilable.rejects in Hrej. rewrite (Compilable.program_forces_com
 
 Definition c_neg_int8_core :
   RP.result_cause_views (rres (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [] /\ RP.result_req_views (rres (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ])) = [].
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; obs_direct (prog [ PL [ NEG (CONV Names.PInt8 (ILIT 1)) ] ]). Qed.
 
 (* the fixed main is a zero-parameter function: a zero-argument main() call succeeds as a known zero-result call *)
 Definition c_main_recursive : Compilable.compiles (prog [ Syntax.ExprStmt (APP (OID "main") []) ]). Proof. compileok. Qed.
@@ -68,30 +68,43 @@ Definition c_main_recursive : Compilable.compiles (prog [ Syntax.ExprStmt (APP (
 (* the invalidity is the exact application-family MainArity cause, read via the bp-free cause view (vm-cheap) *)
 Definition r_main_arity_payload :
   RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ])) = [ RP.CvMainArity ].
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "main") [ILIT 1]) ]). Qed.
 
 (* an occurrence diagnostic retains its exact family, a value invalidity projecting as FamValue (bp-free view) *)
 Definition r_iota_family :
   RP.result_diag_families (rres (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ])) = [ AN.FamValue ].
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ] ]). Qed.
 
 (* a boundary retains its own exact family too, projected bp-free from the one retained row *)
 Definition o_cx_typed_family : exists f,
   RP.result_bound_families (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ])) = [ f ].
-Proof. eexists; vm_compute; reflexivity. Qed.
+Proof. eexists; obs_direct (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ]). Qed.
 
 (* §22.1/22.2 a legal println application: its statement row is SOK and its application row is AOK — no invalid cause *)
 Definition c_println_legal : Compilable.compiles (prog [ PL [ ILIT 1 ] ]). Proof. compileok. Qed.
 
 Definition mf_println_legal_no_cause :
   RP.result_cause_views (rres (prog [ PL [ ILIT 1 ] ])) = [] /\ RP.result_req_views (rres (prog [ PL [ ILIT 1 ] ])) = [].
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; obs_direct (prog [ PL [ ILIT 1 ] ]). Qed.
 
 Definition r_main_const_redecl_payload :
   (match dsites (prog_tops [ tconstmain ; main0 ]) with
    | [ d ] => match RP.diag_group_name d with Some nm => Names.ordinary_equalb nm (OID "main") | None => false end
    | _ => false end) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  assert (H : map RP.diag_group_name (dsites (prog_tops [ tconstmain ; main0 ])) = [ Some (OID "main") ]).
+  { unfold dsites.
+    assert (Hc : AN.collision_rows (rres (prog_tops [ tconstmain ; main0 ])) = []) by (apply (proj1 (AN.dnc_iff _)); obs_seal (prog_tops [ tconstmain ; main0 ])).
+    assert (Hm : AN.main_rows (rres (prog_tops [ tconstmain ; main0 ])) = []) by (apply (proj1 (AN.dnm_iff _)); obs_seal (prog_tops [ tconstmain ; main0 ])).
+    assert (Ho : AN.occ_diags (rres (prog_tops [ tconstmain ; main0 ])) = []) by (apply (proj1 (AN.dncause_iff _)); obs_seal (prog_tops [ tconstmain ; main0 ])).
+    rewrite (AN.diagnostics_order (rres (prog_tops [ tconstmain ; main0 ]))), Hc, Hm, Ho. rewrite ?app_nil_l, ?app_nil_r.
+    unfold AN.group_rows; rewrite map_map.
+    erewrite (map_ext _ (fun rr => Some (projT1 rr))) by (intro rr; reflexivity).
+    unfold rres, result_of_compile, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
+    rewrite (Compilable.compile_observe_data (prog_tops [ tconstmain ; main0 ])). vm_compute. reflexivity. }
+  destruct (dsites (prog_tops [ tconstmain ; main0 ])) as [|d0 [|d1 r1]]; cbn in H; try discriminate H.
+  injection H as Hd0. cbn. rewrite Hd0. reflexivity.
+Qed.
 
 (* (d) no fixed main, an ordinary const main: MainMissing, so the missing-entry diagnostic Rejects *)
 Definition r_main_missing : Compilable.rejects (prog_tops [ tconstmain ]). Proof. reject. Qed.
@@ -104,7 +117,12 @@ Definition two_iota_obs :
   = (2%nat,
      [ AN.ClassDiagnostic ; AN.ClassDiagnostic ],
      [ RP.CvInvalidIdentity Names.PIota ; RP.CvInvalidIdentity Names.PIota ]).
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  assert (Hcls : map AN.issue_class (AN.result_issues (rres p_two_iota)) = [ AN.ClassDiagnostic ; AN.ClassDiagnostic ]) by (obs_issue_classes p_two_iota).
+  assert (Hvs : RP.result_cause_views (rres p_two_iota) = [ RP.CvInvalidIdentity Names.PIota ; RP.CvInvalidIdentity Names.PIota ]) by (obs_direct p_two_iota).
+  assert (Hlen : Datatypes.length (AN.result_issues (rres p_two_iota)) = 2%nat) by (rewrite <- (length_map AN.issue_class), Hcls; reflexivity).
+  cbn zeta. rewrite Hlen, Hcls, Hvs. reflexivity.
+Qed.
 (* two same-cause invalidities stay two distinct diagnostic-class issues in source order — no dedup, no collapse *)
 Definition d4_two_iota_no_collapse :
   Datatypes.length (AN.result_issues (rres p_two_iota)) = 2%nat
@@ -137,13 +155,28 @@ Proof.
 Qed.
 
 Lemma mm17_1_missing_view : map RP.mmv_exec (pmissing (prog_tops [ tconstmain ])) = [ "generated"%string ].
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  unfold pmissing, ppkg. rewrite map_map.
+  change (map (fun mmr => PI.default_exec_name (AN.mmr_package mmr)) (AN.result_missing_main_refs (rres (prog_tops [ tconstmain ]))) = [ "generated"%string ]).
+  rewrite <- (map_map AN.mmr_package PI.default_exec_name), AN.missing_main_packages.
+  unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
+  rewrite (Compilable.compile_observe_data (prog_tops [ tconstmain ])). vm_compute. reflexivity.
+Qed.
 
 (* §17.6 coexistence: p_collision's package has both a collision AND no fixed main, as two distinct cases *)
 Lemma mm17_6_coexist :
   andb (match AN.result_collision_ref (ppkg p_collision) with Some _ => true | None => false end)
        (Nat.ltb 0 (Datatypes.length (AN.result_missing_main_refs (ppkg p_collision)))) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  unfold ppkg. apply andb_true_intro. split.
+  - destruct (AN.result_collision_ref (rres p_collision)) as [cr|] eqn:Hcr; [ reflexivity | ].
+    exfalso. apply AN.collision_ref_none in Hcr. revert Hcr.
+    unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
+    rewrite (Compilable.compile_observe_data p_collision). vm_compute. discriminate.
+  - rewrite <- (length_map AN.mmr_package), AN.missing_main_packages.
+    unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
+    rewrite (Compilable.compile_observe_data p_collision). vm_compute. reflexivity.
+Qed.
 
 Definition dr_stmt_lit    : Compilable.rejects dp_stmt_lit.    Proof. reject. Qed.
 

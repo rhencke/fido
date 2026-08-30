@@ -31,12 +31,12 @@ Definition rmain : FilePath.T := FilePath.Make "main.go" eq_refl.
 Definition prog (body : list Syntax.Stmt) : Syntax.Program :=
   singleton_program rmod rmain [ Syntax.Main (Syntax.MakeBlock body) ].
 
-(* each branch is decided through the production authority: the transparent [disposition], reduced by computation *)
-Ltac reject    := vm_compute; reflexivity.
+(* each disposition crosses the seal via disposition_observe_data, then computes the transparent right side *)
+Ltac reject    := unfold Compilable.rejects;  rewrite Compilable.disposition_observe_data; vm_compute; reflexivity.
 
-Ltac compileok := vm_compute; reflexivity.
+Ltac compileok := unfold Compilable.compiles; rewrite Compilable.disposition_observe_data; vm_compute; reflexivity.
 
-Ltac outside   := vm_compute; reflexivity.
+Ltac outside   := unfold Compilable.outsides; rewrite Compilable.disposition_observe_data; vm_compute; reflexivity.
 
 Notation OID s := (Names.MakeOrdinary (Names.MakeIdentifier s eq_refl) eq_refl).
 Notation VNAME s := (Syntax.Name (OID s)).
@@ -61,12 +61,58 @@ Definition cprobe : Syntax.Program := prog [ PL [ ILIT 1 ] ].
 
 Definition oprobe : Syntax.Program := prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ].
 
-(* provenance: whatever branch a program yields, its projected result IS the exact Result these fixtures read *)
-Definition retained_via_program  {p} (cp : Compilable.Program p)   : Compilable.program_result cp  = rres p := Compilable.program_result_canonical cp.
+(* observation-level provenance: the branch reader observes the one canonical analysis data, the sole bridge *)
+Definition rres_observe (p : Syntax.Program) : AN.data_of_result (rres p) = AN.result_data p :=
+  Compilable.compile_observe_data p.
 
-Definition retained_via_rejection {p} (r  : Compilable.Rejection p) : Compilable.rejection_result r = rres p := Compilable.rejection_result_canonical r.
+(* direct data-level views: expose data_of_result through the view wrappers, cross the seal once, compute *)
+Ltac obs_direct p := try unfold pfacts; try unfold dsites; unfold rres, result_of_compile;
+  try unfold RP.result_cause_views; try unfold RP.result_req_views;
+  try unfold RP.result_diag_families; try unfold RP.result_bound_families;
+  unfold AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
+  rewrite (Compilable.compile_observe_data p); vm_compute; reflexivity.
 
-Definition retained_via_outside   {p} (o  : Compilable.Outside p)   : Compilable.outside_result o  = rres p := Compilable.outside_result_canonical o.
+(* a disposition equality via the sole disposition bridge *)
+Ltac obs_disp := rewrite Compilable.disposition_observe_data; vm_compute; reflexivity.
+
+(* a reader-vs-analyze equality: cross the seal on both sides, then reflexivity *)
+Ltac obs_eq p := try unfold pfacts; unfold rres, result_of_compile;
+  try unfold AN.result_fact_list; unfold AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
+  rewrite (Compilable.compile_observe_data p), (AN.analyze_observe_data p); vm_compute; reflexivity.
+
+(* cross the seal on a data-level goal and compute, for the emptiness premises *)
+Ltac obs_seal p := unfold rres, result_of_compile, AN.data_no_collision, AN.data_no_missing, AN.data_no_redecl,
+  AN.data_no_cause, AN.data_no_req, AN.res_facts, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index in *;
+  rewrite (Compilable.compile_observe_data p); vm_compute; reflexivity.
+
+(* collapse map over the occurrence rows to a data-level flat_map over result_fact_list via fact_rows_rows *)
+Ltac occ_diag_collapse p := unfold AN.occ_diags;
+  rewrite flat_map_concat_map, concat_map, map_map;
+  set (gd := fun o : AN.OccFact (AN.res_binds (rres p)) => match AN.occ_cause o with Some _ => [AN.ClassDiagnostic] | None => (@nil AN.IssueClass) end);
+  erewrite (map_ext _ (fun ref => gd (AN.frr_row ref)))
+    by (let a := fresh "a" in intro a; subst gd; cbn beta; destruct (AN.occ_cause (AN.frr_row a)) as [c|] eqn:E;
+        [ destruct (AN.occ_diag_complete _ _ _ E) as [ifr [Hr _]]; rewrite Hr; reflexivity
+        | rewrite (AN.occ_diag_none _ _ E); reflexivity ]);
+  rewrite <- (map_map AN.frr_row gd), AN.fact_rows_rows; subst gd.
+Ltac occ_bound_collapse p := unfold AN.result_boundaries;
+  rewrite flat_map_concat_map, concat_map, map_map;
+  set (gb := fun o : AN.OccFact (AN.res_binds (rres p)) => match AN.occ_req o with Some _ => [AN.ClassBoundary] | None => (@nil AN.IssueClass) end);
+  erewrite (map_ext _ (fun ref => gb (AN.frr_row ref)))
+    by (let a := fresh "a" in intro a; subst gb; cbn beta; destruct (AN.occ_req (AN.frr_row a)) as [q|] eqn:E;
+        [ destruct (AN.occ_bound_complete _ _ _ E) as [ufr [Hr _]]; rewrite Hr; reflexivity
+        | rewrite (AN.occ_bound_none _ _ E); reflexivity ]);
+  rewrite <- (map_map AN.frr_row gb), AN.fact_rows_rows; subst gb.
+
+(* issue classes: class-split, kill package/collision/group rows via d*_iff, collapse occurrences, compute *)
+Ltac obs_issue_classes p :=
+  rewrite AN.result_issues_class_split, map_app, !map_map; cbn [AN.issue_class];
+  assert (Hc : AN.collision_rows (rres p) = []) by (apply (proj1 (AN.dnc_iff _)); obs_seal p);
+  assert (Hm : AN.main_rows (rres p) = []) by (apply (proj1 (AN.dnm_iff _)); obs_seal p);
+  assert (Hg : AN.group_rows (rres p) = []) by (apply (proj1 (AN.dnr_iff _)); obs_seal p);
+  rewrite (AN.diagnostics_order (rres p)), Hc, Hm, Hg; cbn [app];
+  occ_diag_collapse p; occ_bound_collapse p;
+  unfold rres, result_of_compile, AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
+  rewrite (Compilable.compile_observe_data p); vm_compute; reflexivity.
 
 (* a use of the redeclared name folds into the one group row named "x"; exact contexts + soundness are §24.4 laws *)
 Definition p_redecl_use : Syntax.Program :=

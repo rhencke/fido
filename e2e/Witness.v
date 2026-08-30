@@ -73,7 +73,7 @@ Definition demo_program : Syntax.Program := singleton_program demo_module main_g
 
 (* the compiled capability, from compile directly: for this concrete program disposition reduces to Compiled *)
 Definition demo_prog : Compilable.Program demo_program :=
-  Compilable.compiled_program demo_program (ltac:(vm_compute; reflexivity)).
+  Compilable.compiled_program demo_program (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition demo_image : Emit.Image demo_prog Emit.CompiledOnly tt := Emit.of_compiled demo_prog.
 
 Declare ML Module "fido.emit".

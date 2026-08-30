@@ -445,12 +445,9 @@ sealed L  Compilable.compile      Compilable.Sealed.CompilationR
 sealed M  Compilable.compile      Compilable.Sealed.ProgramR
 sealed N  Compilable.compile      Compilable.Sealed.RejectionR
 sealed O  Compilable.compile      Compilable.Sealed.OutsideR
-# the private composer is hidden too: no client rebuilds the retained compilation outside `compile`.
-sealed P  Compilable.compile      Compilable.Sealed.elaborate
 # the top-level namespace re-exports only the abstract C4_PUBLIC surface — no maker leaks to `Compilable.*`.
 sealed Q  Compilable.compile      Compilable.mkComp
 sealed R  Compilable.compile      Compilable.mkProg
-sealed S  Compilable.compile      Compilable.elaborate
 # the generic evidence-indexed image exposes `of_compiled`/`of_evidence` as its ONLY routes; the old
 # mint/token/Pack/byte-carrying image surface is gone, so a client naming any is rejected.
 sealed Y  Emit.module_file_of     Emit.Mint
@@ -542,26 +539,42 @@ typefail neg_deleted_rawbp_maker "the deleted raw phase-record maker" \
 #   authority-free; the sealed Compilation/Program/Rejection/Outside are abstract over that index, so raw data
 #   (Result, admissibility proof, FactRowRef) cannot inhabit a certificate, a certificate cannot cross data
 #   indices, and the deleted opaque compilation_result field / equality-to-rerun acquisition route are absent —
-typefail neg_result_as_compilation "a raw Analysis.Result accepted as its own compilation certificate" \
-  'Definition forged (p : Syntax.Program) (r : AN.Result p) : CP.Sealed.Compilation p r := r.'
-typefail neg_data_as_program "the transparent canonical compilation data accepted as a Program certificate" \
-  'Definition forged (p : Syntax.Program) : CP.Program p := CP.compilation_data p.'
-typefail neg_admissible_mints_program "an admissibility proof over the data minting a Program certificate" \
-  'Definition forged (p : Syntax.Program) (H : CP.AdmissibleData (CP.compilation_data p)) : CP.Program p := H.'
-typefail neg_factrow_mints_program "an exact retained fact-row ref minting a Program certificate" \
-  'Definition forged (p : Syntax.Program) (r : AN.Result p) (ref : AN.FactRowRef (AN.res_facts r)) : CP.Sealed.Program p r := ref.'
-typefail neg_compilation_cross_data "a compilation certificate for data r1 used as the certificate for data r2" \
-  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (c : CP.Sealed.Compilation p r1) : CP.Sealed.Compilation p r2 := c.'
-typefail neg_program_cross_data "a program certificate for data r1 used as the certificate for data r2" \
-  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (cp : CP.Sealed.Program p r1) : CP.Sealed.Program p r2 := cp.'
-typefail neg_rejection_cross_data "a rejection certificate for data r1 used as the certificate for data r2" \
-  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (rj : CP.Sealed.Rejection p r1) : CP.Sealed.Rejection p r2 := rj.'
-typefail neg_outside_cross_data "an outside certificate for data r1 used as the certificate for data r2" \
-  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (ou : CP.Sealed.Outside p r1) : CP.Sealed.Outside p r2 := ou.'
-typefail neg_deleted_compilation_result "the deleted opaque compilation_result Result-field projection" \
-  'Definition forged := CP.compilation_result.'
-typefail neg_eq_as_program "a canonical-data equality passed where a Program certificate is required" \
-  'Definition forged (p : Syntax.Program) (H : CP.compilation_data p = AN.analyze p) : CP.Program p := H.'
+typefail neg_result_as_compilation "a raw Analysis.Result accepted as its own Compilation" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) : CP.Compilation p := r.'
+typefail neg_analyze_as_program "the minted Result accepted as a Program" \
+  'Definition forged (p : Syntax.Program) : CP.Program p := AN.analyze p.'
+typefail neg_admissible_mints_program "an admissibility proof over a supplied Result minting a Program" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (H : CP.AdmissibleData r) : CP.Program p := H.'
+typefail neg_factrow_mints_program "an exact retained fact-row ref minting a Program" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) (ref : AN.FactRowRef r) : CP.Program p := ref.'
+typefail neg_source_disp_eq_as_program "the source-disposition classification equality passed as a Program" \
+  'Definition forged (p : Syntax.Program) (H : CP.disposition p = CP.Compiled) : CP.Program p := H.'
+typefail neg_forge_result_mkResultR "the hidden data-bearing Result constructor" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : AN.Result p := AN.mkResultR d.'
+typefail neg_forge_result_pack "the hidden private Result pack" \
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : AN.Result p := AN.pack d.'
+typefail neg_forge_result_read "the hidden private Result read" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) : AN.ResultData p := AN.read r.'
+typefail neg_forge_result_field "the hidden Result data field" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) : AN.ResultData p := AN.retained_data r.'
+typefail neg_compilation_from_result "a Compilation forged from a raw Result via the hidden constructor" \
+  'Definition forged (p : Syntax.Program) (r : AN.Result p) : CP.Compilation p := CP.Sealed.mkComp r.'
+typefail neg_compilation_field_read "the hidden Compilation retained-Result field read outside the seal" \
+  'Definition forged (p : Syntax.Program) (c : CP.Compilation p) : AN.Result p := CP.Sealed.retained_result c.'
+typefail neg_equal_payload_result_eq "equal payloads used where two abstract Results must be equal" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (H : AN.data_of_result r1 = AN.data_of_result r2) : r1 = r2 := H.'
+typefail neg_factrow_cross_result "a fact-row ref of Result r1 used at Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (x : AN.FactRowRef r1) : AN.FactRowRef r2 := x.'
+typefail neg_diagnostic_cross_result "a Diagnostic of Result r1 used at Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (x : AN.Diagnostic r1) : AN.Diagnostic r2 := x.'
+typefail neg_boundary_cross_result "a Boundary of Result r1 used at Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (x : AN.Boundary r1) : AN.Boundary r2 := x.'
+typefail neg_issueref_cross_result "an IssueRef of Result r1 used at Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (x : AN.IssueRef r1) : AN.IssueRef r2 := x.'
+typefail neg_missingmain_cross_result "a MissingMainRef of Result r1 used at Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (x : AN.MissingMainRef r1) : AN.MissingMainRef r2 := x.'
+typefail neg_collision_cross_result "a CollisionRef of Result r1 used at Result r2" \
+  'Definition forged (p : Syntax.Program) (r1 r2 : AN.Result p) (x : AN.CollisionRef r1) : AN.CollisionRef r2 := x.'
 # — index / occurrence / selector (R1) —
 typefail neg_foreign_index_occurrence "an occurrence used at a foreign index" \
   'Definition forged (p q : Syntax.Program) (r : IX.NodeRef (IX.index_program p)) : IX.NodeRef (IX.index_program q) := r.'
@@ -591,7 +604,7 @@ typefail neg_factrow_forged_membership "a fact-row ref whose membership proof is
 typefail neg_factrow_cross_result "a fact-row ref of Result A used at Result B, though both res_facts are equal" \
   'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (ref : AN.FactRowRef rA) : AN.FactRowRef rB := ref.'
 typefail neg_factrow_cross_result_concrete "a fact-row ref from one compiled Result used at another compiled Result" \
-  'Definition forged (p q : Syntax.Program) (ref : AN.FactRowRef (CP.compilation_data p)) : AN.FactRowRef (CP.compilation_data q) := ref.'
+  'Definition forged (p q : Syntax.Program) (ref : AN.FactRowRef ((AN.analyze p))) : AN.FactRowRef ((AN.analyze q)) := ref.'
 typefail neg_ifr_forged_case "an invalid-case ref whose outcome proof is a bare reflexivity over a chosen cause" \
   'Definition forged (p : Syntax.Program) (r : AN.Result p) (rr : AN.FactRowRef r) (c : AN.Cause (AN.res_binds r) (AN.fact_site (AN.frr_row rr)) (AN.fact_kind (AN.frr_row rr))) : AN.InvalidFactRef r := AN.mk_ifr rr c eq_refl.'
 typefail neg_ifr_cross_result "an invalid-case ref of Result A used at Result B" \
@@ -887,7 +900,7 @@ typefail neg_useredecl_wrong_root "a redeclared use context forged for a root it
 typefail neg_report_view_mints_cause "an Analysis cause forged from a bp-free Report CauseView" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (v : RP.CauseView) : AN.Cause bp r AN.ValueKind := v.'
 typefail neg_report_view_mints_diag "an Analysis diagnostic forged from a bp-free Report CauseView" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Diagnostic (CP.compilation_data p) := v.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (v : RP.CauseView) : AN.Diagnostic ((AN.analyze p)) := v.'
 # — §17.1 CROSS-SITE: a payload exact for site A cannot inhabit an outcome/ref for site B (site is an index) —
 typefail neg_xsite_resolution_cause "a resolution-derived value cause for site A placed in a value outcome for site B" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp a) n) (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None) : AN.ValueOutcome bp b := AN.VInvalid (AN.UnresolvedNameV r H1 H2).'
@@ -957,35 +970,35 @@ typefail neg_notcallable_as_stmt "NotCallable (an application cause) placed in a
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (n : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp r) n) (o : BN.ObjectRef (IX.index_program p)) (H : BN.resolution_object_view r0 = Some o) : AN.StmtOutcome bp r := AN.SInvalid (AN.NotCallable r0 o H).'
 # — §17.3 EXACT FACT CASE: a case ref is constructible only for a fact whose exact outcome matches its case —
 typefail neg_success_no_ifr "an invalid fact ref built for a success (nonconstant) fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue r AN.VNonconst) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef ((AN.analyze p)) := AN.mk_ifr (AN.OFValue r AN.VNonconst) c eq_refl.'
 typefail neg_invalid_no_ufr "an unmet fact ref built for an invalid fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) (q : AN.Requirement bp r AN.ValueKind) : AN.UnmetFactRef (CP.compilation_data p) := AN.mk_ufr (AN.OFValue r (AN.VInvalid c)) q eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) (q : AN.Requirement bp r AN.ValueKind) : AN.UnmetFactRef ((AN.analyze p)) := AN.mk_ufr (AN.OFValue r (AN.VInvalid c)) q eq_refl.'
 typefail neg_unmet_no_ifr "an invalid fact ref built for an unmet fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue r (AN.VUnmet q)) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef ((AN.analyze p)) := AN.mk_ifr (AN.OFValue r (AN.VUnmet q)) c eq_refl.'
 typefail neg_dependent_no_ifr "an invalid fact ref built for a dependent fact" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue r (AN.VDependent dep)) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (dep : AN.Dependency bp r AN.ValueKind) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef ((AN.analyze p)) := AN.mk_ifr (AN.OFValue r (AN.VDependent dep)) c eq_refl.'
 typefail neg_ifr_xsite "an invalid fact ref pairing a fact at site A with a cause for site B" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ca : AN.Cause bp a AN.ValueKind) (cb : AN.Cause bp b AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFValue a (AN.VInvalid ca)) cb eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (a b : IX.NodeRef (IX.index_program p)) (ca : AN.Cause bp a AN.ValueKind) (cb : AN.Cause bp b AN.ValueKind) : AN.InvalidFactRef ((AN.analyze p)) := AN.mk_ifr (AN.OFValue a (AN.VInvalid ca)) cb eq_refl.'
 typefail neg_ifr_xkind "an invalid fact ref reinterpreting an application fact kind as value" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (oa : AN.AppOutcome bp r) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef (CP.compilation_data p) := AN.mk_ifr (AN.OFApp r oa) c eq_refl.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (oa : AN.AppOutcome bp r) (c : AN.Cause bp r AN.ValueKind) : AN.InvalidFactRef ((AN.analyze p)) := AN.mk_ifr (AN.OFApp r oa) c eq_refl.'
 # — §17.4 FREE PAIRING ABSENCE: no row is built from raw fields, a raw payload, a family, or the wrong fact ref —
 typefail neg_bocc_three_fields "a BOcc built from raw site + family + requirement" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary (CP.compilation_data p) := AN.BOcc r fam q.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (fam : AN.Family) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary ((AN.analyze p)) := AN.BOcc r fam q.'
 typefail neg_docc_raw_cause "a DOcc built from a raw cause alone" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc c.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (c : AN.Cause bp r AN.ValueKind) : AN.Diagnostic ((AN.analyze p)) := AN.DOcc c.'
 typefail neg_bocc_raw_req "a BOcc built from a raw requirement alone" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary (CP.compilation_data p) := AN.BOcc q.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (q : AN.Requirement bp r AN.ValueKind) : AN.Boundary ((AN.analyze p)) := AN.BOcc q.'
 typefail neg_docc_extra_family "a DOcc given an extra family field beside the exact fact ref" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef (CP.compilation_data p)) (fam : AN.Family) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc ifr fam.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef ((AN.analyze p))) (fam : AN.Family) : AN.Diagnostic ((AN.analyze p)) := AN.DOcc ifr fam.'
 typefail neg_invalid_as_boundary "an invalid fact ref used to build a boundary" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef (CP.compilation_data p)) : AN.Boundary (CP.compilation_data p) := AN.BOcc ifr.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ifr : AN.InvalidFactRef ((AN.analyze p))) : AN.Boundary ((AN.analyze p)) := AN.BOcc ifr.'
 typefail neg_unmet_as_diagnostic "an unmet fact ref used to build a diagnostic" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ufr : AN.UnmetFactRef (CP.compilation_data p)) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc ufr.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (ufr : AN.UnmetFactRef ((AN.analyze p))) : AN.Diagnostic ((AN.analyze p)) := AN.DOcc ufr.'
 # — §17.5 PROJECTION BOUNDARY: a bp-free Report view cannot mint an exact Requirement or row; a foreign phase is rejected —
 typefail neg_reqview_mints_req "an exact Requirement minted from a bp-free ReqView" \
   'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (r : IX.NodeRef (IX.index_program p)) (v : RP.ReqView) : AN.Requirement bp r AN.ValueKind := v.'
 typefail neg_groupview_mints_row "an exact occurrence diagnostic minted from a Report group view" \
-  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (gv : RP.DeclarationGroupView sf bp) : AN.Diagnostic (CP.compilation_data p) := AN.DOcc gv.'
+  'Definition forged (p : Syntax.Program) (sf : PI.PackageSurface (IX.index_program p)) {d : BN.PhaseData sf} (bp : BN.BindingPhase sf d) (gv : RP.DeclarationGroupView sf bp) : AN.Diagnostic ((AN.analyze p)) := AN.DOcc gv.'
 typefail neg_foreign_result_ifr "a diagnostic for Result B built from an invalid fact ref of Result A" \
   'Definition forged (p : Syntax.Program) (rA rB : AN.Result p) (ifr : AN.InvalidFactRef rA) : AN.Diagnostic rB := AN.DOcc ifr.'
 # — 18.1/23 the descriptive redeclaration route is DELETED: the exact redeclaration_roots enumeration is the sole
@@ -1127,7 +1140,7 @@ typefail neg_data_eq_transports_factrow "a fact-row ref moved across authorities
 typefail neg_data_indexes_program "transparent ResultData used as a Compilable branch certificate's authority index" \
   'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : Type := CP.Sealed.Program p d.'
 typefail neg_data_mints_branch_cert "raw ResultData minting a Compilable Program certificate over the canonical index" \
-  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : CP.Sealed.Program p (CP.compilation_data p) := d.'
+  'Definition forged (p : Syntax.Program) (d : AN.ResultData p) : CP.Program p := d.'
 typefail neg_branch_cert_as_result "a Compilable branch certificate coerced back to an Analysis Result authority" \
   'Definition forged (p : Syntax.Program) (cp : CP.Program p) : AN.Result p := cp.'
 typefail neg_analyze_eq_as_result "an equality to analyze used as the Result authority constructor" \
@@ -2067,7 +2080,7 @@ cat > /tmp/forge/Evidence.v <<'EOF'
 From Stdlib Require Import String.
 From Fido Require Import Version ModulePath Syntax Compilable Emit.
 Definition p : Syntax.Program := empty_program (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23).
-Definition cp : Compilable.Program p := Compilable.compiled_program p (ltac:(vm_compute; reflexivity)).
+Definition cp : Compilable.Program p := Compilable.compiled_program p (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition Ev (c : Compilable.Program p) : Prop := Compilable.diagnostics (Compilable.program_compilation c) = nil.
 Axiom bogus_ev : Ev cp.
 Definition img := @Emit.of_evidence p cp Ev bogus_ev.

@@ -34,7 +34,7 @@ Proof. vm_compute. reflexivity. Qed.
 
 (* two selected packages (root and sub): collision is non-applicable, so both mains compile cleanly *)
 Definition multi_capa : Compilable.Program multi_program :=
-  Compilable.compiled_program multi_program (ltac:(vm_compute; reflexivity)).
+  Compilable.compiled_program multi_program (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition multi_image : Emit.Image multi_capa Emit.CompiledOnly tt := Emit.of_compiled multi_capa.
 
 Declare ML Module "fido.emit".

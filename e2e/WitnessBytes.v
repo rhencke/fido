@@ -16,7 +16,7 @@ Definition bytes_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "
 Definition bytes_program : Syntax.Program := singleton_program bytes_module (FilePath.Make "main.go" eq_refl) bytes_file.
 
 Definition bytes_capa : Compilable.Program bytes_program :=
-  Compilable.compiled_program bytes_program (ltac:(vm_compute; reflexivity)).
+  Compilable.compiled_program bytes_program (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition bytes_image : Emit.Image bytes_capa Emit.CompiledOnly tt := Emit.of_compiled bytes_capa.
 
 Declare ML Module "fido.emit".

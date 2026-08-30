@@ -2012,25 +2012,34 @@ Definition result_data (p : Syntax.Program) : ResultData p :=
   let b := BN.bindings s in
   mk_result_data i s (BN.phase_data s) b (exist _ (raw_facts b) eq_refl) (exist _ (raw_preflight b) eq_refl).
 
-(* the sealed abstract Result authority: a per-program token minted ONLY by analyze, unique, holding no data field *)
+(* the sealed abstract Result authority: a value minted only by analyze, retaining one ResultData, forge-proof *)
 Module Type RESULT_AUTHORITY.
   Parameter Result : Syntax.Program -> Type.
   Parameter analyze : forall p, Result p.
-  Parameter result_unique : forall {p} (r : Result p), r = analyze p.
+  Parameter data_of_result : forall {p}, Result p -> ResultData p.
+  (* the sole public mint-computation law: the minted Result observes exactly the canonical data *)
+  Parameter analyze_observe_data : forall p, data_of_result (analyze p) = result_data p.
 End RESULT_AUTHORITY.
 Module ResultSeal : RESULT_AUTHORITY.
-  Definition Result (_ : Syntax.Program) : Type := unit.
-  Definition analyze (p : Syntax.Program) : Result p := tt.
-  Theorem result_unique {p} (r : Result p) : r = analyze p.
-  Proof. destruct r; reflexivity. Qed.
+  Record ResultR (p : Syntax.Program) : Type := mkResultR { retained_data : ResultData p }.
+  Arguments mkResultR {p} _.
+  Arguments retained_data {p} _.
+  Definition Result (p : Syntax.Program) : Type := ResultR p.
+  Definition pack {p} (d : ResultData p) : Result p := mkResultR d.
+  Definition read {p} (r : Result p) : ResultData p := retained_data r.
+  Local Lemma read_pack {p} (d : ResultData p) : read (pack d) = d.
+  Proof. reflexivity. Qed.
+  Definition analyze (p : Syntax.Program) : Result p := pack (result_data p).
+  Definition data_of_result {p} (r : Result p) : ResultData p := read r.
+  Theorem analyze_observe_data (p : Syntax.Program) : data_of_result (analyze p) = result_data p.
+  Proof. reflexivity. Qed.
 End ResultSeal.
 Definition Result (p : Syntax.Program) : Type := ResultSeal.Result p.
 Definition analyze (p : Syntax.Program) : Result p := ResultSeal.analyze p.
-Definition result_unique {p} (r : Result p) : r = analyze p := ResultSeal.result_unique r.
-
-(* the transparent data of a Result: ignores the opaque authority token, reduces to the one canonical data *)
-Definition data_of_result {p} (_ : Result p) : ResultData p := result_data p.
-Definition data_of_result_canonical {p} (r : Result p) : data_of_result r = result_data p := eq_refl.
+(* the data of a Result is the DIRECT read of the supplied r; the body never mentions result_data *)
+Definition data_of_result {p} (r : Result p) : ResultData p := ResultSeal.data_of_result r.
+Definition analyze_observe_data (p : Syntax.Program) : data_of_result (analyze p) = result_data p :=
+  ResultSeal.analyze_observe_data p.
 
 (* the res_* projections read from the canonical data; none inspects or matches the sealed authority *)
 Definition res_index {p} (r : Result p) : Index.ProgramIndex p := rd_index (data_of_result r).

@@ -7,7 +7,7 @@ Import ListNotations.
 Definition ev_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 Definition ev_prog : Syntax.Program := empty_program ev_module.
 Definition ev_cp : Compilable.Program ev_prog :=
-  Compilable.compiled_program ev_prog (ltac:(vm_compute; reflexivity)).
+  Compilable.compiled_program ev_prog (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 
 (* EvidenceA / EvidenceB: exact proofs, indexed by the SAME cp, that its diagnostics resp. boundaries are empty *)
 Definition EvidenceA {p} (cp : Compilable.Program p) : Prop :=

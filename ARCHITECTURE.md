@@ -468,12 +468,12 @@ rejects the whole program, so acceptance is all-or-nothing. The preflight is cmd
 a sole main package's default executable name must not collide with an existing root directory; zero or
 two-or-more packages write no default output, and the empty program is accepted.
 
-The private composer `elaborate` (inside `Module Sealed`, never a public route) builds one retained `Compilation`
-indexed by the sealed `Analysis.Result` authority `analyze p`, whose transparent data `result_data p` holds the
+The sealed composer `compile` (its builder inside `Module Sealed`, minting through `mkComp`) binds `analyze p`
+once and builds one branch-neutral `Compilation` that physically **retains** that sealed `Analysis.Result`, whose transparent data `result_data p` holds the
 intrinsic index, the package surface, the binding phase, the fact phase and
 the package facts, computed once, each a dependent projection of the prior field it consumes. The transparent `disposition p` is a direct three-way
 projection of the one canonical issue table, and `Compilable.compile p : OutcomeAt p (disposition p)` is the **sole
-source** of the abstract branch objects: for a concrete `p` the tag reduces and `compile p` is directly the
+source** of the abstract branch objects: for a concrete `p` the disposition is exhibited through the sanctioned observation laws (never raw reduction through the seal) and `compile p` is then the
 `Program p`, `Rejection p` or `Outside p` the reports name. There is no public elaborator, no `Decision` type and no
 `inspect` eliminator, no public record maker, and no second checker. `Compilation` and the branch objects
 `Program`/`Rejection`/`Outside` are abstract to a client through the `Module Sealed : C4_PUBLIC` ascription.
@@ -511,8 +511,8 @@ precedence above and the one-core provenance law below are unchanged.
 The production analysis **data** is one transparent `ResultData` (`result_data p`) — the intrinsic index, the
 package surface, the binding phase, the fact phase and the package facts, each a field typed by the exact prior
 field it consumes — behind a **sealed abstract `Analysis.Result` authority** minted only by `analyze`; that
-authority is the exact type **index** of the branch-neutral `Compilation` certificate, never a field held behind
-it, and every `res_*` projection reads a `ResultData` field through `data_of_result`, never the opaque token.
+authority is the one `Analysis.Result` the branch-neutral `Compilation` certificate physically **retains** as its
+single field, and every `res_*` projection reads a `ResultData` field through `data_of_result`, which projects that retained payload rather than recomputing it.
 Nothing is rebuilt or re-proved by a consumer — every downstream reading is a projection of a retained field.
 
 Occurrence identity is intrinsic. A `NodeRef` is a key into one file's retained finite position map of shallow
@@ -527,14 +527,15 @@ The phase retains the whole flow as a dependent chain: the causal chain **is** t
 component is unrepresentable by type mismatch rather than caught by a comparison.
 
 **Equality to a recomputation is never provenance.** The transparent `ResultData` behind the sealed
-`Analysis.Result` — the exact type index the
-`Compilation` certificate is built over — holds each phase once; the index, facts, package facts, diagnostics and
+`Analysis.Result` — the one payload the
+`Compilation` certificate physically retains — holds each phase once; the index, facts, package facts, diagnostics and
 boundaries are projections of it, never a stored equality to a rerun. The
 compiled capability `Program p` is abstract — sealed behind the `C4_PUBLIC` signature whose only maker `mkProg`
 demands `Admissible` over that exact retained result — so a client cannot forge one, and `compile` (via
-`compiled_program`) is the only route. The transparent `disposition` and `OutcomeAt` stay reducible, and the byte
-path never inspects the compiled object at all — `Emit.transport` renders only the exact indexed source `p` — so the
-sealed `Program` never strands `vm_compute`.
+`compiled_program`) is the only route. Concrete `disposition` and `compile` outcomes are exhibited through the sanctioned observation laws
+(`disposition_observe_data`, `compile_observe_data`), never raw reduction through the seal; the byte
+path never inspects the compiled object at all — `Emit.transport` renders only the exact indexed source `p` — so a
+sealed reader is never stranded on `vm_compute`.
 
 From C6 the same rule binds the phase the core retains. The **exact type environment** built during the
 phase, the **exact package dependency outcome**, and every accepted binding, object, expression, use,

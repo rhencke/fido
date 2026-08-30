@@ -7,7 +7,7 @@ Definition empty_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "
 Definition empty_prog : Syntax.Program := empty_program empty_module.
 
 Definition empty_capa : Compilable.Program empty_prog :=
-  Compilable.compiled_program empty_prog (ltac:(vm_compute; reflexivity)).
+  Compilable.compiled_program empty_prog (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition empty_image : Emit.Image empty_capa Emit.CompiledOnly tt := Emit.of_compiled empty_capa.
 
 (* the empty source map builds and renders NO .go files *)

@@ -557,6 +557,113 @@ LAYER_MUTANTS = (
 )
 
 
+# ---- seal representation body controls (contract §10/§419): the §Q typefail suite in the Dockerfile catches
+# FORGERY — building a Result/Compilation from hidden constructors. It cannot catch a reader that RECOMPUTES
+# the PUBLIC `AN.analyze p` or drops its retained field, because that reader still TYPECHECKS (analyze returns
+# a valid Result). Only an exact-body/absence source control rejects it. Each anchor is the exact certified
+# projection body; a reacquire/ignore mutation removes it, so `body_check` fires the named control. The private
+# carriers (Result field, read) are the projection form the Rocq round-trip law `read_pack` enforces at build.
+COMPV = 'Compilable.v'
+ANALV = 'Compilable/Analysis.v'
+
+# (control, file, exact substring that must be present EXACTLY once)
+SEAL_PRESENCE = (
+    ('result-carries-retained-data', ANALV, 'mkResultR { retained_data : ResultData p }'),
+    ('read-projects-retained-data', ANALV,
+     'Definition read {p} (r : Result p) : ResultData p := retained_data r.'),
+    ('sealed-compilation_result-projects-retained', COMPV, ': AN.Result p := retained_result c.'),
+    ('public-compilation_result-projects', COMPV, ': AN.Result p := Sealed.compilation_result c.'),
+    ('program_result-follows-compilation', COMPV, ':= compilation_result (program_compilation cp).'),
+    ('rejection_result-follows-compilation', COMPV, ':= compilation_result (rejection_compilation rj).'),
+    ('outside_result-follows-compilation', COMPV, ':= compilation_result (outside_compilation ou).'),
+    ('outcome_result-follows-compilation', COMPV, ':= compilation_result (outcome_compilation o).'),
+    ('Diagnostic-uses-supplied-compilation', COMPV, ':= RP.Diagnostic (compilation_result c).'),
+    ('Boundary-uses-supplied-compilation', COMPV, ':= RP.Boundary (compilation_result c).'),
+    ('diagnostics-uses-supplied-compilation', COMPV, ':= diagnostics_data (compilation_result c).'),
+    ('boundaries-uses-supplied-compilation', COMPV, ':= boundaries_data (compilation_result c).'),
+    ('Admissible-uses-supplied-compilation', COMPV, ':= AdmissibleData (compilation_result c).'),
+    ('compile-binds-analyze-once', COMPV, 'let r := AN.analyze p in'),
+    ('disposition-queries-analyze', COMPV, ':= disposition_of (AN.analyze p).'),
+)
+
+# (control, file, regex that must NOT match) — no public reader reacquires the analysis from p on its own body
+SEAL_ABSENCE = (
+    ('no-reader-reacquires-analyze', COMPV,
+     r'^Definition (?:compilation_result|program_result|rejection_result|outside_result|outcome_result|'
+     r'Diagnostic|Boundary|diagnostics|boundaries|Admissible)\b[^\n]*\bAN\.analyze\b'),
+)
+
+# the thirteen §421 representation mutations: (label, file, exact anchor, replacement, control that MUST fire)
+BODY_MUTANTS = (
+    ('replace the data-bearing Result with a token', ANALV,
+     'mkResultR { retained_data : ResultData p }', 'mkResultR { retained_data : unit }',
+     'result-carries-retained-data'),
+    ('read ignores its argument and returns result_data p', ANALV,
+     'Definition read {p} (r : Result p) : ResultData p := retained_data r.',
+     'Definition read {p} (r : Result p) : ResultData p := result_data p.',
+     'read-projects-retained-data'),
+    ('Compilation ignores its retained Result and reacquires AN.analyze p', COMPV,
+     ': AN.Result p := retained_result c.', ': AN.Result p := AN.analyze p.',
+     'sealed-compilation_result-projects-retained'),
+    ('compilation_result ignores its retained field', COMPV,
+     ': AN.Result p := Sealed.compilation_result c.', ': AN.Result p := AN.analyze p.',
+     'public-compilation_result-projects'),
+    ('program_result reacquires', COMPV,
+     ':= compilation_result (program_compilation cp).', ':= AN.analyze p.',
+     'program_result-follows-compilation'),
+    ('rejection_result reacquires', COMPV,
+     ':= compilation_result (rejection_compilation rj).', ':= AN.analyze p.',
+     'rejection_result-follows-compilation'),
+    ('outside_result reacquires', COMPV,
+     ':= compilation_result (outside_compilation ou).', ':= AN.analyze p.',
+     'outside_result-follows-compilation'),
+    ('outcome_result reacquires', COMPV,
+     ':= compilation_result (outcome_compilation o).', ':= AN.analyze p.',
+     'outcome_result-follows-compilation'),
+    ('Diagnostic ignores its supplied Compilation', COMPV,
+     ':= RP.Diagnostic (compilation_result c).', ':= RP.Diagnostic (AN.analyze p).',
+     'Diagnostic-uses-supplied-compilation'),
+    ('Boundary ignores its supplied Compilation', COMPV,
+     ':= RP.Boundary (compilation_result c).', ':= RP.Boundary (AN.analyze p).',
+     'Boundary-uses-supplied-compilation'),
+    ('diagnostics ignores its supplied Compilation', COMPV,
+     ':= diagnostics_data (compilation_result c).', ':= diagnostics_data (AN.analyze p).',
+     'diagnostics-uses-supplied-compilation'),
+    ('boundaries ignores its supplied Compilation', COMPV,
+     ':= boundaries_data (compilation_result c).', ':= boundaries_data (AN.analyze p).',
+     'boundaries-uses-supplied-compilation'),
+    ('Admissible ignores its supplied Compilation', COMPV,
+     ':= AdmissibleData (compilation_result c).', ':= AdmissibleData (AN.analyze p).',
+     'Admissible-uses-supplied-compilation'),
+)
+
+
+def _seal_texts(root: Path):
+    return {rel: (root / rel).read_text(encoding='utf-8') for rel in (COMPV, ANALV)}
+
+
+def body_check(texts):
+    """The failed control labels for one source snapshot. Empty means every certified body is intact."""
+    failed = set()
+    for control, rel, sub in SEAL_PRESENCE:
+        if texts[rel].count(sub) != 1:
+            failed.add(control)
+    for control, rel, rx in SEAL_ABSENCE:
+        if re.search(rx, texts[rel], re.M):
+            failed.add(control)
+    return failed
+
+
+def run_body_mutant(base_texts, rel, anchor, replacement):
+    src = base_texts[rel]
+    n = src.count(anchor)
+    if n != 1:
+        return None, f'anchor occurs {n} time(s), expected exactly 1'
+    texts = dict(base_texts)
+    texts[rel] = src.replace(anchor, replacement, 1)
+    return body_check(texts), None
+
+
 def extract_layer_block(root: Path):
     text = (root / DOCKERFILE).read_text(encoding='utf-8')
     ib, ie = text.find(LAYER_BEGIN), text.find(LAYER_END)
@@ -682,18 +789,38 @@ def main() -> int:
             else:
                 print(f'  detected  {label}  ({DOCKERFILE} layer gate) — {len(expected)} named control(s) fired')
 
-    checked = len(selected) + len(layer_selected) + len(EVIDENCE_MUTANTS)
+    # Seal representation body controls: the unmutated source must pass its own body law, then each of the
+    # thirteen §421 mutations must fire its named control. One `body_check` authority drives both.
+    base_texts = _seal_texts(root)
+    pos = body_check(base_texts)
+    if pos:
+        failures.append(f'seal body gate: the UNMUTATED source fails its own body controls '
+                        f'(the positive premise): {", ".join(sorted(pos))}')
+    for label, rel, anchor, replacement, control in BODY_MUTANTS:
+        failed, err = run_body_mutant(base_texts, rel, anchor, replacement)
+        if err is not None or failed is None:
+            failures.append(f'seal body mutation: {label}: {err}')
+            continue
+        if control not in failed:
+            failures.append(f'seal body mutation: {label}: the body law did not fire the control that '
+                            f'depends on this body: {control}; what did fire: '
+                            f'{", ".join(sorted(failed)) or "(no control)"}')
+        else:
+            print(f'  detected  {label}  (seal body gate) — control {control} fired')
+
+    checked = len(selected) + len(layer_selected) + len(EVIDENCE_MUTANTS) + len(BODY_MUTANTS)
     if failures:
         for f in failures:
             print(f'  FAIL  {f}')
         print(f'fido: GATE-MUTATION TEST FAILED — {len(failures)} finding(s) across {checked} checked mutants '
               f'({len(selected)} permanent-policy Python helpers + {len(layer_selected)} layer-gate root '
-              f'decisions + {len(EVIDENCE_MUTANTS)} generated-summary mutations)')
+              f'decisions + {len(EVIDENCE_MUTANTS)} generated-summary mutations + {len(BODY_MUTANTS)} seal '
+              f'representation mutations)')
         return 1
     print(f'fido: gate-mutation test OK — {checked} checked mutants ({len(selected)} permanent-policy Python '
           f'helpers + {len(layer_selected)} layer-gate root decisions + {len(EVIDENCE_MUTANTS)} '
-          f'generated-summary mutations), each proved load-bearing by deleting its effect and watching its '
-          f'own named controls fail ✓')
+          f'generated-summary mutations + {len(BODY_MUTANTS)} seal representation mutations), each proved '
+          f'load-bearing by deleting its effect and watching its own named controls fail ✓')
     return 0
 
 

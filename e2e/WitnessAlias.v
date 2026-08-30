@@ -21,7 +21,7 @@ Definition alias_module : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "
 Definition alias_program : Syntax.Program := singleton_program alias_module (FilePath.Make "main.go" eq_refl) alias_file.
 
 Definition alias_capa : Compilable.Program alias_program :=
-  Compilable.compiled_program alias_program (ltac:(vm_compute; reflexivity)).
+  Compilable.compiled_program alias_program (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition alias_image : Emit.Image alias_capa Emit.CompiledOnly tt := Emit.of_compiled alias_capa.
 
 Declare ML Module "fido.emit".

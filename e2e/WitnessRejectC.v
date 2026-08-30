@@ -30,20 +30,20 @@ Definition r_const_noinit : Compilable.rejects (prog [ Syntax.DeclarationStmt (S
 
 Definition o_short_mixed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (ILIT 1)) ; Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (Collections.MakeNonEmpty (ILIT 2) [ILIT 3]) ]). Proof. outside. Qed.
 
-Lemma reader_disp_outside : Compilable.disposition oprobe = Compilable.OutsideScope. Proof. vm_compute; reflexivity. Qed.
+Lemma reader_disp_outside : Compilable.disposition oprobe = Compilable.OutsideScope. Proof. obs_disp. Qed.
 
 (* §R.4 fact-row integration: the branch-carried Result carries the exact res_facts, so its rows ARE analyze's rows *)
 Lemma reader_facts_kinds :
   map AN.fact_kind (pfacts rprobe) = map AN.fact_kind (AN.result_fact_list (AN.analyze rprobe)).
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_eq rprobe. Qed.
 
 Definition r_type_value_cause :
   RP.result_cause_views (rres (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ])) = [ RP.CvTypeAsValue (Some Names.PInt8) ].
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct (prog [ PL [ Syntax.Name (Names.predeclared_ordinary Names.PInt8) ] ]). Qed.
 
 Definition r_cx_mix_cause :
   RP.result_cause_views (rres (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ])) = [ RP.CvComplexMismatch ].
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct (prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat64 (ILIT 2)) ] ]). Qed.
 
 (* main used as a bare value (not called) is a later-root boundary *)
 Definition o_main_value : Compilable.outsides (prog [ PL [ VNAME "main" ] ]). Proof. outside. Qed.
@@ -56,38 +56,48 @@ Definition r_redecl_var : Compilable.rejects (prog [ Syntax.DeclarationStmt (Syn
 
 Definition r_redecl_usecontext :
   map RP.diag_group_name (dsites p_redecl_use) = [ Some (OID "x") ].
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  unfold dsites.
+  assert (Hc : AN.collision_rows (rres p_redecl_use) = []) by (apply (proj1 (AN.dnc_iff _)); obs_seal p_redecl_use).
+  assert (Hm : AN.main_rows (rres p_redecl_use) = []) by (apply (proj1 (AN.dnm_iff _)); obs_seal p_redecl_use).
+  assert (Ho : AN.occ_diags (rres p_redecl_use) = []) by (apply (proj1 (AN.dncause_iff _)); obs_seal p_redecl_use).
+  rewrite (AN.diagnostics_order (rres p_redecl_use)), Hc, Hm, Ho. rewrite ?app_nil_l, ?app_nil_r.
+  unfold AN.group_rows; rewrite map_map.
+  erewrite (map_ext _ (fun rr => Some (projT1 rr))) by (intro rr; reflexivity).
+  unfold rres, result_of_compile, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
+  rewrite (Compilable.compile_observe_data p_redecl_use). vm_compute. reflexivity.
+Qed.
 
 (* an invalid-identity application head (iota) is a dependent non-result, never a success *)
 Definition r_invalidid_app_dep :
   existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepInvalidId _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ]). Qed.
 
 (* a redeclared application head is a dependent non-result, never a successful application fact *)
 Definition r_redecl_app_dep :
   existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredNameA _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ]). Qed.
 
 (* §22.3 a canonical invalid statement row: a bare literal is an illegal-statement invalidity in the statement family *)
 Definition mf_stmt_lit_invalid_row :
   RP.result_cause_views (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ RP.CvOtherCause ]
   /\ RP.result_diag_families (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ AN.FamStatement ].
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (ILIT 1) ]). Qed.
 
 (* §22.5 a dependent row yields no issue: only the unresolved child name is a cause, its app+stmt rows stay silent *)
 Definition mf_dep_row_silent :
   RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = [ RP.CvUnresolvedName ]
   /\ RP.result_req_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = [].
-Proof. split; vm_compute; reflexivity. Qed.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ]). Qed.
 
 Definition mf_app_two_families :
   (match filter (fun o => match AN.fact_kind o with AN.ApplicationKind => true | _ => false end) (pfacts p_app_multi) with
    | app :: _ => existsb (fun o => andb (match AN.fact_kind o with AN.ValueKind => true | _ => false end)
                                         (BN.noderef_eqb (AN.fact_site o) (AN.fact_site app))) (pfacts p_app_multi)
    | [] => false end) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_direct p_app_multi. Qed.
 
 (* const inheritance: a non-first inherited const spec is valid Go outside the modelled scope (a boundary) *)
 Definition o_const_inherited : Compilable.outsides (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ; Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "y"))) Syntax.InheritedConstInit ]) ]). Proof. outside. Qed.
@@ -98,21 +108,62 @@ Definition r_main_const_redecl : Compilable.rejects (prog_tops [ tconstmain ; ma
 Definition r_main_missing_payload :
   (match dsites (prog_tops [ tconstmain ]) with
    | [ AN.DMissingMain _ ] => true | _ => false end) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  assert (Hlen : Datatypes.length (AN.result_missing_main_refs (rres (prog_tops [ tconstmain ]))) = 1%nat).
+  { rewrite <- (length_map AN.mmr_package), AN.missing_main_packages.
+    unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
+    rewrite (Compilable.compile_observe_data (prog_tops [ tconstmain ])). vm_compute. reflexivity. }
+  unfold dsites.
+  assert (Hc : AN.collision_rows (rres (prog_tops [ tconstmain ])) = []) by (apply (proj1 (AN.dnc_iff _)); obs_seal (prog_tops [ tconstmain ])).
+  assert (Hg : AN.group_rows (rres (prog_tops [ tconstmain ])) = []) by (apply (proj1 (AN.dnr_iff _)); obs_seal (prog_tops [ tconstmain ])).
+  assert (Ho : AN.occ_diags (rres (prog_tops [ tconstmain ])) = []) by (apply (proj1 (AN.dncause_iff _)); obs_seal (prog_tops [ tconstmain ])).
+  rewrite (AN.diagnostics_order (rres (prog_tops [ tconstmain ]))), Hc, Hg, Ho, ?app_nil_l, ?app_nil_r.
+  unfold AN.main_rows.
+  destruct (AN.result_missing_main_refs (rres (prog_tops [ tconstmain ]))) as [|ref0 [|ref1 rest]]; cbn in Hlen; try discriminate Hlen.
+  reflexivity.
+Qed.
 
 (* the output collision and the missing main are two distinct diagnostics; neither suppresses the other *)
 Definition d4_collision_missing_main_coexist :
   andb (existsb (fun d => match d with AN.DOutputCollision _ => true | _ => false end) (dsites p_collision))
        (existsb (fun d => match d with AN.DMissingMain _ => true | _ => false end) (dsites p_collision)) = true.
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  unfold dsites. rewrite (AN.diagnostics_order (rres p_collision)).
+  assert (Hg : AN.group_rows (rres p_collision) = []) by (apply (proj1 (AN.dnr_iff _)); obs_seal p_collision).
+  assert (Ho : AN.occ_diags (rres p_collision) = []) by (apply (proj1 (AN.dncause_iff _)); obs_seal p_collision).
+  rewrite Hg, Ho, ?app_nil_r.
+  destruct (AN.result_collision_ref (rres p_collision)) as [cr|] eqn:Hcr.
+  2:{ exfalso. apply AN.collision_ref_none in Hcr. revert Hcr.
+      unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
+      rewrite (Compilable.compile_observe_data p_collision). vm_compute. discriminate. }
+  assert (Hne : AN.result_missing_main_refs (rres p_collision) <> []).
+  { intro Hnil. apply (f_equal (@Datatypes.length _)) in Hnil.
+    rewrite <- (length_map AN.mmr_package), AN.missing_main_packages in Hnil. revert Hnil.
+    unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
+    rewrite (Compilable.compile_observe_data p_collision). vm_compute. discriminate. }
+  unfold AN.collision_rows, AN.main_rows. rewrite Hcr.
+  destruct (AN.result_missing_main_refs (rres p_collision)) as [|ref0 rest]; [ exfalso; exact (Hne eq_refl) | ].
+  reflexivity.
+Qed.
 
 (* §17.1 a package with no fixed main has exactly one exact missing-main case for its own package *)
 Lemma mm17_1_missing_len : Datatypes.length (AN.result_missing_main_refs (ppkg (prog_tops [ tconstmain ]))) = 1%nat.
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  unfold ppkg. rewrite <- (length_map AN.mmr_package), AN.missing_main_packages.
+  unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
+  rewrite (Compilable.compile_observe_data (prog_tops [ tconstmain ])). vm_compute. reflexivity.
+Qed.
 
 (* §17.5 a non-colliding program has no collision case: the false collision cannot arise *)
 Lemma mm17_5_nocollision_none : pcollision (prog [ PL [ ILIT 1 ] ]) = None.
-Proof. vm_compute; reflexivity. Qed.
+Proof.
+  unfold pcollision, ppkg.
+  assert (Hn : AN.result_collision_ref (rres (prog [ PL [ ILIT 1 ] ])) = None).
+  { apply AN.collision_ref_none.
+    unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
+    rewrite (Compilable.compile_observe_data (prog [ PL [ ILIT 1 ] ])). vm_compute. reflexivity. }
+  rewrite Hn. reflexivity.
+Qed.
 
 Definition dr_conv0       : Compilable.rejects dp_conv0.       Proof. reject. Qed.
 

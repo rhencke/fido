@@ -34,7 +34,7 @@ Definition r_short_rhsneg : Compilable.rejects (prog [ Syntax.ShortVarDecl (NE1 
 Definition d4_invalid_unsupported_coexist :
   map AN.issue_class (AN.result_issues (rres p_invalid_unsupported))
   = [ AN.ClassDiagnostic ; AN.ClassBoundary ].
-Proof. vm_compute; reflexivity. Qed.
+Proof. obs_issue_classes p_invalid_unsupported. Qed.
 
 Definition dr_neg_string  : Compilable.rejects dp_neg_string.  Proof. reject. Qed.
 
