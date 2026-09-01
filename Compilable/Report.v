@@ -131,7 +131,15 @@ Inductive ReqView : Type :=
 | RvSourceValueApp : ReqView
 | RvShortOriginApp : ReqView
 | RvApplication : ReqView
-| RvOtherReq : ReqView.
+| RvConstDecl : ReqView
+| RvDeclMeaningV : ReqView
+| RvTypeMeaning : ReqView
+| RvInitializerIdentity : Names.PredeclaredName -> ReqView
+| RvTypedTargetIdentity : Names.PredeclaredName -> ReqView
+| RvConstNoDefault : ReqView
+| RvTypedTargetConstant : ReqView
+| RvMainUse : ReqView
+| RvValueMeaning : ReqView.
 
 (* bp-free descriptive views of the exact package decision cases: the package's identity, the colliding root entry *)
 Record MissingMainView : Type := mk_missing_main_view {
@@ -211,7 +219,15 @@ Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   | AN.ReqSourceValueApp _ _ _ _ _ _ _ => RvSourceValueApp
   | AN.ReqShortOriginApp _ _ _ _ _ _ => RvShortOriginApp
   | AN.ReqApplication _ _ _ _ _ _ _ => RvApplication
-  | _ => RvOtherReq
+  | AN.ReqConstDecl _ _ => RvConstDecl
+  | AN.ReqDeclMeaningV _ => RvDeclMeaningV
+  | AN.ReqTypeMeaning _ _ _ => RvTypeMeaning
+  | AN.RInitializerIdentity _ pn _ _ => RvInitializerIdentity pn
+  | AN.RTypedTargetIdentity _ pn _ _ => RvTypedTargetIdentity pn
+  | AN.RConstNoDefault _ _ => RvConstNoDefault
+  | AN.RTypedTargetConstant _ _ => RvTypedTargetConstant
+  | AN.ReqMainUse _ _ _ => RvMainUse
+  | AN.ReqValueMeaning _ _ _ => RvValueMeaning
   end.
 
 (* concrete controls read these bp-free occurrence views computed DIRECTLY from fact_list, off the vm_compute path *)
