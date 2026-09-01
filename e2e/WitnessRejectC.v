@@ -70,13 +70,13 @@ Qed.
 
 (* an invalid-identity application head (iota) is a dependent non-result, never a success *)
 Definition r_invalidid_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepInvalidId _ _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepInvalidId _ _ _ _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ]). Qed.
 
 (* a redeclared application head is a dependent non-result, never a successful application fact *)
 Definition r_redecl_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredNameA _ _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepRedeclaredNameA _ _ _ _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
 Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ]). Qed.
 

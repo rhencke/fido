@@ -100,13 +100,17 @@ Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} 
     BN.ConstSpecJudgmentRef bp cs -> site = Index.Refs.sp_node cs -> Cause bp site ValueKind
 | ResultCountMismatch : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
     site = Index.Refs.sp_node cs -> nat -> nat -> Cause bp site ValueKind
-| NotCallable : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
+| NotCallable : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (o : BN.ObjectRef idx),
     BN.resolution_object_view r = Some o -> Cause bp site ApplicationKind
 | NotCallableExpr : Index.node_view site = Index.Model.VApplication -> Cause bp site ApplicationKind
 | ConversionArity : Index.node_view site = Index.Model.VApplication ->
     Names.PredeclaredName -> nat -> Cause bp site ApplicationKind
 | ComplexArity : Index.node_view site = Index.Model.VApplication -> nat -> Cause bp site ApplicationKind
-| MainArity : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (f : BN.FunctionDeclRef idx),
+| MainArity : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (f : BN.FunctionDeclRef idx),
     BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) ->
     list (Index.NodeRef idx) -> nat -> Cause bp site ApplicationKind
 | UnresolvedNameT : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
@@ -134,9 +138,9 @@ Arguments ComplexMismatch {p idx s bd bp site} _ _ _. Arguments ConversionOverfl
 Arguments ConversionNotRepresentable {p idx s bd bp site} _ _ _. Arguments NoValueUsed {p idx s bd bp site} _.
 Arguments UnaryMismatch {p idx s bd bp site} _. Arguments DefaultOverflow {p idx s bd bp site} _ _.
 Arguments ConstMissingInit {p idx s bd bp site cs} _ _. Arguments ResultCountMismatch {p idx s bd bp site} cs _ _ _.
-Arguments NotCallable {p idx s bd bp site n} _ _ _. Arguments NotCallableExpr {p idx s bd bp site} _.
+Arguments NotCallable {p idx s bd bp site} _ _ _ _ _ _. Arguments NotCallableExpr {p idx s bd bp site} _.
 Arguments ConversionArity {p idx s bd bp site} _ _ _. Arguments ComplexArity {p idx s bd bp site} _ _.
-Arguments MainArity {p idx s bd bp site n} _ _ _ _ _.
+Arguments MainArity {p idx s bd bp site} _ _ _ _ _ _ _ _.
 Arguments UnresolvedNameT {p idx s bd bp site n} _ _ _. Arguments NotAType {p idx s bd bp site n} _ _ _.
 Arguments IllegalStatement {p idx s bd bp site} _. Arguments ShortDuplicate {p idx s bd bp site st se} _ _ _ _ _.
 Arguments ShortCountMismatch {p idx s bd bp site} st _ _.
@@ -165,7 +169,9 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
 | ReqConstDecl : forall (cs : Index.Refs.SpecRef idx Index.Model.ConstSpecF),
     BN.ConstSpecJudgmentRef bp cs -> site = Index.Refs.sp_node cs -> Requirement bp site ValueKind
 | ReqDeclMeaningV : is_value_decl_node site = true -> Requirement bp site ValueKind
-| ReqApplication : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+| ReqApplication : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r = Some (BN.PredeclaredObject pn) ->
     list (Index.NodeRef idx) -> Requirement bp site ApplicationKind
 | ReqTypeMeaning : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
@@ -194,17 +200,17 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind
 (* §271 a type-spec binder application head: the source-type/conversion applicability is unmodelled, a boundary *)
 | ReqSourceTypeApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
-    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp site) h) (b : BN.BinderRef idx),
+    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (b : BN.BinderRef idx),
     BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)) ->
     Index.node_role (BN.binder_node b) = Index.Model.RSpecName Index.Model.TypeSpecF -> Requirement bp site ApplicationKind
 (* §271 a var-spec binder head: source-value callability is unmodelled, a boundary; never infer its type *)
 | ReqSourceValueApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
-    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp site) h) (b : BN.BinderRef idx),
+    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (b : BN.BinderRef idx),
     BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)) ->
     Index.node_role (BN.binder_node b) = Index.Model.RSpecName Index.Model.VarSpecF -> Requirement bp site ApplicationKind
 (* §271 a short-origin application head: the short-declared function-value callability is unmodelled, a boundary *)
 | ReqShortOriginApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
-    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp site) h) (sn : BN.ShortNewRef idx),
+    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (sn : BN.ShortNewRef idx),
     BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOShort sn)) -> Requirement bp site ApplicationKind.
 Arguments ReqSourceTypeApp {p idx s bd bp site} ar _ h _ b _ _.
 Arguments ReqSourceValueApp {p idx s bd bp site} ar _ h _ b _ _.
@@ -215,7 +221,7 @@ Arguments RConstNoDefault {p idx s bd bp site} _ _.
 Arguments RTypedTargetConstant {p idx s bd bp site} _ _.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
-Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
+Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site} _ _ _ _ _ _ _.
 Arguments ReqTypeMeaning {p idx s bd bp site n} _ _ _.
 Arguments ReqShortRedeclarationTypes {p idx s bd bp site} st _.
 Arguments ReqShortRhsMeaning {p idx s bd bp site} st j edge _.
@@ -261,15 +267,21 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
 | DepRedeclaredNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (root : BN.RedeclRoot bp n),
     BN.resolution_redecl_root r = Some root -> Dependency bp site ValueKind
-| DepRedeclaredNameA : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (root : BN.RedeclRoot bp n),
+| DepRedeclaredNameA : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (root : BN.RedeclRoot bp n),
     BN.resolution_redecl_root r = Some root -> Dependency bp site ApplicationKind
 | DepRedeclaredNameT : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (root : BN.RedeclRoot bp n),
     BN.resolution_redecl_root r = Some root -> Dependency bp site TypeUseKind
 | DepUnboundNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
     BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ValueKind
-| DepUnboundNameA : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
+| DepUnboundNameA : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n),
     BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ApplicationKind
-| DepInvalidId : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+| DepInvalidId : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Dependency bp site ApplicationKind
 | DepChild : ChildFactEdge site StatementKind -> Dependency bp site StatementKind
 | DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
@@ -277,11 +289,11 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
     BN.row_decision row = BN.ShortAmbiguousData a b ->
     site = Index.Refs.sh_node st -> Dependency bp site StatementKind.
 Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
-Arguments DepRedeclaredNameA {p idx s bd bp site n} _ _ _.
+Arguments DepRedeclaredNameA {p idx s bd bp site} _ _ _ _ _ _.
 Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
-Arguments DepUnboundNameA {p idx s bd bp site n} _ _ _.
-Arguments DepInvalidId {p idx s bd bp site n} _ _ _. Arguments DepChild {p idx s bd bp site} _.
+Arguments DepUnboundNameA {p idx s bd bp site} _ _ _ _ _ _.
+Arguments DepInvalidId {p idx s bd bp site} _ _ _ _ _ _. Arguments DepChild {p idx s bd bp site} _.
 Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
@@ -698,14 +710,14 @@ Qed.
 
 (* §271 a binder head by spec flavor: const is noncallable, type/var are source boundaries *)
 Definition binder_head_app (ar : Index.Refs.AppRef idx) (h : Names.OrdinaryIdentifier)
-  (r0 : BN.ResolutionRef (BN.use_env bp (Index.Refs.app_node ar)) h) (o : BN.ObjectRef idx)
+  (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (o : BN.ObjectRef idx)
   (Hov : BN.resolution_object_view r0 = Some o) (b : BN.BinderRef idx)
   (Hbind : BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)))
   : AppOutcome bp (Index.Refs.app_node ar).
 Proof.
   refine (match Index.node_role (BN.binder_node b) as rr
             return Index.node_role (BN.binder_node b) = rr -> AppOutcome bp (Index.Refs.app_node ar) with
-          | Index.Model.RSpecName Index.Model.ConstSpecF => fun _ => AInvalid (NotCallable r0 o Hov)
+          | Index.Model.RSpecName Index.Model.ConstSpecF => fun _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
           | Index.Model.RSpecName Index.Model.VarSpecF => fun Hrole => AUnmet (ReqSourceValueApp ar eq_refl h r0 b Hbind Hrole)
           | Index.Model.RSpecName Index.Model.TypeSpecF => fun Hrole => AUnmet (ReqSourceTypeApp ar eq_refl h r0 b Hbind Hrole)
           | _ => fun Hrr => _
@@ -716,28 +728,28 @@ Defined.
 (* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
 Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
   let r := Index.Refs.app_node ar in let Hv := Index.Refs.app_ok ar in
-  let hd := Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv)) in
+  let hd := Index.Edges.ah_child (Index.Edges.app_head ar) in
       match Index.node_view hd with
       | Index.Model.VName h =>
-          let r0 := BN.resolve bp r h in
+          let r0 := BN.resolve bp hd h in
           match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> AppOutcome bp r with
           | Some o => fun Hov =>
               match o as o' return o = o' -> AppOutcome bp r with
               | BN.PredeclaredObject pn => fun Ho =>
               let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
               match pmeaning pn with
-              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))) end
+              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
+                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)))))
+                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar))))
                   end
               | PMPrintln => AOK
-              | PMValue _ => AInvalid (NotCallable r0 o Hov)
-              | PMIota => ADependent (DepInvalidId r0 pn Hpre)
-              | PMNil => ADependent (DepInvalidId r0 pn Hpre)
-              | PMUnmodelled => AUnmet (ReqApplication r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))
+              | PMValue _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
+              | PMIota => ADependent (DepInvalidId ar eq_refl h r0 pn Hpre)
+              | PMNil => ADependent (DepInvalidId ar eq_refl h r0 pn Hpre)
+              | PMUnmodelled => AUnmet (ReqApplication ar eq_refl h r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))
               end
           | BN.SourceObject org => fun Ho =>
               let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
@@ -751,16 +763,16 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
               | BN.DOFunc f => fun Horg =>
                   (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
                   let Hfunc := eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg) in
-                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
+                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
                   | nil => AOK
-                  | args => AInvalid (MainArity r0 f Hfunc args (Datatypes.length args))
+                  | args => AInvalid (MainArity ar eq_refl h r0 f Hfunc args (Datatypes.length args))
                   end
               end eq_refl
               end eq_refl
           | None => fun Hov =>
               match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> AppOutcome bp r with
-              | Some root => fun Hrr => ADependent (DepRedeclaredNameA r0 root Hrr)
-              | None => fun Hrv => ADependent (DepUnboundNameA r0 Hov Hrv)
+              | Some root => fun Hrr => ADependent (DepRedeclaredNameA ar eq_refl h r0 root Hrr)
+              | None => fun Hrv => ADependent (DepUnboundNameA ar eq_refl h r0 Hov Hrv)
               end eq_refl
           end eq_refl
       | _ => AInvalid (NotCallableExpr Hv)

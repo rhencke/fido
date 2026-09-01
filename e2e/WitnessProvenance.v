@@ -37,18 +37,18 @@ Definition prov_dep_unbound_v (u : Index.NodeRef idx) (n : Names.OrdinaryIdentif
   (r : BN.ResolutionRef (BN.use_env bp u) n)
   (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None)
   : AN.Dependency bp u AN.ValueKind := AN.DepUnboundNameV r H1 H2.
-Definition prov_dep_unbound_a (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp u) n)
+Definition prov_dep_unbound_a (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
+  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n)
   (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None)
-  : AN.Dependency bp u AN.ApplicationKind := AN.DepUnboundNameA r H1 H2.
+  : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind := AN.DepUnboundNameA ar eq_refl n r H1 H2.
 
 (* §25.9 type-as-value / not-callable / not-a-type: the invalidity retains the exact bound resolution and object *)
 Definition prov_typeasvalue (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx)
   (H : BN.resolution_object_view r = Some o) : AN.Cause bp u AN.ValueKind := AN.TypeAsValue r o H.
-Definition prov_notcallable (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx)
-  (H : BN.resolution_object_view r = Some o) : AN.Cause bp u AN.ApplicationKind := AN.NotCallable r o H.
+Definition prov_notcallable (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
+  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (o : BN.ObjectRef idx)
+  (H : BN.resolution_object_view r = Some o) : AN.Cause bp (Index.Refs.app_node ar) AN.ApplicationKind := AN.NotCallable ar eq_refl n r o H.
 Definition prov_notatype (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r : BN.ResolutionRef (BN.use_env bp u) n) (o : BN.ObjectRef idx)
   (H : BN.resolution_object_view r = Some o) : AN.Cause bp u AN.TypeUseKind := AN.NotAType r o H.
@@ -58,16 +58,16 @@ Definition prov_invalidid (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName)
   (H : BN.resolution_object_view r = Some (BN.PredeclaredObject pn)) : AN.Cause bp u AN.ValueKind :=
   AN.InvalidIdentity r pn H.
-Definition prov_dep_invalidid (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName)
-  (H : BN.resolution_object_view r = Some (BN.PredeclaredObject pn)) : AN.Dependency bp u AN.ApplicationKind :=
-  AN.DepInvalidId r pn H.
+Definition prov_dep_invalidid (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
+  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (pn : Names.PredeclaredName)
+  (H : BN.resolution_object_view r = Some (BN.PredeclaredObject pn)) : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind :=
+  AN.DepInvalidId ar eq_refl n r pn H.
 
 (* §25.8 main arity: the cause retains the exact source-bound function resolution that supplied the fixed main *)
-Definition prov_mainarity (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp u) n) (f : BN.FunctionDeclRef idx)
+Definition prov_mainarity (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
+  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (f : BN.FunctionDeclRef idx)
   (H : BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)))
-  (args : list (Index.NodeRef idx)) (cnt : nat) : AN.Cause bp u AN.ApplicationKind := AN.MainArity r f H args cnt.
+  (args : list (Index.NodeRef idx)) (cnt : nat) : AN.Cause bp (Index.Refs.app_node ar) AN.ApplicationKind := AN.MainArity ar eq_refl n r f H args cnt.
 
 (* §25.1/25.2 unique local / package source binding: the requirement retains the exact source-bound resolution *)
 Definition prov_reqvalue (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
@@ -80,10 +80,10 @@ Definition prov_dep_redecl_v (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifi
   (r : BN.ResolutionRef (BN.use_env bp u) n) (root : BN.RedeclRoot bp n)
   (H : BN.resolution_redecl_root r = Some root) : AN.Dependency bp u AN.ValueKind :=
   AN.DepRedeclaredNameV r root H.
-Definition prov_dep_redecl_a (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp u) n) (root : BN.RedeclRoot bp n)
-  (H : BN.resolution_redecl_root r = Some root) : AN.Dependency bp u AN.ApplicationKind :=
-  AN.DepRedeclaredNameA r root H.
+Definition prov_dep_redecl_a (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
+  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (root : BN.RedeclRoot bp n)
+  (H : BN.resolution_redecl_root r = Some root) : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind :=
+  AN.DepRedeclaredNameA ar eq_refl n r root H.
 Definition prov_dep_redecl_t (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r : BN.ResolutionRef (BN.use_env bp u) n) (root : BN.RedeclRoot bp n)
   (H : BN.resolution_redecl_root r = Some root) : AN.Dependency bp u AN.TypeUseKind :=

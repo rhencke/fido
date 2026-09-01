@@ -168,7 +168,7 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | AN.UnresolvedNameT _ _ _ => CvUnresolvedName
   | AN.TypeAsValue _ o _ => CvTypeAsValue (object_predeclared o)
   | AN.ComplexMismatch _ _ _ => CvComplexMismatch
-  | AN.MainArity _ _ _ _ _ => CvMainArity
+  | AN.MainArity _ _ _ _ _ _ _ _ => CvMainArity
   | AN.ShortDuplicate _ n _ _ _ => CvShortDuplicate n
   | AN.ShortCountMismatch st _ _ => CvShortCountMismatch (Index.Refs.sh_names st) (Index.Refs.sh_values st)
   | AN.ShortReusesNonVariable _ i _ m _ _ => CvShortReusesNonvar i m
