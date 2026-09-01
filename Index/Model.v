@@ -119,6 +119,29 @@ Definition layout_count (v : NodeView) : option nat :=
   | VTypeSpec _ => Some 2
   | _ => None
   end.
+(* the kind of the child at ordinal k, a total formula over the parent view alone — the view-level layout *)
+Definition layout_kind (v : NodeView) (k : nat) : Kind :=
+  match v with
+  | VApplication => ExprKind
+  | VUnary _ => ExprKind
+  | VStmt SSExpr => ExprKind
+  | VStmt SSDecl => DeclKind
+  | VStmt (SSShort nn _) => if k <? nn then BindingNameKind else ExprKind
+  | VConstSpec (CSExplicit ht nn _) =>
+      if k <? nn then BindingNameKind else if andb ht (k =? nn) then TypeExprKind else ExprKind
+  | VConstSpec (CSInherited _) => BindingNameKind
+  | VVarSpec (VSTypeOnly nn) => if k <? nn then BindingNameKind else TypeExprKind
+  | VVarSpec (VSValues ht nn _) =>
+      if k <? nn then BindingNameKind else if andb ht (k =? nn) then TypeExprKind else ExprKind
+  | VTypeSpec _ => match k with 0 => BindingNameKind | _ => TypeExprKind end
+  | VDecl fl => SpecKind fl
+  | VBlock => StmtKind
+  | VTop TSTopDecl => DeclKind
+  | VTop TSMain => BlockKind
+  | VFile => TopKind
+  | VName _ | VLiteral _ | VTypeExpr _ | VBindingName _ => FileKind
+  end.
+
 (* each spec flavor's exact child view class: a declaration's children are exactly its flavor's specs *)
 Definition spec_view_of_flavor (fl : SpecFlavor) (v : NodeView) : Prop :=
   match fl, v with

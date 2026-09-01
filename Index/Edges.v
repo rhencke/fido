@@ -555,3 +555,169 @@ Definition preceding_edges {p} {idx : ProgramIndex p} (target : NodeRef idx)
    | None => fun _ => []
    end) eq_refl.
 
+
+(* the exact path a live expression result flows through: a root, or one link onto the enclosing expression's path *)
+Inductive ExprUsePath {p} {idx : ProgramIndex p} : NodeRef idx -> Type :=
+| EUPExprStmt : forall (s : ExprStmtRef idx) (e : ExprStmtExprEdge s), ExprUsePath (ee_child e)
+| EUPConst : forall (sp : SpecRef idx ConstSpecF) (j : nat) (e : SpecValueEdge sp j), ExprUsePath (sv_child e)
+| EUPVarExplicit : forall (sp : SpecRef idx VarSpecF) (j : nat) (e : SpecValueEdge sp j),
+    shape_has_type VarSpecF (sp_shape sp) = true -> ExprUsePath (sv_child e)
+| EUPVarImplicit : forall (sp : SpecRef idx VarSpecF) (j : nat) (e : SpecValueEdge sp j),
+    shape_has_type VarSpecF (sp_shape sp) = false -> ExprUsePath (sv_child e)
+| EUPShort : forall (st : ShortStmtRef idx) (j : nat) (e : ShortRhsEdge st j), ExprUsePath (sr_child e)
+| EUPUnary : forall (u : UnaryRef idx) (e : UnaryOperandEdge u), ExprUsePath (un_node u) -> ExprUsePath (uo_child e)
+| EUPArg : forall (a : AppRef idx) (i : nat) (e : ApplicationArgEdge a i), ExprUsePath (app_node a) -> ExprUsePath (aa_child e)
+| EUPHead : forall (a : AppRef idx) (e : ApplicationHeadEdge a), ExprUsePath (app_node a) -> ExprUsePath (ah_child e).
+
+(* a live expression node: its view is one of the four expression head constructors *)
+Definition is_expr_node {p} {idx : ProgramIndex p} (r : NodeRef idx) : bool :=
+  match node_view r with VName _ | VLiteral _ | VUnary _ | VApplication => true | _ => false end.
+
+(* the parent views that admit an expression child — exactly the six use-context parents *)
+Definition admits_expr_child (v : NodeView) : bool :=
+  match v with
+  | VApplication | VUnary _ | VStmt SSExpr | VConstSpec _ | VVarSpec _ | VStmt (SSShort _ _) => true
+  | _ => false
+  end.
+
+(* if the child at ordinal k has expression kind, the parent view is one that admits an expression there *)
+Lemma layout_kind_expr_admits : forall v k, layout_kind v k = ExprKind -> admits_expr_child v = true.
+Proof.
+  intros v k H. destruct v as [n|l|op| |te|bn|cs|vs|tsh|fl|s| |t| ]; cbn [admits_expr_child]; try reflexivity.
+  - cbn [layout_kind] in H; discriminate H.
+  - cbn [layout_kind] in H; discriminate H.
+  - cbn [layout_kind] in H; discriminate H.
+  - cbn [layout_kind] in H; discriminate H.
+  - destruct k; cbn [layout_kind] in H; discriminate H.
+  - cbn [layout_kind] in H; discriminate H.
+  - destruct s; [ reflexivity | cbn [layout_kind] in H; discriminate H | reflexivity ].
+  - cbn [layout_kind] in H; discriminate H.
+  - destruct t; cbn [layout_kind] in H; discriminate H.
+  - cbn [layout_kind] in H; discriminate H.
+Qed.
+
+(* a live expression node is never the file root, so its parent edge is present *)
+Lemma expr_has_parent {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  is_expr_node r = true -> exists par, node_parent r = Some par.
+Proof.
+  intro Hr. destruct (node_parent r) as [par|] eqn:E; [ exists par; reflexivity |].
+  exfalso. apply parentless_view_file in E. unfold is_expr_node in Hr. rewrite E in Hr. discriminate Hr.
+Qed.
+
+(* a value-position ordinal on a spec is exactly value_ordinal j for some in-range value index j *)
+Lemma spec_value_index {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (o : nat) :
+  layout_kind (spec_view_of fl (sp_shape sp)) o = ExprKind ->
+  o < length (node_children (sp_node sp)) ->
+  { j : nat | j < shape_values fl (sp_shape sp) /\ value_ordinal fl (sp_shape sp) j = o }.
+Proof.
+  intros Hk Ho. rewrite (spec_children_len sp) in Ho.
+  destruct fl;
+    [ destruct (sp_shape sp) as [ht nn nv | nn]
+    | destruct (sp_shape sp) as [nn | ht nn nv]
+    | destruct (sp_shape sp) as [ | ] ];
+    cbn [spec_view_of shape_names shape_has_type shape_values value_ordinal layout_kind] in Hk, Ho |- *.
+  - destruct (o <? nn) eqn:E1; [ discriminate Hk |]. apply Nat.ltb_ge in E1.
+    destruct ht.
+    + destruct (o =? nn) eqn:E2; cbn [andb] in Hk; [ discriminate Hk |]. apply Nat.eqb_neq in E2.
+      exists (o - (nn + 1)). split; cbn; lia.
+    + cbn [andb] in Hk. exists (o - (nn + 0)). split; cbn; lia.
+  - discriminate Hk.
+  - destruct (o <? nn); discriminate Hk.
+  - destruct (o <? nn) eqn:E1; [ discriminate Hk |]. apply Nat.ltb_ge in E1.
+    destruct ht.
+    + destruct (o =? nn) eqn:E2; cbn [andb] in Hk; [ discriminate Hk |]. apply Nat.eqb_neq in E2.
+      exists (o - (nn + 1)). split; cbn; lia.
+    + cbn [andb] in Hk. exists (o - (nn + 0)). split; cbn; lia.
+  - destruct o; discriminate Hk.
+  - destruct o; discriminate Hk.
+Qed.
+
+(* a value-position ordinal on a short declaration is exactly sh_names + j for some in-range RHS index j *)
+Lemma short_value_index {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (o : nat) :
+  layout_kind (node_view (sh_node st)) o = ExprKind ->
+  o < length (node_children (sh_node st)) ->
+  { j : nat | j < sh_values st /\ sh_names st + j = o }.
+Proof.
+  intros Hk Ho. rewrite (sh_ok st) in Hk. cbn [layout_kind] in Hk.
+  destruct (o <? sh_names st) eqn:E1; [ discriminate Hk |]. apply Nat.ltb_ge in E1.
+  assert (Hlen : length (node_children (sh_node st)) = sh_names st + sh_values st).
+  { apply node_children_count. rewrite (sh_ok st). reflexivity. }
+  rewrite Hlen in Ho. exists (o - sh_names st). split; lia.
+Qed.
+
+(* recasting a canonical edge along a proven ordinal equality preserves its exact child *)
+Lemma ca_cast_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
+  (E : i = j) (e : ChildAt parent i) : ca_child (ca_cast E e) = ca_child e.
+Proof. destruct E. reflexivity. Qed.
+
+(* the exact structural expression-use path of every live expression node — one well-founded parent-position walk *)
+Definition use_path {p} {idx : ProgramIndex p} (r : NodeRef idx) (Hr : is_expr_node r = true) : ExprUsePath r.
+Proof.
+  revert Hr. revert r.
+  refine (well_founded_induction_type (well_founded_ltof _ (fun x : NodeRef idx => nr_pos x))
+            (fun r => is_expr_node r = true -> ExprUsePath r) _).
+  intros r rec Hr. unfold ltof in rec.
+  destruct (node_parent r) as [par|] eqn:Hpar;
+    [ | exfalso; apply parentless_view_file in Hpar;
+        unfold is_expr_node in Hr; rewrite Hpar in Hr; discriminate Hr ].
+  destruct (self_edge_of r par Hpar) as [pp o eat echeq].
+  assert (Hlt : nr_pos pp < nr_pos r) by (rewrite <- echeq; exact (child_pos_gt_parent eat)).
+  assert (Hnth : nth_error (node_children pp) o = Some r) by (rewrite <- echeq; exact (ca_at eat)).
+  pose proof (node_child_kind pp r o Hnth) as Hkind.
+  assert (Hek : kind_of_view (node_view r) = ExprKind)
+    by (unfold is_expr_node in Hr; destruct (node_view r); try discriminate Hr; reflexivity).
+  rewrite Hek in Hkind. symmetry in Hkind.
+  pose proof (layout_kind_expr_admits _ _ Hkind) as Hadm.
+  rewrite <- echeq.
+  destruct (node_view pp) as [n0|l0|op| |te|bn|cs|vs|tsh|dfl|s| |tsh0| ] eqn:Hv;
+    try (cbn [admits_expr_child] in Hadm; discriminate Hadm).
+  - (* VUnary op *)
+    assert (Ho0 : o = 0).
+    { pose proof (ca_ordinal_lt eat) as Hol.
+      assert (Hc : length (node_children pp) = 1) by (apply (node_children_count pp 1); rewrite Hv; reflexivity).
+      rewrite Hc in Hol; lia. }
+    subst o.
+    assert (Hpp : is_expr_node pp = true) by (unfold is_expr_node; rewrite Hv; reflexivity).
+    pose (u := mkUnaryRef pp op Hv).
+    exact (EUPUnary u (mkUnOperand (u := u) eat) (rec pp Hlt Hpp)).
+  - (* application parent: ordinal 0 is the head link, every later ordinal an argument link *)
+    assert (Hpp : is_expr_node pp = true) by (unfold is_expr_node; rewrite Hv; reflexivity).
+    pose (a := mkAppRef pp Hv).
+    destruct o as [|i].
+    + exact (EUPHead a (mkAppHead (a := a) eat) (rec pp Hlt Hpp)).
+    + exact (EUPArg a i (mkAppArg (a := a) eat) (rec pp Hlt Hpp)).
+  - (* VConstSpec cs *)
+    pose (sp := mkSpecRef (fl:=ConstSpecF) pp cs Hv).
+    destruct (spec_value_index sp o Hkind (ca_ordinal_lt eat)) as [j [Hj1 Hj2]].
+    assert (Hce : ca_child (ca_cast (eq_sym Hj2) eat) = ca_child eat) by (apply ca_cast_child).
+    rewrite <- Hce.
+    exact (EUPConst sp j (mkSpecValue (sp := sp) (ca_cast (eq_sym Hj2) eat) Hj1)).
+  - (* VVarSpec vs *)
+    pose (sp := mkSpecRef (fl:=VarSpecF) pp vs Hv).
+    destruct (spec_value_index sp o Hkind (ca_ordinal_lt eat)) as [j [Hj1 Hj2]].
+    assert (Hce : ca_child (ca_cast (eq_sym Hj2) eat) = ca_child eat) by (apply ca_cast_child).
+    rewrite <- Hce.
+    destruct (shape_has_type VarSpecF (sp_shape sp)) eqn:Hht.
+    + exact (EUPVarExplicit sp j (mkSpecValue (sp := sp) (ca_cast (eq_sym Hj2) eat) Hj1) Hht).
+    + exact (EUPVarImplicit sp j (mkSpecValue (sp := sp) (ca_cast (eq_sym Hj2) eat) Hj1) Hht).
+  - (* VStmt s *)
+    destruct s as [ | | nn nv ].
+    + (* expression-statement parent: its one child is the enclosed statement expression *)
+      assert (Ho0 : o = 0).
+      { pose proof (ca_ordinal_lt eat) as Hol.
+        assert (Hc : length (node_children pp) = 1) by (apply (node_children_count pp 1); rewrite Hv; reflexivity).
+        rewrite Hc in Hol; lia. }
+      subst o.
+      pose (s0 := mkExprStmtRef pp Hv).
+      exact (EUPExprStmt s0 (mkExprStmtE (s := s0) eat)).
+    + (* declaration-statement parent admits no expression child, so this ordinal is impossible *)
+      cbn [admits_expr_child] in Hadm; discriminate Hadm.
+    + (* SSShort nn nv *)
+      pose (st := mkShortStmtRef pp nn nv Hv).
+      assert (Hsl : layout_kind (node_view (sh_node st)) o = ExprKind)
+        by (unfold st; cbn [sh_node]; rewrite Hv; exact Hkind).
+      destruct (short_value_index st o Hsl (ca_ordinal_lt eat)) as [j [Hj1 Hj2]].
+      assert (Hce : ca_child (ca_cast (eq_sym Hj2) eat) = ca_child eat) by (apply ca_cast_child).
+      rewrite <- Hce.
+      exact (EUPShort st j (mkShortRhs (st := st) (ca_cast (eq_sym Hj2) eat) Hj1)).
+Defined.

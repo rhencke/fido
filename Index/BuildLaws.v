@@ -3443,3 +3443,541 @@ Proof.
   eexists. eexists. left. reflexivity.
 Qed.
 
+
+Definition child_kind_ok (occs : list (nat * Cell)) : Prop :=
+  forall pos cell, In (pos, cell) occs ->
+    forall k cp, nth_error (c_children cell) k = Some cp ->
+      exists cc, In (cp, cc) occs /\ kind_of_view (c_view cc) = layout_kind (c_view cell) k.
+
+Lemma child_kind_ok_app : forall c1 c2, child_kind_ok c1 -> child_kind_ok c2 -> child_kind_ok (c1 ++ c2).
+Proof.
+  intros c1 c2 H1 H2 pos cell Hin k cp Hcp. apply in_app_or in Hin. destruct Hin as [Hin|Hin].
+  - destruct (H1 pos cell Hin k cp Hcp) as [cc [Hc Hp]]. exists cc.
+    split; [ apply in_or_app; left; exact Hc | exact Hp ].
+  - destruct (H2 pos cell Hin k cp Hcp) as [cc [Hc Hp]]. exists cc.
+    split; [ apply in_or_app; right; exact Hc | exact Hp ].
+Qed.
+
+Lemma child_kind_ok_node : forall self cell kids,
+  (forall k cp, nth_error (c_children cell) k = Some cp ->
+     exists cc, In (cp, cc) ((self, cell) :: kids) /\ kind_of_view (c_view cc) = layout_kind (c_view cell) k) ->
+  child_kind_ok kids -> child_kind_ok ((self, cell) :: kids).
+Proof.
+  intros self cell kids Hself Hkids pos c Hin k cp Hcp. destruct Hin as [Heq|Hin].
+  - inversion Heq; subst. exact (Hself k cp Hcp).
+  - destruct (Hkids pos c Hin k cp Hcp) as [cc [Hc Hp]]. exists cc. split; [ right; exact Hc | exact Hp ].
+Qed.
+
+Lemma number_leaf_kind : forall v par role b, child_kind_ok (fst (number_leaf v par role b)).
+Proof.
+  intros v par role b pos cell Hin k cp Hcp. cbn [number_leaf fst] in Hin. destruct Hin as [Heq|[]].
+  inversion Heq; subst. cbn [c_children] in Hcp. destruct k; discriminate Hcp.
+Qed.
+
+Lemma expr_view_kind : forall e, kind_of_view (expr_view e) = ExprKind.
+Proof. intro e; destruct e; reflexivity. Qed.
+
+Lemma number_list_kind {A} (g : nat -> A -> list (nat * Cell) * nat) :
+  (forall b x, child_kind_ok (fst (g b x))) ->
+  forall b xs, child_kind_ok (fst (fst (number_list g b xs))).
+Proof.
+  intros Hg b xs; revert b; induction xs as [|x rest IH]; intro b.
+  - intros pos c Hin; destruct Hin.
+  - cbn [number_list]. pose proof (Hg b x) as Hgx. destruct (g b x) as [xc b'].
+    specialize (IH b'). destruct (number_list g b' rest) as [[rc bfin] roots].
+    cbn [fst snd] in Hgx, IH |- *. apply child_kind_ok_app; [ exact Hgx | exact IH ].
+Qed.
+
+Lemma number_expr_kind : forall e par role b, child_kind_ok (fst (number_expr par role b e)).
+Proof.
+  intro e; induction e using Syntax.Expr_ind'; intros par role b; cbn [number_expr].
+  - apply number_leaf_kind.
+  - apply number_leaf_kind.
+  - specialize (IHe (Some b) RUnaryOperand (S b)).
+    pose proof (number_expr_root e (Some b) RUnaryOperand (S b)) as [urest [urc [Huroot [_ [Huview _]]]]].
+    destruct (number_expr (Some b) RUnaryOperand (S b) e) as [kc nxt].
+    cbn [fst] in IHe, Huroot |- *.
+    apply child_kind_ok_node.
+    + cbn [c_children c_view]. intros k cp Hcp. destruct k as [|k']; [| destruct k'; discriminate Hcp ].
+      injection Hcp as <-. exists urc.
+      split; [ right; rewrite Huroot; left; reflexivity |].
+      cbn [layout_kind]. rewrite Huview. apply expr_view_kind.
+    + exact IHe.
+  - specialize (IHe (Some b) RApplicationHead (S b)).
+    pose proof (number_expr_root e (Some b) RApplicationHead (S b)) as [hrest [hrc [Hhroot [_ [Hhview _]]]]].
+    destruct (number_expr (Some b) RApplicationHead (S b) e) as [hc b1].
+    cbn [fst] in IHe, Hhroot.
+    assert (Hda : forall es, Forall (fun a => forall par role bb,
+                     child_kind_ok (fst (number_expr par role bb a))) es ->
+      forall i0 bi, (let '(ac, _, roots) := (fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es}
+              : list (nat * Cell) * nat * list nat :=
+              match es with
+              | [] => ([], bi, [])
+              | a :: rest =>
+                  let '(ac, bi') := number_expr (Some b) (RApplicationArg i) bi a in
+                  let '(rc, bf, roots) := do_args (S i) bi' rest in
+                  (ac ++ rc, bf, bi :: roots)
+              end) i0 bi es in
+        child_kind_ok ac /\
+        (forall k r0, nth_error roots k = Some r0 ->
+           exists cc, In (r0, cc) ac /\ kind_of_view (c_view cc) = ExprKind))).
+    { intros es Hall; induction Hall as [| a rest Ha Hrest IHrest]; intros i0 bi.
+      - split; [ intros pos c Hin; destruct Hin | intros k r0 Hk; destruct k; discriminate Hk ].
+      - pose proof (number_expr_root a (Some b) (RApplicationArg i0) bi) as [arest [arc [Haroot [_ [Haview _]]]]].
+        specialize (Ha (Some b) (RApplicationArg i0) bi).
+        destruct (number_expr (Some b) (RApplicationArg i0) bi a) as [ac1 bi'].
+        cbn [fst] in Ha, Haroot.
+        specialize (IHrest (S i0) bi').
+        destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) (S i0) bi' rest)
+          as [[rc bf] roots].
+        destruct IHrest as [Hrcok Hroots]. cbn [fst snd] in Hrcok, Hroots |- *.
+        split; [ apply child_kind_ok_app; [ exact Ha | exact Hrcok ] |].
+        intros k r0 Hk. destruct k as [|k'].
+        + injection Hk as <-. exists arc.
+          split; [ apply in_or_app; left; rewrite Haroot; left; reflexivity |].
+          rewrite Haview. apply expr_view_kind.
+        + cbn in Hk. destruct (Hroots k' r0 Hk) as [cc [Hcc Hcck]]. exists cc.
+          split; [ apply in_or_app; right; exact Hcc | exact Hcck ]. }
+    specialize (Hda args H 0 b1).
+    destruct ((fix do_args (i bi : nat) (es : list Syntax.Expr) {struct es} := _) 0 b1 args)
+      as [[ac bfin] aroots].
+    destruct Hda as [Hacok Haroots]. cbn [fst snd] in Hacok, Haroots |- *.
+    apply child_kind_ok_node.
+    + cbn [c_children c_view]. intros k cp Hcp. destruct k as [|i].
+      * injection Hcp as <-. exists hrc.
+        split; [ right; apply in_or_app; left; rewrite Hhroot; left; reflexivity |].
+        cbn [layout_kind]. rewrite Hhview. apply expr_view_kind.
+      * cbn in Hcp. destruct (Haroots i cp Hcp) as [cc [Hcc Hcck]]. exists cc.
+        split; [ right; apply in_or_app; right; exact Hcc |].
+        cbn [layout_kind]. exact Hcck.
+    + apply child_kind_ok_app; [ exact IHe | exact Hacok ].
+Qed.
+
+Lemma number_typeexpr_kind : forall par role b t, child_kind_ok (fst (number_typeexpr par role b t)).
+Proof. intros; apply number_leaf_kind. Qed.
+Lemma number_bindingname_kind : forall par role b bn, child_kind_ok (fst (number_bindingname par role b bn)).
+Proof. intros; apply number_leaf_kind. Qed.
+Lemma number_opttype_kind : forall self b ot, child_kind_ok (fst (fst (number_opttype (Some self) b ot))).
+Proof.
+  intros self b [t|]; cbn [number_opttype].
+  - pose proof (number_typeexpr_kind (Some self) RTypeUse b t) as Hc.
+    destruct (number_typeexpr (Some self) RTypeUse b t) as [c b']. cbn [fst snd] in Hc |- *. exact Hc.
+  - intros pos c Hin; destruct Hin.
+Qed.
+
+Lemma number_constspec_kind : forall par role b cs, child_kind_ok (fst (number_constspec par role b cs)).
+Proof.
+  intros par role b cs. unfold number_constspec.
+  assert (Hnroot : forall bb x, exists cell rest,
+            fst (number_bindingname (Some b) (RSpecName ConstSpecF) bb x) = (bb, cell) :: rest
+            /\ kind_of_view (c_view cell) = BindingNameKind).
+  { intros bb x. destruct (number_bindingname_view (Some b) (RSpecName ConstSpecF) bb x)
+      as [cell [rest [Hf [_ Hv]]]].
+    exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+  pose proof (number_list_roots (number_bindingname (Some b) (RSpecName ConstSpecF))
+                (fun cell => kind_of_view (c_view cell) = BindingNameKind)
+                (fun bb x => number_bindingname_spans (Some b) (RSpecName ConstSpecF) bb x)
+                Hnroot (Collections.ne_to_list (Syntax.const_names cs)) (S b)) as Hnr.
+  pose proof (number_list_kind (number_bindingname (Some b) (RSpecName ConstSpecF))
+                (fun bb x => number_bindingname_kind (Some b) (RSpecName ConstSpecF) bb x)
+                (S b) (Collections.ne_to_list (Syntax.const_names cs))) as Hnl.
+  destruct (number_list (number_bindingname (Some b) (RSpecName ConstSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.const_names cs))) as [[nc b1] nroots].
+  destruct Hnr as [Hnlen [_ [_ Hnnth]]]. cbn [fst snd] in Hnl.
+  destruct (Syntax.const_init cs) as [ot vals|] eqn:E.
+  - assert (Hsh : constspec_shape cs
+                  = CSExplicit (match ot with Some _ => true | None => false end)
+                               (List.length (Collections.ne_to_list (Syntax.const_names cs)))
+                               (List.length (Collections.ne_to_list vals)))
+      by (unfold constspec_shape; rewrite E; reflexivity).
+    pose proof (number_opttype_roots b b1 ot) as Hor.
+    pose proof (number_opttype_kind b b1 ot) as Hol.
+    pose proof (number_opttype_class ot (Some b) b1) as Hocls.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots].
+    destruct Hor as [Holen [_ [_ [_ Honth]]]]. cbn [fst snd] in Hol, Hocls.
+    assert (Hvroot : forall bb x, exists cell rest,
+              fst (number_expr (Some b) RPlain bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = ExprKind).
+    { intros bb x. destruct (number_expr_root x (Some b) RPlain bb) as [rest [rc [Hf [_ [Hv _]]]]].
+      exists rc, rest. split; [ exact Hf | rewrite Hv; apply expr_view_kind ]. }
+    pose proof (number_list_roots (number_expr (Some b) RPlain)
+                  (fun cell => kind_of_view (c_view cell) = ExprKind)
+                  (fun bb x => number_expr_spans x (Some b) RPlain bb)
+                  Hvroot (Collections.ne_to_list vals) b2) as Hvr.
+    pose proof (number_list_kind (number_expr (Some b) RPlain)
+                  (fun bb x => number_expr_kind x (Some b) RPlain bb)
+                  b2 (Collections.ne_to_list vals)) as Hvl.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    destruct Hvr as [Hvlen [_ [_ Hvnth]]]. cbn [fst snd] in Hvl.
+    cbn [fst]. apply child_kind_ok_node.
+    + cbn [c_children c_view]. rewrite Hsh. intros k cp Hcp.
+      set (NN := List.length (Collections.ne_to_list (Syntax.const_names cs))) in *.
+      destruct (Nat.lt_ge_cases k (length nroots)) as [Hk|Hk].
+      * rewrite nth_error_app1 in Hcp by exact Hk.
+        destruct (Hnnth k cp Hcp) as [cell [Hcell Hkind]].
+        exists cell. split; [ right; apply in_or_app; left; exact Hcell |].
+        rewrite Hkind. cbn [layout_kind].
+        assert (Hlt : k <? NN = true) by (apply Nat.ltb_lt; rewrite <- Hnlen; exact Hk).
+        rewrite Hlt. reflexivity.
+      * rewrite nth_error_app2 in Hcp by exact Hk.
+        destruct (Nat.lt_ge_cases (k - length nroots) (length oroots)) as [Hk2|Hk2].
+        -- rewrite nth_error_app1 in Hcp by exact Hk2.
+           destruct (Honth (k - length nroots) cp Hcp) as [cell [Hcell [Hrole _]]].
+           exists cell. split; [ right; apply in_or_app; right; apply in_or_app; left; exact Hcell |].
+           assert (Hkind : kind_of_view (c_view cell) = TypeExprKind).
+           { pose proof Hocls as H. unfold class_ok in H. rewrite Forall_forall in H.
+             specialize (H (cp, cell) Hcell).
+             cbn in H. unfold rv_ok in H. rewrite Hrole in H. cbn in H. exact H. }
+           rewrite Hkind. cbn [layout_kind].
+           destruct ot as [t0|]; cbn in Holen; [| lia ].
+           assert (Hke : k = NN) by (rewrite Holen in Hk2; rewrite Hnlen in Hk; lia).
+           assert (Hltb : k <? NN = false) by (apply Nat.ltb_ge; lia).
+           assert (Heqb : k =? NN = true) by (apply Nat.eqb_eq; exact Hke).
+           rewrite Hltb, Heqb. reflexivity.
+        -- rewrite nth_error_app2 in Hcp by exact Hk2.
+           destruct (Hvnth (k - length nroots - length oroots) cp Hcp) as [cell [Hcell Hkind]].
+           exists cell. split; [ right; apply in_or_app; right; apply in_or_app; right; exact Hcell |].
+           rewrite Hkind. cbn [layout_kind].
+           assert (Hltb : k <? NN = false) by (apply Nat.ltb_ge; rewrite <- Hnlen; lia).
+           rewrite Hltb.
+           destruct ot as [t0|]; cbn in Holen; [| reflexivity ].
+           assert (Heqb : k =? NN = false) by (apply Nat.eqb_neq; rewrite <- Hnlen; lia).
+           rewrite Heqb. cbn [andb]. reflexivity.
+    + apply child_kind_ok_app; [ exact Hnl | apply child_kind_ok_app; [ exact Hol | exact Hvl ] ].
+  - cbn [fst]. apply child_kind_ok_node.
+    + cbn [c_children c_view].
+      assert (Hsh : constspec_shape cs
+                    = CSInherited (List.length (Collections.ne_to_list (Syntax.const_names cs))))
+        by (unfold constspec_shape; rewrite E; reflexivity).
+      rewrite Hsh. intros k cp Hcp. rewrite app_nil_r in Hcp.
+      destruct (Hnnth k cp Hcp) as [cell [Hcell Hkind]].
+      exists cell. split; [ right; rewrite app_nil_r; exact Hcell |].
+      rewrite Hkind; reflexivity.
+    + rewrite app_nil_r. exact Hnl.
+Qed.
+
+Lemma number_varspec_kind : forall par role b vs, child_kind_ok (fst (number_varspec par role b vs)).
+Proof.
+  intros par role b vs. unfold number_varspec.
+  assert (Hnroot : forall bb x, exists cell rest,
+            fst (number_bindingname (Some b) (RSpecName VarSpecF) bb x) = (bb, cell) :: rest
+            /\ kind_of_view (c_view cell) = BindingNameKind).
+  { intros bb x. destruct (number_bindingname_view (Some b) (RSpecName VarSpecF) bb x)
+      as [cell [rest [Hf [_ Hv]]]].
+    exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+  pose proof (number_list_roots (number_bindingname (Some b) (RSpecName VarSpecF))
+                (fun cell => kind_of_view (c_view cell) = BindingNameKind)
+                (fun bb x => number_bindingname_spans (Some b) (RSpecName VarSpecF) bb x)
+                Hnroot (Collections.ne_to_list (Syntax.var_names vs)) (S b)) as Hnr.
+  pose proof (number_list_kind (number_bindingname (Some b) (RSpecName VarSpecF))
+                (fun bb x => number_bindingname_kind (Some b) (RSpecName VarSpecF) bb x)
+                (S b) (Collections.ne_to_list (Syntax.var_names vs))) as Hnl.
+  destruct (number_list (number_bindingname (Some b) (RSpecName VarSpecF)) (S b)
+             (Collections.ne_to_list (Syntax.var_names vs))) as [[nc b1] nroots].
+  destruct Hnr as [Hnlen [_ [_ Hnnth]]]. cbn [fst snd] in Hnl.
+  destruct (Syntax.var_init vs) as [t | ot vals] eqn:E.
+  - assert (Hsh : varspec_shape vs
+                  = VSTypeOnly (List.length (Collections.ne_to_list (Syntax.var_names vs))))
+      by (unfold varspec_shape; rewrite E; reflexivity).
+    pose proof (number_typeexpr_view (Some b) RTypeUse b1 t) as [tcell [trest [Htf [_ Htv]]]].
+    pose proof (number_typeexpr_kind (Some b) RTypeUse b1 t) as Htl.
+    destruct (number_typeexpr (Some b) RTypeUse b1 t) as [tc b2]. cbn [fst] in Htf, Htl.
+    cbn [fst]. apply child_kind_ok_node.
+    + cbn [c_children c_view]. rewrite Hsh. intros k cp Hcp.
+      set (NN := List.length (Collections.ne_to_list (Syntax.var_names vs))) in *.
+      destruct (Nat.lt_ge_cases k (length nroots)) as [Hk|Hk].
+      * rewrite nth_error_app1 in Hcp by exact Hk.
+        destruct (Hnnth k cp Hcp) as [cell [Hcell Hkind]].
+        exists cell. split; [ right; apply in_or_app; left; exact Hcell |].
+        rewrite Hkind. cbn [layout_kind].
+        assert (Hlt : k <? NN = true) by (apply Nat.ltb_lt; rewrite <- Hnlen; exact Hk).
+        rewrite Hlt. reflexivity.
+      * rewrite nth_error_app2 in Hcp by exact Hk.
+        destruct (k - length nroots) as [|k2] eqn:Hk2; [| destruct k2; discriminate Hcp ].
+        injection Hcp as <-. exists tcell.
+        split; [ right; apply in_or_app; right; rewrite Htf; left; reflexivity |].
+        rewrite Htv. cbn [layout_kind].
+        assert (Hltb : k <? NN = false) by (apply Nat.ltb_ge; rewrite <- Hnlen; exact Hk).
+        rewrite Hltb. reflexivity.
+    + apply child_kind_ok_app; [ exact Hnl | exact Htl ].
+  - assert (Hsh : varspec_shape vs
+                  = VSValues (match ot with Some _ => true | None => false end)
+                             (List.length (Collections.ne_to_list (Syntax.var_names vs)))
+                             (List.length (Collections.ne_to_list vals)))
+      by (unfold varspec_shape; rewrite E; reflexivity).
+    pose proof (number_opttype_roots b b1 ot) as Hor.
+    pose proof (number_opttype_kind b b1 ot) as Hol.
+    pose proof (number_opttype_class ot (Some b) b1) as Hocls.
+    destruct (number_opttype (Some b) b1 ot) as [[oc b2] oroots].
+    destruct Hor as [Holen [_ [_ [_ Honth]]]]. cbn [fst snd] in Hol, Hocls.
+    assert (Hvroot : forall bb x, exists cell rest,
+              fst (number_expr (Some b) RPlain bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = ExprKind).
+    { intros bb x. destruct (number_expr_root x (Some b) RPlain bb) as [rest [rc [Hf [_ [Hv _]]]]].
+      exists rc, rest. split; [ exact Hf | rewrite Hv; apply expr_view_kind ]. }
+    pose proof (number_list_roots (number_expr (Some b) RPlain)
+                  (fun cell => kind_of_view (c_view cell) = ExprKind)
+                  (fun bb x => number_expr_spans x (Some b) RPlain bb)
+                  Hvroot (Collections.ne_to_list vals) b2) as Hvr.
+    pose proof (number_list_kind (number_expr (Some b) RPlain)
+                  (fun bb x => number_expr_kind x (Some b) RPlain bb)
+                  b2 (Collections.ne_to_list vals)) as Hvl.
+    destruct (number_list (number_expr (Some b) RPlain) b2 (Collections.ne_to_list vals)) as [[vc b3] vroots].
+    destruct Hvr as [Hvlen [_ [_ Hvnth]]]. cbn [fst snd] in Hvl.
+    cbn [fst]. apply child_kind_ok_node.
+    + cbn [c_children c_view]. rewrite Hsh. intros k cp Hcp.
+      set (NN := List.length (Collections.ne_to_list (Syntax.var_names vs))) in *.
+      destruct (Nat.lt_ge_cases k (length nroots)) as [Hk|Hk].
+      * rewrite nth_error_app1 in Hcp by exact Hk.
+        destruct (Hnnth k cp Hcp) as [cell [Hcell Hkind]].
+        exists cell. split; [ right; apply in_or_app; left; exact Hcell |].
+        rewrite Hkind. cbn [layout_kind].
+        assert (Hlt : k <? NN = true) by (apply Nat.ltb_lt; rewrite <- Hnlen; exact Hk).
+        rewrite Hlt. reflexivity.
+      * rewrite nth_error_app2 in Hcp by exact Hk.
+        destruct (Nat.lt_ge_cases (k - length nroots) (length oroots)) as [Hk2|Hk2].
+        -- rewrite nth_error_app1 in Hcp by exact Hk2.
+           destruct (Honth (k - length nroots) cp Hcp) as [cell [Hcell [Hrole _]]].
+           exists cell. split; [ right; apply in_or_app; right; apply in_or_app; left; exact Hcell |].
+           assert (Hkind : kind_of_view (c_view cell) = TypeExprKind).
+           { pose proof Hocls as H. unfold class_ok in H. rewrite Forall_forall in H.
+             specialize (H (cp, cell) Hcell).
+             cbn in H. unfold rv_ok in H. rewrite Hrole in H. cbn in H. exact H. }
+           rewrite Hkind. cbn [layout_kind].
+           destruct ot as [t0|]; cbn in Holen; [| lia ].
+           assert (Hke : k = NN) by (rewrite Holen in Hk2; rewrite Hnlen in Hk; lia).
+           assert (Hltb : k <? NN = false) by (apply Nat.ltb_ge; lia).
+           assert (Heqb : k =? NN = true) by (apply Nat.eqb_eq; exact Hke).
+           rewrite Hltb, Heqb. reflexivity.
+        -- rewrite nth_error_app2 in Hcp by exact Hk2.
+           destruct (Hvnth (k - length nroots - length oroots) cp Hcp) as [cell [Hcell Hkind]].
+           exists cell. split; [ right; apply in_or_app; right; apply in_or_app; right; exact Hcell |].
+           rewrite Hkind. cbn [layout_kind].
+           assert (Hltb : k <? NN = false) by (apply Nat.ltb_ge; rewrite <- Hnlen; lia).
+           rewrite Hltb.
+           destruct ot as [t0|]; cbn in Holen; [| reflexivity ].
+           assert (Heqb : k =? NN = false) by (apply Nat.eqb_neq; rewrite <- Hnlen; lia).
+           rewrite Heqb. cbn [andb]. reflexivity.
+    + apply child_kind_ok_app; [ exact Hnl | apply child_kind_ok_app; [ exact Hol | exact Hvl ] ].
+Qed.
+
+Lemma number_typespec_kind : forall par role b ts, child_kind_ok (fst (number_typespec par role b ts)).
+Proof.
+  intros par role b ts. unfold number_typespec.
+  destruct ts as [bn t|bn t];
+    (cbn [number_bindingname number_leaf];
+     pose proof (number_typeexpr_view (Some b) RTypeUse (S (S b)) t) as [tcell [trest [Htf [_ Htv]]]];
+     pose proof (number_typeexpr_kind (Some b) RTypeUse (S (S b)) t) as Htl;
+     destruct (number_typeexpr (Some b) RTypeUse (S (S b)) t) as [tc bfin]; cbn [fst] in Htf, Htl;
+     cbn [fst app]; apply child_kind_ok_node;
+     [ cbn [c_children c_view]; intros k cp Hcp;
+       destruct k as [|[|k2]]; [| | destruct k2; discriminate Hcp ];
+       [ injection Hcp as <-;
+         eexists; split; [ right; left; reflexivity |];
+         cbn [c_view]; reflexivity
+       | injection Hcp as <-; exists tcell;
+         split; [ right; right; rewrite Htf; left; reflexivity |];
+         rewrite Htv; reflexivity ]
+     | apply child_kind_ok_node;
+       [ cbn [c_children]; intros k cp Hcp; destruct k; discriminate Hcp
+       | exact Htl ] ]).
+Qed.
+
+Lemma number_decl_kind : forall par role b d, child_kind_ok (fst (number_decl par role b d)).
+Proof.
+  intros par role b d. unfold number_decl.
+  destruct d as [cs|vs|ts].
+  - assert (Hroot : forall bb x, exists cell rest,
+              fst (number_constspec (Some b) RPlain bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = SpecKind ConstSpecF).
+    { intros bb x. destruct (number_constspec_view (Some b) RPlain bb x) as [cell [rest [Hf [_ Hv]]]].
+      exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+    pose proof (number_list_roots (number_constspec (Some b) RPlain)
+                  (fun cell => kind_of_view (c_view cell) = SpecKind ConstSpecF)
+                  (fun bb x => number_constspec_span (Some b) RPlain bb x) Hroot cs (S b)) as Hr.
+    pose proof (number_list_kind (number_constspec (Some b) RPlain)
+                  (fun bb x => number_constspec_kind (Some b) RPlain bb x) (S b) cs) as Hl.
+    destruct (number_list (number_constspec (Some b) RPlain) (S b) cs) as [[kc bfin] roots].
+    destruct Hr as [_ [_ [_ Hnth]]]. cbn [fst snd] in Hl.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view decl_flavor]; intros k cp Hcp;
+        destruct (Hnth k cp Hcp) as [cell [Hcell Hkind]];
+        exists cell; split; [ right; exact Hcell |]; rewrite Hkind; reflexivity
+      | exact Hl ].
+  - assert (Hroot : forall bb x, exists cell rest,
+              fst (number_varspec (Some b) RPlain bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = SpecKind VarSpecF).
+    { intros bb x. destruct (number_varspec_view (Some b) RPlain bb x) as [cell [rest [Hf [_ Hv]]]].
+      exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+    pose proof (number_list_roots (number_varspec (Some b) RPlain)
+                  (fun cell => kind_of_view (c_view cell) = SpecKind VarSpecF)
+                  (fun bb x => number_varspec_span (Some b) RPlain bb x) Hroot vs (S b)) as Hr.
+    pose proof (number_list_kind (number_varspec (Some b) RPlain)
+                  (fun bb x => number_varspec_kind (Some b) RPlain bb x) (S b) vs) as Hl.
+    destruct (number_list (number_varspec (Some b) RPlain) (S b) vs) as [[kc bfin] roots].
+    destruct Hr as [_ [_ [_ Hnth]]]. cbn [fst snd] in Hl.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view decl_flavor]; intros k cp Hcp;
+        destruct (Hnth k cp Hcp) as [cell [Hcell Hkind]];
+        exists cell; split; [ right; exact Hcell |]; rewrite Hkind; reflexivity
+      | exact Hl ].
+  - assert (Hroot : forall bb x, exists cell rest,
+              fst (number_typespec (Some b) RPlain bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = SpecKind TypeSpecF).
+    { intros bb x. destruct (number_typespec_view (Some b) RPlain bb x) as [cell [rest [Hf [_ Hv]]]].
+      exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+    pose proof (number_list_roots (number_typespec (Some b) RPlain)
+                  (fun cell => kind_of_view (c_view cell) = SpecKind TypeSpecF)
+                  (fun bb x => number_typespec_span (Some b) RPlain bb x) Hroot ts (S b)) as Hr.
+    pose proof (number_list_kind (number_typespec (Some b) RPlain)
+                  (fun bb x => number_typespec_kind (Some b) RPlain bb x) (S b) ts) as Hl.
+    destruct (number_list (number_typespec (Some b) RPlain) (S b) ts) as [[kc bfin] roots].
+    destruct Hr as [_ [_ [_ Hnth]]]. cbn [fst snd] in Hl.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view decl_flavor]; intros k cp Hcp;
+        destruct (Hnth k cp Hcp) as [cell [Hcell Hkind]];
+        exists cell; split; [ right; exact Hcell |]; rewrite Hkind; reflexivity
+      | exact Hl ].
+Qed.
+
+Lemma number_stmt_kind : forall par role b s, child_kind_ok (fst (number_stmt par role b s)).
+Proof.
+  intros par role b s. unfold number_stmt.
+  destruct s as [e|d|names vals].
+  - pose proof (number_expr_root e (Some b) RExprStatementExpr (S b)) as [erest [erc [Heroot [_ [Heview _]]]]].
+    pose proof (number_expr_kind e (Some b) RExprStatementExpr (S b)) as Hel.
+    destruct (number_expr (Some b) RExprStatementExpr (S b) e) as [c b']. cbn [fst] in Heroot, Hel.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view]; intros k cp Hcp;
+        destruct k as [|k']; [| destruct k'; discriminate Hcp ];
+        injection Hcp as <-; exists erc;
+        split; [ right; rewrite Heroot; left; reflexivity |];
+        rewrite Heview; apply expr_view_kind
+      | exact Hel ].
+  - pose proof (number_decl_view (Some b) RPlain (S b) d) as [dcell [drest [Hdf [_ Hdv]]]].
+    pose proof (number_decl_kind (Some b) RPlain (S b) d) as Hdl.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst] in Hdf, Hdl.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view]; intros k cp Hcp;
+        destruct k as [|k']; [| destruct k'; discriminate Hcp ];
+        injection Hcp as <-; exists dcell;
+        split; [ right; rewrite Hdf; left; reflexivity |];
+        cbn [stmt_shape]; rewrite Hdv; reflexivity
+      | exact Hdl ].
+  - assert (Hnroot : forall bb x, exists cell rest,
+              fst (number_bindingname (Some b) RShortLhs bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = BindingNameKind).
+    { intros bb x. destruct (number_bindingname_view (Some b) RShortLhs bb x) as [cell [rest [Hf [_ Hv]]]].
+      exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+    pose proof (number_list_roots (number_bindingname (Some b) RShortLhs)
+                  (fun cell => kind_of_view (c_view cell) = BindingNameKind)
+                  (fun bb x => number_bindingname_spans (Some b) RShortLhs bb x)
+                  Hnroot (Collections.ne_to_list names) (S b)) as Hnr.
+    pose proof (number_list_kind (number_bindingname (Some b) RShortLhs)
+                  (fun bb x => number_bindingname_kind (Some b) RShortLhs bb x)
+                  (S b) (Collections.ne_to_list names)) as Hnl.
+    destruct (number_list (number_bindingname (Some b) RShortLhs) (S b) (Collections.ne_to_list names))
+      as [[nc b1] nroots].
+    destruct Hnr as [Hnlen [_ [_ Hnnth]]]. cbn [fst snd] in Hnl.
+    assert (Hvroot : forall bb x, exists cell rest,
+              fst (number_expr (Some b) RPlain bb x) = (bb, cell) :: rest
+              /\ kind_of_view (c_view cell) = ExprKind).
+    { intros bb x. destruct (number_expr_root x (Some b) RPlain bb) as [rest [rc [Hf [_ [Hv _]]]]].
+      exists rc, rest. split; [ exact Hf | rewrite Hv; apply expr_view_kind ]. }
+    pose proof (number_list_roots (number_expr (Some b) RPlain)
+                  (fun cell => kind_of_view (c_view cell) = ExprKind)
+                  (fun bb x => number_expr_spans x (Some b) RPlain bb)
+                  Hvroot (Collections.ne_to_list vals) b1) as Hvr.
+    pose proof (number_list_kind (number_expr (Some b) RPlain)
+                  (fun bb x => number_expr_kind x (Some b) RPlain bb)
+                  b1 (Collections.ne_to_list vals)) as Hvl.
+    destruct (number_list (number_expr (Some b) RPlain) b1 (Collections.ne_to_list vals)) as [[vc b2] vroots].
+    destruct Hvr as [_ [_ [_ Hvnth]]]. cbn [fst snd] in Hvl.
+    cbn [fst]. apply child_kind_ok_node.
+    + cbn [c_children c_view]. unfold stmt_shape. intros k cp Hcp.
+      set (NN := List.length (Collections.ne_to_list names)) in *.
+      destruct (Nat.lt_ge_cases k (length nroots)) as [Hk|Hk].
+      * rewrite nth_error_app1 in Hcp by exact Hk.
+        destruct (Hnnth k cp Hcp) as [cell [Hcell Hkind]].
+        exists cell. split; [ right; apply in_or_app; left; exact Hcell |].
+        rewrite Hkind. cbn [layout_kind].
+        assert (Hlt : k <? NN = true) by (apply Nat.ltb_lt; rewrite <- Hnlen; exact Hk).
+        rewrite Hlt. reflexivity.
+      * rewrite nth_error_app2 in Hcp by exact Hk.
+        destruct (Hvnth (k - length nroots) cp Hcp) as [cell [Hcell Hkind]].
+        exists cell. split; [ right; apply in_or_app; right; exact Hcell |].
+        rewrite Hkind. cbn [layout_kind].
+        assert (Hltb : k <? NN = false) by (apply Nat.ltb_ge; rewrite <- Hnlen; exact Hk).
+        rewrite Hltb. reflexivity.
+    + apply child_kind_ok_app; [ exact Hnl | exact Hvl ].
+Qed.
+
+Lemma number_block_kind : forall par role b blk, child_kind_ok (fst (number_block par role b blk)).
+Proof.
+  intros par role b [stmts]. unfold number_block.
+  assert (Hroot : forall bb x, exists cell rest,
+            fst (number_stmt (Some b) RPlain bb x) = (bb, cell) :: rest
+            /\ kind_of_view (c_view cell) = StmtKind).
+  { intros bb x. destruct (number_stmt_view (Some b) RPlain bb x) as [cell [rest [Hf [_ Hv]]]].
+    exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+  pose proof (number_list_roots (number_stmt (Some b) RPlain)
+                (fun cell => kind_of_view (c_view cell) = StmtKind)
+                (fun bb x => number_stmt_span (Some b) RPlain bb x) Hroot stmts (S b)) as Hr.
+  pose proof (number_list_kind (number_stmt (Some b) RPlain)
+                (fun bb x => number_stmt_kind (Some b) RPlain bb x) (S b) stmts) as Hl.
+  destruct (number_list (number_stmt (Some b) RPlain) (S b) stmts) as [[kc bfin] roots].
+  destruct Hr as [_ [_ [_ Hnth]]]. cbn [fst snd] in Hl.
+  cbn [fst]. apply child_kind_ok_node;
+    [ cbn [c_children c_view]; intros k cp Hcp;
+      destruct (Hnth k cp Hcp) as [cell [Hcell Hkind]];
+      exists cell; split; [ right; exact Hcell |]; rewrite Hkind; reflexivity
+    | exact Hl ].
+Qed.
+
+Lemma number_toplevel_kind : forall par role b td, child_kind_ok (fst (number_toplevel par role b td)).
+Proof.
+  intros par role b td. unfold number_toplevel.
+  destruct td as [d|blk].
+  - pose proof (number_decl_view (Some b) RPlain (S b) d) as [dcell [drest [Hdf [_ Hdv]]]].
+    pose proof (number_decl_kind (Some b) RPlain (S b) d) as Hdl.
+    destruct (number_decl (Some b) RPlain (S b) d) as [c b']. cbn [fst] in Hdf, Hdl.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view]; intros k cp Hcp;
+        destruct k as [|k']; [| destruct k'; discriminate Hcp ];
+        injection Hcp as <-; exists dcell;
+        split; [ right; rewrite Hdf; left; reflexivity |];
+        cbn [top_shape]; rewrite Hdv; reflexivity
+      | exact Hdl ].
+  - pose proof (number_block_view (Some b) RPlain (S b) blk) as [bcell [brest [Hbf [_ Hbv]]]].
+    pose proof (number_block_kind (Some b) RPlain (S b) blk) as Hbl.
+    destruct (number_block (Some b) RPlain (S b) blk) as [c b']. cbn [fst] in Hbf, Hbl.
+    cbn [fst]. apply child_kind_ok_node;
+      [ cbn [c_children c_view]; intros k cp Hcp;
+        destruct k as [|k']; [| destruct k'; discriminate Hcp ];
+        injection Hcp as <-; exists bcell;
+        split; [ right; rewrite Hbf; left; reflexivity |];
+        cbn [top_shape]; rewrite Hbv; reflexivity
+      | exact Hbl ].
+Qed.
+
+Lemma number_file_kind : forall f, child_kind_ok (number_file f).
+Proof.
+  intro f. unfold number_file.
+  assert (Hroot : forall bb x, exists cell rest,
+            fst (number_toplevel (Some 0) RPlain bb x) = (bb, cell) :: rest
+            /\ kind_of_view (c_view cell) = TopKind).
+  { intros bb x. destruct (number_toplevel_view (Some 0) RPlain bb x) as [cell [rest [Hf [_ Hv]]]].
+    exists cell, rest. split; [ exact Hf | rewrite Hv; reflexivity ]. }
+  pose proof (number_list_roots (number_toplevel (Some 0) RPlain)
+                (fun cell => kind_of_view (c_view cell) = TopKind)
+                (fun bb x => number_toplevel_span (Some 0) RPlain bb x) Hroot (Syntax.declarations f) 1) as Hr.
+  pose proof (number_list_kind (number_toplevel (Some 0) RPlain)
+                (fun bb x => number_toplevel_kind (Some 0) RPlain bb x) 1 (Syntax.declarations f)) as Hl.
+  destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
+  destruct Hr as [_ [_ [_ Hnth]]]. cbn [fst snd] in Hl.
+  apply child_kind_ok_node;
+    [ cbn [c_children c_view]; intros k cp Hcp;
+      destruct (Hnth k cp Hcp) as [cell [Hcell Hkind]];
+      exists cell; split; [ right; exact Hcell |]; rewrite Hkind; reflexivity
+    | exact Hl ].
+Qed.

@@ -584,6 +584,23 @@ Proof.
   unfold node_role, node_view. rewrite Hocc. exact Hrole.
 Qed.
 
+(* the child at ordinal k has exactly the kind the parent view fixes at that ordinal — the forward view-level layout *)
+Lemma node_child_kind {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) :
+  nth_error (node_children r) k = Some c -> kind_of_view (node_view c) = layout_kind (node_view r) k.
+Proof.
+  intro H.
+  assert (Hf : nr_file c = nr_file r) by (apply node_children_file; exact (nth_error_In _ _ H)).
+  pose proof (node_child_pos_at r c k H) as Hat.
+  destruct (cellmap_number_file (nr_file r)) as [f Hcr].
+  pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
+  destruct (number_file_kind f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
+    as [cc [Hincc Hkind]].
+  assert (Hocc : occ_at c = cc)
+    by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
+        [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
+  unfold node_view. rewrite Hocc. exact Hkind.
+Qed.
+
 (* the fixed-main body law: the child of a main top-level occurrence is exactly a block *)
 Lemma node_child_main_block {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) :
   node_view r = VTop TSMain -> nth_error (node_children r) k = Some c -> node_view c = VBlock.
