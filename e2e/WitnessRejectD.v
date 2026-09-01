@@ -293,6 +293,20 @@ Definition r_neghead_defers :
           (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ]). Qed.
 
+(* §12 a discarded overflowing literal does not default: only IllegalStatement, no DefaultOverflow *)
+Definition r_discard_lit_no_default :
+  existsb (fun f => match f with AN.OFStmt _ (AN.SInvalid (AN.IllegalStatement _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = true
+  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = false.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ]). Qed.
+
+(* §64 the discarded negative unary overflow likewise stays IllegalStatement, never DefaultOverflow *)
+Definition r_discard_unary_no_default :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (NEG (ILIT ((2 ^ 63 + 1)%N))) ])) = false.
+Proof. obs_direct (prog [ Syntax.ExprStmt (NEG (ILIT ((2 ^ 63 + 1)%N))) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)

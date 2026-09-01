@@ -719,7 +719,7 @@ Definition literal_target_outcome (r : Index.NodeRef idx)
        (match Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b r) as b2
           return Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b r) = b2 -> ValueOutcome bp r with
         | true => fun Het => VUnmet (RTypedTargetConstant Het c)
-        | false => fun _ => fallback
+        | false => fun _ => if value_ctx r then fallback else VNonconst
         end) eq_refl
    end) eq_refl.
 
