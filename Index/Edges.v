@@ -819,3 +819,47 @@ Fixpoint up_const_rooted {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : Ex
 (* the nil boundary test: the immediate top is an explicit-type var value, never through any other edge *)
 Definition up_var_explicit_top {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
   match path with EUPVarExplicit _ _ _ _ => true | _ => false end.
+
+(* the top-constructor family — the immediate use-context kind, finer than the role since it splits const/var/short *)
+Inductive UseFamily : Type :=
+| UFExprStmt | UFConst | UFVarExplicit | UFVarImplicit | UFShort | UFUnary | UFArg | UFHead.
+
+Definition up_family {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : UseFamily :=
+  match path with
+  | EUPExprStmt _ _ => UFExprStmt
+  | EUPConst _ _ _ => UFConst
+  | EUPVarExplicit _ _ _ _ => UFVarExplicit
+  | EUPVarImplicit _ _ _ _ => UFVarImplicit
+  | EUPShort _ _ _ => UFShort
+  | EUPUnary _ _ _ => UFUnary
+  | EUPArg _ _ _ _ => UFArg
+  | EUPHead _ _ _ => UFHead
+  end.
+
+(* the family classifier over the parent view and ordinal — the syntactic reading of the immediate use-context *)
+Definition family_of (v : NodeView) (k : nat) : UseFamily :=
+  match v with
+  | VStmt SSExpr => UFExprStmt
+  | VConstSpec _ => UFConst
+  | VVarSpec sh => if shape_has_type VarSpecF sh then UFVarExplicit else UFVarImplicit
+  | VStmt (SSShort _ _) => UFShort
+  | VUnary _ => UFUnary
+  | VApplication => match k with 0 => UFHead | S _ => UFArg end
+  | _ => UFExprStmt
+  end.
+
+(* the family round trip: a path's top family is the syntactic reading of its parent view and ordinal *)
+Lemma up_family_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_family path = family_of (node_view (up_iparent path)) (up_iord path).
+Proof.
+  destruct path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
+    cbn [up_iparent up_iord up_family].
+  - rewrite (exs_ok s); reflexivity.
+  - rewrite (sp_ok sp); cbn [spec_view_of family_of]; reflexivity.
+  - rewrite (sp_ok sp); cbn [spec_view_of family_of]; rewrite Ht; reflexivity.
+  - rewrite (sp_ok sp); cbn [spec_view_of family_of]; rewrite Ht; reflexivity.
+  - rewrite (sh_ok st); reflexivity.
+  - rewrite (un_ok u); reflexivity.
+  - rewrite (app_ok a); reflexivity.
+  - rewrite (app_ok a); reflexivity.
+Qed.
