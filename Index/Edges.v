@@ -713,3 +713,32 @@ Proof.
   - exact (Nat.lt_trans _ _ _ IH (child_pos_gt_parent (aa_at e))).
   - exact (Nat.lt_trans _ _ _ IH (child_pos_gt_parent (ah_at e))).
 Qed.
+
+(* the immediate enclosing parent recorded by a path's top edge — a projection, exact by construction *)
+Definition up_iparent {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : NodeRef idx :=
+  match path with
+  | EUPExprStmt s _ => exs_node s
+  | EUPConst sp _ _ => sp_node sp
+  | EUPVarExplicit sp _ _ _ => sp_node sp
+  | EUPVarImplicit sp _ _ _ => sp_node sp
+  | EUPShort st _ _ => sh_node st
+  | EUPUnary u _ _ => un_node u
+  | EUPArg a _ _ _ => app_node a
+  | EUPHead a _ _ => app_node a
+  end.
+
+(* the subject-parent round trip: a path's subject really is a direct child of its recorded parent *)
+Lemma up_iparent_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  node_parent r = Some (up_iparent path).
+Proof.
+  destruct path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
+    cbn [up_iparent]; apply node_children_inverse.
+  - exact (ca_in (ee_at e)).
+  - exact (ca_in (sv_at e)).
+  - exact (ca_in (sv_at e)).
+  - exact (ca_in (sv_at e)).
+  - exact (ca_in (sr_at e)).
+  - exact (ca_in (uo_at e)).
+  - exact (ca_in (aa_at e)).
+  - exact (ca_in (ah_at e)).
+Qed.
