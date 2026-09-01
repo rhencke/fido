@@ -684,3 +684,32 @@ Proof.
       rewrite <- Hce.
       exact (EUPShort st j (mkShortRhs (st := st) (ca_cast (eq_sym Hj2) eat) Hj1)).
 Defined.
+
+(* root-family exhaustiveness: every path bottoms out at exactly one value or statement root *)
+Fixpoint up_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : NodeRef idx :=
+  match path with
+  | EUPExprStmt s _ => exs_node s
+  | EUPConst sp _ _ => sp_node sp
+  | EUPVarExplicit sp _ _ _ => sp_node sp
+  | EUPVarImplicit sp _ _ _ => sp_node sp
+  | EUPShort st _ _ => sh_node st
+  | EUPUnary _ _ sub => up_root sub
+  | EUPArg _ _ _ sub => up_root sub
+  | EUPHead _ _ sub => up_root sub
+  end.
+
+(* progress through arbitrary nesting: the owning root strictly precedes the used expression *)
+Lemma up_root_lt {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  nr_pos (up_root path) < nr_pos r.
+Proof.
+  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IH | a e sub IH];
+    cbn [up_root].
+  - exact (child_pos_gt_parent (ee_at e)).
+  - exact (child_pos_gt_parent (sv_at e)).
+  - exact (child_pos_gt_parent (sv_at e)).
+  - exact (child_pos_gt_parent (sv_at e)).
+  - exact (child_pos_gt_parent (sr_at e)).
+  - exact (Nat.lt_trans _ _ _ IH (child_pos_gt_parent (uo_at e))).
+  - exact (Nat.lt_trans _ _ _ IH (child_pos_gt_parent (aa_at e))).
+  - exact (Nat.lt_trans _ _ _ IH (child_pos_gt_parent (ah_at e))).
+Qed.
