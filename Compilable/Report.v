@@ -121,6 +121,7 @@ Inductive CauseView : Type :=
 | CvConversionOverflow : CauseView
 | CvConversionNotRepresentable : CauseView
 | CvUnaryMismatch : CauseView
+| CvConversionArity : CauseView
 | CvOtherCause : CauseView.
 Inductive ReqView : Type :=
 | RvComplexType : ReqView
@@ -204,6 +205,7 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | AN.ConversionOverflow _ _ _ => CvConversionOverflow
   | AN.ConversionNotRepresentable _ _ _ => CvConversionNotRepresentable
   | AN.UnaryMismatch _ => CvUnaryMismatch
+  | AN.ConversionArity _ _ _ => CvConversionArity
   | _ => CvOtherCause
   end.
 Definition issuecause_view {p} {r : AN.Result p} (ic : AN.IssueCause r) : CauseView :=
