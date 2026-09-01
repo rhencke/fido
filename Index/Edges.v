@@ -807,3 +807,15 @@ Proof.
   - rewrite (app_ok a); reflexivity.
   - rewrite (app_ok a); reflexivity.
 Qed.
+
+(* the iota boundary test: the path bottoms at a const initializer value, through any depth of unary fold links *)
+Fixpoint up_const_rooted {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
+  match path with
+  | EUPConst _ _ _ => true
+  | EUPUnary _ _ sub => up_const_rooted sub
+  | _ => false
+  end.
+
+(* the nil boundary test: the immediate top is an explicit-type var value, never through any other edge *)
+Definition up_var_explicit_top {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
+  match path with EUPVarExplicit _ _ _ _ => true | _ => false end.
