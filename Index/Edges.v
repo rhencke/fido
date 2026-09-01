@@ -853,6 +853,33 @@ Lemma is_expr_node_name {p} {idx : ProgramIndex p} {r : NodeRef idx} (n : Names.
   node_view r = VName n -> is_expr_node r = true.
 Proof. intro H. unfold is_expr_node. rewrite H. reflexivity. Qed.
 
+(* a literal occurrence is likewise a live expression node, so its use path is available *)
+Lemma is_expr_node_lit {p} {idx : ProgramIndex p} {r : NodeRef idx} (l : Syntax.Literal) :
+  node_view r = VLiteral l -> is_expr_node r = true.
+Proof. intro H. unfold is_expr_node. rewrite H. reflexivity. Qed.
+
+(* a unary occurrence is likewise a live expression node, so its use path is available *)
+Lemma is_expr_node_unary {p} {idx : ProgramIndex p} {r : NodeRef idx} (u : Syntax.UnaryOp) :
+  node_view r = VUnary u -> is_expr_node r = true.
+Proof. intro H. unfold is_expr_node. rewrite H. reflexivity. Qed.
+
+(* §250 the const-no-default literal boundary: path roots at a no-type const value, through unary fold links *)
+Fixpoint up_const_no_type_rooted {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
+  match path with
+  | EUPConst sp _ _ => negb (shape_has_type ConstSpecF (sp_shape sp))
+  | EUPUnary _ _ sub => up_const_no_type_rooted sub
+  | _ => false
+  end.
+
+(* §250 the typed-target-constant boundary: path roots at an explicit-type const or var value, through unary links *)
+Fixpoint up_explicit_target {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
+  match path with
+  | EUPConst sp _ _ => shape_has_type ConstSpecF (sp_shape sp)
+  | EUPVarExplicit _ _ _ _ => true
+  | EUPUnary _ _ sub => up_explicit_target sub
+  | _ => false
+  end.
+
 (* the family round trip: a path's top family is the syntactic reading of its parent view and ordinal *)
 Lemma up_family_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
   up_family path = family_of (node_view (up_iparent path)) (up_iord path).

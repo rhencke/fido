@@ -187,9 +187,17 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
     forall (path : Index.Edges.ExprUsePath site),
-    Index.Edges.up_var_explicit_top path = true -> Requirement bp site ValueKind.
+    Index.Edges.up_var_explicit_top path = true -> Requirement bp site ValueKind
+(* §250 a no-type const literal whose default would overflow — the retained exact path and the overflowing constant *)
+| RConstNoDefault : forall (path : Index.Edges.ExprUsePath site),
+    Index.Edges.up_const_no_type_rooted path = true -> TR.Constant -> Requirement bp site ValueKind
+(* §250 an explicit-type const/var literal target that pins the constant — the retained exact path and the constant *)
+| RTypedTargetConstant : forall (path : Index.Edges.ExprUsePath site),
+    Index.Edges.up_explicit_target path = true -> TR.Constant -> Requirement bp site ValueKind.
 Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _ _.
 Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _ _.
+Arguments RConstNoDefault {p idx s bd bp site} _ _ _.
+Arguments RTypedTargetConstant {p idx s bd bp site} _ _ _.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
@@ -542,6 +550,20 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
       | None => fun Hrv => VInvalid (UnresolvedNameV r0 Hov Hrv)
       end eq_refl
   end H.
+(* §250 overflowing untyped constant: const-no-default at a no-type const, typed-target at explicit const/var *)
+Definition literal_target_outcome (r : Index.NodeRef idx) (Hx : Index.Edges.is_expr_node r = true)
+  (c : TR.Constant) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
+  (match Index.Edges.up_const_no_type_rooted (Index.Edges.use_path r Hx) as b
+     return Index.Edges.up_const_no_type_rooted (Index.Edges.use_path r Hx) = b -> ValueOutcome bp r with
+   | true => fun Hcn => VUnmet (RConstNoDefault (Index.Edges.use_path r Hx) Hcn c)
+   | false => fun _ =>
+       (match Index.Edges.up_explicit_target (Index.Edges.use_path r Hx) as b2
+          return Index.Edges.up_explicit_target (Index.Edges.use_path r Hx) = b2 -> ValueOutcome bp r with
+        | true => fun Het => VUnmet (RTypedTargetConstant (Index.Edges.use_path r Hx) Het c)
+        | false => fun _ => fallback
+        end) eq_refl
+   end) eq_refl.
+
 Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
   (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : ValueOutcome bp r :=
   match nv as v return Index.node_view r = v -> ValueOutcome bp r with
@@ -553,7 +575,8 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
       | Some ci => match resolve_constant_info ci with
                    | Some rc => VOK rc
                    | None => if fold_consumed r then VNonconst
-                             else VInvalid (DefaultOverflow (is_value_default_lit r l Hv) (TR.ci_const ci))
+                             else literal_target_outcome r (Index.Edges.is_expr_node_lit l Hv) (TR.ci_const ci)
+                                    (VInvalid (DefaultOverflow (is_value_default_lit r l Hv) (TR.ci_const ci)))
                    end
       | None => VNonconst
       end
@@ -564,7 +587,8 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
           | Some ci => match resolve_constant_info ci with
                        | Some rc => VOK rc
                        | None => if fold_consumed r then VNonconst
-                                 else VInvalid (DefaultOverflow (is_value_default_unary r Syntax.UnaryMinus Hv) (TR.ci_const ci))
+                                 else literal_target_outcome r (Index.Edges.is_expr_node_unary Syntax.UnaryMinus Hv) (TR.ci_const ci)
+                                        (VInvalid (DefaultOverflow (is_value_default_unary r Syntax.UnaryMinus Hv) (TR.ci_const ci)))
                        end
           | None => VInvalid (UnaryMismatch Hv)
           end
