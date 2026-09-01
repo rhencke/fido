@@ -234,6 +234,35 @@ Definition r_const_call_arg_defers :
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ])) = true.
 Proof. split; obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
 
+(* §293 a consumed zero-result fixed-main application is a NoValueUsed value, here as println's argument *)
+Definition r_novalue_println_main :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "main") [] ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "main") [] ]) ]). Qed.
+
+(* §294 discriminator: a bare main() statement discards its result and stays Compiled *)
+Definition r_bare_main_compiles :
+  Compilable.disposition (prog [ Syntax.ExprStmt (APP (OID "main") []) ]) = Compilable.Compiled.
+Proof. obs_disp. Qed.
+
+(* §297 const x = main(): the main result is consumed by an initializer, so NoValueUsed *)
+Definition r_novalue_const_main :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (APP (OID "main") []))) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (APP (OID "main") []))) ]) ]). Qed.
+
+(* §298 var x = main(): consumed by a var initializer, so NoValueUsed *)
+Definition r_novalue_var_main :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (APP (OID "main") []))) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (APP (OID "main") []))) ]) ]). Qed.
+
+(* §299 x := main(): consumed by a short RHS, so NoValueUsed *)
+Definition r_novalue_short_main :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (APP (OID "main") [])) ])) = true.
+Proof. obs_direct (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (APP (OID "main") [])) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)

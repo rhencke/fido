@@ -765,6 +765,11 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
               | PMPrintln, _ => if value_ctx r then VInvalid (NoValueUsed Hv) else VNonconst
               | _, _ => VNonconst
               end
+              | BN.SourceObject (BN.DOFunc _) =>
+                  match Index.Edges.application_args (Index.Refs.mkAppRef r Hv) with
+                  | nil => if value_ctx r then VInvalid (NoValueUsed Hv) else VNonconst
+                  | _ :: _ => VNonconst
+                  end
               | BN.SourceObject _ => VNonconst
               end
           | None => fun Hov =>
