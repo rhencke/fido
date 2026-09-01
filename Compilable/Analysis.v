@@ -191,7 +191,24 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind
 (* §250 an explicit-type const/var literal target pinning the constant: the vm-safe context *)
 | RTypedTargetConstant :
-    Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind.
+    Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind
+(* §271 a type-spec binder application head: the source-type/conversion applicability is unmodelled, a boundary *)
+| ReqSourceTypeApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp site) h) (b : BN.BinderRef idx),
+    BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)) ->
+    Index.node_role (BN.binder_node b) = Index.Model.RSpecName Index.Model.TypeSpecF -> Requirement bp site ApplicationKind
+(* §271 a var-spec binder head: source-value callability is unmodelled, a boundary; never infer its type *)
+| ReqSourceValueApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp site) h) (b : BN.BinderRef idx),
+    BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)) ->
+    Index.node_role (BN.binder_node b) = Index.Model.RSpecName Index.Model.VarSpecF -> Requirement bp site ApplicationKind
+(* §271 a short-origin application head: the short-declared function-value callability is unmodelled, a boundary *)
+| ReqShortOriginApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp site) h) (sn : BN.ShortNewRef idx),
+    BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOShort sn)) -> Requirement bp site ApplicationKind.
+Arguments ReqSourceTypeApp {p idx s bd bp site} ar _ h _ b _ _.
+Arguments ReqSourceValueApp {p idx s bd bp site} ar _ h _ b _ _.
+Arguments ReqShortOriginApp {p idx s bd bp site} ar _ h _ sn _.
 Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _.
 Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _.
 Arguments RConstNoDefault {p idx s bd bp site} _ _.
@@ -679,6 +696,23 @@ Proof.
   reflexivity.
 Qed.
 
+(* §271 a binder head by spec flavor: const is noncallable, type/var are source boundaries *)
+Definition binder_head_app (ar : Index.Refs.AppRef idx) (h : Names.OrdinaryIdentifier)
+  (r0 : BN.ResolutionRef (BN.use_env bp (Index.Refs.app_node ar)) h) (o : BN.ObjectRef idx)
+  (Hov : BN.resolution_object_view r0 = Some o) (b : BN.BinderRef idx)
+  (Hbind : BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)))
+  : AppOutcome bp (Index.Refs.app_node ar).
+Proof.
+  refine (match Index.node_role (BN.binder_node b) as rr
+            return Index.node_role (BN.binder_node b) = rr -> AppOutcome bp (Index.Refs.app_node ar) with
+          | Index.Model.RSpecName Index.Model.ConstSpecF => fun _ => AInvalid (NotCallable r0 o Hov)
+          | Index.Model.RSpecName Index.Model.VarSpecF => fun Hrole => AUnmet (ReqSourceValueApp ar eq_refl h r0 b Hbind Hrole)
+          | Index.Model.RSpecName Index.Model.TypeSpecF => fun Hrole => AUnmet (ReqSourceTypeApp ar eq_refl h r0 b Hbind Hrole)
+          | _ => fun Hrr => _
+          end eq_refl);
+    exfalso; pose proof (BN.binder_ok b) as Hbo; rewrite Hrr in Hbo; discriminate Hbo.
+Defined.
+
 (* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
 Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
   let r := Index.Refs.app_node ar in let Hv := Index.Refs.app_ok ar in
@@ -708,8 +742,12 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
           | BN.SourceObject org => fun Ho =>
               let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
               match org as org' return org = org' -> AppOutcome bp r with
-              | BN.DOBinder _ => fun _ => AInvalid (NotCallable r0 o Hov)
-              | BN.DOShort _ => fun _ => AInvalid (NotCallable r0 o Hov)
+              | BN.DOBinder b => fun Horg =>
+                  binder_head_app ar h r0 o Hov b
+                    (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg))
+              | BN.DOShort sn => fun Horg =>
+                  AUnmet (ReqShortOriginApp ar eq_refl h r0 sn
+                    (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
               | BN.DOFunc f => fun Horg =>
                   (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
                   let Hfunc := eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg) in
