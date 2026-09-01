@@ -82,7 +82,7 @@ Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVa
 
 (* §22.3 a canonical invalid statement row: a bare literal is an illegal-statement invalidity in the statement family *)
 Definition mf_stmt_lit_invalid_row :
-  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ RP.CvOtherCause ]
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ RP.CvIllegalStatement ]
   /\ RP.result_diag_families (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ AN.FamStatement ].
 Proof. split; obs_direct (prog [ Syntax.ExprStmt (ILIT 1) ]). Qed.
 

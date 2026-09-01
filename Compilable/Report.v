@@ -113,6 +113,14 @@ Inductive CauseView : Type :=
 | CvShortCountMismatch : nat -> nat -> CauseView
 | CvShortReusesNonvar : nat -> nat -> CauseView
 | CvShortNoNew : CauseView
+| CvNoValueUsed : CauseView
+| CvNotCallableExpr : CauseView
+| CvNotCallable : CauseView
+| CvDefaultOverflow : CauseView
+| CvIllegalStatement : CauseView
+| CvConversionOverflow : CauseView
+| CvConversionNotRepresentable : CauseView
+| CvUnaryMismatch : CauseView
 | CvOtherCause : CauseView.
 Inductive ReqView : Type :=
 | RvComplexType : ReqView
@@ -180,6 +188,14 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | AN.ShortCountMismatch st _ _ => CvShortCountMismatch (Index.Refs.sh_names st) (Index.Refs.sh_values st)
   | AN.ShortReusesNonVariable _ i _ m _ _ => CvShortReusesNonvar i m
   | AN.ShortNoNewName _ _ _ => CvShortNoNew
+  | AN.NoValueUsed _ => CvNoValueUsed
+  | AN.NotCallableExpr _ => CvNotCallableExpr
+  | AN.NotCallable _ _ _ _ _ _ => CvNotCallable
+  | AN.DefaultOverflow _ _ => CvDefaultOverflow
+  | AN.IllegalStatement _ => CvIllegalStatement
+  | AN.ConversionOverflow _ _ _ => CvConversionOverflow
+  | AN.ConversionNotRepresentable _ _ _ => CvConversionNotRepresentable
+  | AN.UnaryMismatch _ => CvUnaryMismatch
   | _ => CvOtherCause
   end.
 Definition issuecause_view {p} {r : AN.Result p} (ic : AN.IssueCause r) : CauseView :=
