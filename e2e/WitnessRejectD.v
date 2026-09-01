@@ -41,12 +41,8 @@ Proof. obs_disp. Qed.
 Lemma reader_disp_compiled : Compilable.disposition cprobe = Compilable.Compiled. Proof. obs_disp. Qed.
 (* uc_case_01 = primary matrix row 1: println(main()) is Rejected with NoValueUsed on the inner main app *)
 Definition uc01_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "main") [] ]) ].
-Definition uc_case_01 :
-  Compilable.disposition uc01_prog = Compilable.Rejected
-  /\ RP.result_fact_views (rres uc01_prog) = [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvNoValueUsed ]
-  /\ RP.result_cause_views (rres uc01_prog) = [ RP.CvNoValueUsed ]
-  /\ RP.result_req_views (rres uc01_prog) = [].
-Proof. repeat split; first [ obs_disp | obs_direct uc01_prog ]. Qed.
+Definition uc_case_01 : uc_obs (rres uc01_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvNoValueUsed ] [ RP.CvNoValueUsed ] [].
+Proof. obs_uc uc01_prog. Qed.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 

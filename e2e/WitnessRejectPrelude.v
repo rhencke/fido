@@ -75,6 +75,21 @@ Ltac obs_direct p := try unfold pfacts; try unfold dsites; unfold rres, result_o
 (* a disposition equality via the sole disposition bridge *)
 Ltac obs_disp := rewrite Compilable.disposition_observe_data; vm_compute; reflexivity.
 
+(* the one canonical computed observation of a program: disposition + complete fact list + diagnostics + boundaries *)
+Record UcObs := mk_uc_obs {
+  uc_disp : Compilable.Disposition ;
+  uc_facts : list RP.FactView ;
+  uc_causes : list RP.CauseView ;
+  uc_reqs : list RP.ReqView
+}.
+Definition uc_obs {p} (r : AN.Result p) : UcObs :=
+  mk_uc_obs (Compilable.disposition_of r) (RP.result_fact_views r) (RP.result_cause_views r) (RP.result_req_views r).
+(* prove one uc_obs record: cross the seal once, then compute the whole record in a single vm_compute *)
+Ltac obs_uc p := unfold uc_obs, Compilable.disposition_of, Compilable.disposition_from_data,
+  rres, result_of_compile, RP.result_fact_views, RP.result_cause_views, RP.result_req_views,
+  AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
+  rewrite !(Compilable.compile_observe_data p); vm_compute; reflexivity.
+
 (* a reader-vs-analyze equality: cross the seal on both sides, then reflexivity *)
 Ltac obs_eq p := try unfold pfacts; unfold rres, result_of_compile;
   try unfold AN.result_fact_list; unfold AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
