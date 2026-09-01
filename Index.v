@@ -201,23 +201,44 @@ Proof.
 Qed.
 
 Lemma cellmap_number_file {p} {idx : ProgramIndex p} (fr : FileRef idx) :
-  exists f, cell_map fr = posmap_of (number_file f).
+  exists f, cell_map fr = posmap_of (assign_slots (number_file f)).
 Proof. destruct (fileinfo_number_file fr) as [f Hf]. exists f. unfold cell_map; rewrite Hf; reflexivity. Qed.
+
+(* assign_slots is a position-preserving decoration: it moves no cell and drops none *)
+Lemma assign_slots_fst : forall occs, map fst (assign_slots occs) = map fst occs.
+Proof. intro occs. unfold assign_slots. rewrite map_map. apply map_ext. intros [pos c]; reflexivity. Qed.
+
+(* and it keeps the exact occurrence count, being a one-to-one map over the cells *)
+Lemma assign_slots_length : forall occs, length (assign_slots occs) = length occs.
+Proof. intro occs. unfold assign_slots. first [ rewrite length_map | rewrite map_length ]; reflexivity. Qed.
+
+(* a decorated entry peels to the exact undecorated numbering cell: only the slot tag differs *)
+Lemma in_assign_slots_peel : forall occs pos c,
+  In (pos, c) (assign_slots occs) -> exists c0, In (pos, c0) occs /\ c = set_slot (slot_at occs pos) c0.
+Proof.
+  intros occs pos c Hin. unfold assign_slots in Hin. apply in_map_iff in Hin.
+  destruct Hin as [[pos0 c0] [Heq Hin0]]. cbn [fst snd] in Heq. injection Heq as <- <-.
+  exists c0. split; [ exact Hin0 | reflexivity ].
+Qed.
 
 (* the universal transport: any node's cell is a numbering-list entry of its file, at its ordinal position *)
 Lemma occ_in_number_file {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  exists f, In (nr_pos r, occ_at r) (number_file f) /\ occ_count (nr_file r) = length (number_file f).
+  exists f c0, In (nr_pos r, c0) (number_file f)
+               /\ occ_at r = set_slot (slot_at (number_file f) (nr_pos r)) c0
+               /\ occ_count (nr_file r) = length (number_file f).
 Proof.
   destruct (fileinfo_number_file (nr_file r)) as [f Hf].
-  assert (Hc : cell_map (nr_file r) = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
-  exists f. split; [| unfold occ_count; rewrite Hf; reflexivity ].
+  assert (Hc : cell_map (nr_file r) = posmap_of (assign_slots (number_file f)))
+    by (unfold cell_map; rewrite Hf; reflexivity).
   pose proof (occ_at_find r) as Hfind. rewrite Hc in Hfind.
-  destruct (posmap_find_in (number_file f) (nr_key r) (occ_at r) Hfind) as [pos [Hk Hin]].
+  destruct (posmap_find_in (assign_slots (number_file f)) (nr_key r) (occ_at r) Hfind) as [pos [Hk Hin]].
   assert (Hpe : pos = nr_pos r).
   { pose proof (nr_key_pos r) as Hkp.
     assert (Pos.of_succ_nat (nr_pos r) = Pos.of_succ_nat pos) as Hpp by (rewrite <- Hkp; exact Hk).
     apply (f_equal Pos.to_nat) in Hpp. rewrite !SuccNat2Pos.id_succ in Hpp. lia. }
-  rewrite Hpe in Hin. exact Hin.
+  rewrite Hpe in Hin.
+  destruct (in_assign_slots_peel (number_file f) (nr_pos r) (occ_at r) Hin) as [c0 [Hin0 Hoc]].
+  exists f, c0. split; [ exact Hin0 | split; [ exact Hoc | unfold occ_count; rewrite Hf; reflexivity ] ].
 Qed.
 
 (* count equals domain cardinality: the retained occurrence count is exactly the position map's binding count *)
@@ -225,10 +246,11 @@ Lemma occ_count_cardinal {p} {idx : ProgramIndex p} (fr : FileRef idx) :
   occ_count fr = Collections.NodeMap.cardinal (cell_map fr).
 Proof.
   destruct (fileinfo_number_file fr) as [f Hf].
-  assert (Hc : cell_map fr = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hc : cell_map fr = posmap_of (assign_slots (number_file f))) by (unfold cell_map; rewrite Hf; reflexivity).
   assert (Hcount : occ_count fr = length (number_file f)) by (unfold occ_count; rewrite Hf; reflexivity).
-  rewrite Hc, Hcount. symmetry. apply posmap_cardinal.
-  destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply seq_NoDup.
+  rewrite Hc, Hcount. symmetry.
+  rewrite <- (assign_slots_length (number_file f)). apply posmap_cardinal.
+  rewrite assign_slots_fst. destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply seq_NoDup.
 Qed.
 
 (* a source position present in the numbering list is a live key of the position map *)
@@ -248,9 +270,9 @@ Lemma mem_at_pos {p} {idx : ProgramIndex p} (fr : FileRef idx) (pos : nat) :
   pos < occ_count fr -> Collections.NodeMap.mem (Pos.of_succ_nat pos) (cell_map fr) = true.
 Proof.
   intro H. destruct (fileinfo_number_file fr) as [f Hf].
-  assert (Hc : cell_map fr = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hc : cell_map fr = posmap_of (assign_slots (number_file f))) by (unfold cell_map; rewrite Hf; reflexivity).
   assert (Hn0 : occ_count fr = length (number_file f)) by (unfold occ_count; rewrite Hf; reflexivity).
-  rewrite Hc. apply posmap_mem_of_in.
+  rewrite Hc. apply posmap_mem_of_in. rewrite assign_slots_fst.
   destruct (number_file_positions f) as [n Hn]. rewrite Hn. apply in_seq.
   rewrite Hn0 in H.
   assert (Hlen : length (number_file f) = n).
@@ -265,7 +287,7 @@ Lemma domain_exact {p} {idx : ProgramIndex p} (fr : FileRef idx) (k : positive) 
   Collections.NodeMap.In k (cell_map fr) <-> exists pos, pos < occ_count fr /\ k = Pos.of_succ_nat pos.
 Proof.
   destruct (fileinfo_number_file fr) as [f Hf].
-  assert (Hc : cell_map fr = posmap_of (number_file f)) by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hc : cell_map fr = posmap_of (assign_slots (number_file f))) by (unfold cell_map; rewrite Hf; reflexivity).
   assert (Hcount : occ_count fr = length (number_file f)) by (unfold occ_count; rewrite Hf; reflexivity).
   destruct (number_file_positions f) as [n Hn].
   assert (Hlen : length (number_file f) = n).
@@ -274,15 +296,15 @@ Proof.
     first [ rewrite length_seq in Hn | rewrite seq_length in Hn ]; exact Hn. }
   rewrite Hc, Hcount, Hlen. split.
   - intro Hin.
-    destruct (Collections.NodeMap.find k (posmap_of (number_file f))) as [cell|] eqn:E;
+    destruct (Collections.NodeMap.find k (posmap_of (assign_slots (number_file f)))) as [cell|] eqn:E;
       [| exfalso; rewrite NodeFacts.in_find_iff in Hin; apply Hin; exact E ].
-    destruct (posmap_find_in (number_file f) k cell E) as [pos [Hk Hinpos]].
+    destruct (posmap_find_in (assign_slots (number_file f)) k cell E) as [pos [Hk Hinpos]].
     exists pos. split; [| exact Hk].
     assert (Hinm : In pos (map fst (number_file f)))
-      by (apply in_map_iff; exists (pos, cell); split; [ reflexivity | exact Hinpos ]).
+      by (rewrite <- assign_slots_fst; apply in_map_iff; exists (pos, cell); split; [ reflexivity | exact Hinpos ]).
     rewrite Hn in Hinm. apply in_seq in Hinm. lia.
   - intros [pos [Hlt Hk]]. subst k. rewrite NodeFacts.mem_in_iff. apply posmap_mem_of_in.
-    rewrite Hn. apply in_seq. lia.
+    rewrite assign_slots_fst, Hn. apply in_seq. lia.
 Qed.
 
 (* the total position-indexed node reference: any in-range ordinal resolves without option or fallback *)
@@ -301,14 +323,15 @@ Proof. unfold noderef_at_pos, nr_pos; cbn [nr_key]; rewrite SuccNat2Pos.id_succ;
 Lemma child_in_range {p} {idx : ProgramIndex p} (r : NodeRef idx) (q : nat) :
   In q (c_children (occ_at r)) -> q < occ_count (nr_file r).
 Proof.
-  intro Hq. destruct (occ_in_number_file r) as [f [Hin Hcount]].
+  intro Hq. destruct (occ_in_number_file r) as [f [c0 [Hin [Hoc Hcount]]]].
+  rewrite Hoc, set_slot_children in Hq.
   destruct (number_file_positions f) as [n Hpos].
   assert (Hlen : length (number_file f) = n).
   { apply (f_equal (@length nat)) in Hpos;
     first [ rewrite length_map in Hpos | rewrite map_length in Hpos ];
     first [ rewrite length_seq in Hpos | rewrite seq_length in Hpos ]; exact Hpos. }
   rewrite Hcount, Hlen. replace n with (0 + n) by lia.
-  apply (child_lt (number_file f) n 0 (nr_pos r) (occ_at r) q);
+  apply (child_lt (number_file f) n 0 (nr_pos r) c0 q);
     [ exact Hpos | apply number_file_cpo | exact Hin | exact Hq ].
 Qed.
 
@@ -316,11 +339,12 @@ Qed.
 Lemma parent_in_range {p} {idx : ProgramIndex p} (r : NodeRef idx) (pp : nat) :
   c_parent (occ_at r) = Some pp -> pp < occ_count (nr_file r).
 Proof.
-  intro Hpar. destruct (occ_in_number_file r) as [f [Hin Hcount]].
-  destruct (number_file_pbounds f (nr_pos r) (occ_at r) Hin pp Hpar) as [_ Hlt].
+  intro Hpar. destruct (occ_in_number_file r) as [f [c0 [Hin [Hoc Hcount]]]].
+  rewrite Hoc, set_slot_parent in Hpar.
+  destruct (number_file_pbounds f (nr_pos r) c0 Hin pp Hpar) as [_ Hlt].
   destruct (number_file_positions f) as [n Hpos].
   assert (Hposr : In (nr_pos r) (map fst (number_file f)))
-    by (apply in_map_iff; exists (nr_pos r, occ_at r); split; [ reflexivity | exact Hin ]).
+    by (apply in_map_iff; exists (nr_pos r, c0); split; [ reflexivity | exact Hin ]).
   rewrite Hpos in Hposr; apply in_seq in Hposr.
   assert (Hlen : length (number_file f) = n).
   { apply (f_equal (@length nat)) in Hpos;
@@ -353,16 +377,19 @@ Qed.
 
 (* every ref on a file is a member of that file's one numbering, at its own ordinal *)
 Lemma same_file_member {p} {idx : ProgramIndex p} (fr : FileRef idx) (f : Syntax.File) :
-  cell_map fr = posmap_of (number_file f) ->
-  forall x : NodeRef idx, nr_file x = fr -> In (nr_pos x, occ_at x) (number_file f).
+  cell_map fr = posmap_of (assign_slots (number_file f)) ->
+  forall x : NodeRef idx, nr_file x = fr ->
+    exists c0, In (nr_pos x, c0) (number_file f) /\ occ_at x = set_slot (slot_at (number_file f) (nr_pos x)) c0.
 Proof.
   intros Hcr x Hx. pose proof (occ_at_find x) as Hfx. rewrite Hx, Hcr in Hfx.
-  destruct (posmap_find_in (number_file f) (nr_key x) (occ_at x) Hfx) as [pos [Hk Hinpos]].
-  assert (pos = nr_pos x).
+  destruct (posmap_find_in (assign_slots (number_file f)) (nr_key x) (occ_at x) Hfx) as [pos [Hk Hinpos]].
+  assert (Hpe : pos = nr_pos x).
   { pose proof (nr_key_pos x) as Hkp.
     assert (Pos.of_succ_nat (nr_pos x) = Pos.of_succ_nat pos) as Hpp by (rewrite <- Hkp; exact Hk).
     apply (f_equal Pos.to_nat) in Hpp; rewrite !SuccNat2Pos.id_succ in Hpp; lia. }
-  subst pos; exact Hinpos.
+  subst pos.
+  destruct (in_assign_slots_peel (number_file f) (nr_pos x) (occ_at x) Hinpos) as [c0 [Hin0 Hoc]].
+  exists c0. split; [ exact Hin0 | exact Hoc ].
 Qed.
 
 (* the exact parent edge: a file root has no parent (genuine absence); otherwise the parent ref is total *)
@@ -414,8 +441,9 @@ Proof.
     [ | apply node_parent_none in Hcp; rewrite Hcp in Hpar; discriminate ].
   destruct (node_parent_some r pp Hcp) as [pc [Hpc [Hpos _]]].
   rewrite Hpar in Hpc. injection Hpc as Heq. subst pc.
-  destruct (occ_in_number_file r) as [f [Hin _]].
-  destruct (number_file_pbounds f (nr_pos r) (occ_at r) Hin pp Hcp) as [_ Hlt].
+  destruct (occ_in_number_file r) as [f [c0 [Hin [Hoc _]]]].
+  rewrite Hoc, set_slot_parent in Hcp.
+  destruct (number_file_pbounds f (nr_pos r) c0 Hin pp Hcp) as [_ Hlt].
   rewrite Hpos. exact Hlt.
 Qed.
 
@@ -429,12 +457,15 @@ Proof.
     by (rewrite <- (node_children_pos r); apply in_map; exact Hin).
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_cpo f (nr_pos r) (occ_at r) (Hmem r eq_refl) (nr_pos c) Hpos) as [ccell [Hincell Hpar]].
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem c Hf) as [c0c [Hinc Hocc]].
+  rewrite Hocr, set_slot_children in Hpos.
+  destruct (number_file_cpo f (nr_pos r) c0r Hinr (nr_pos c) Hpos) as [ccell [Hincell Hpar]].
   assert (Hcpar : c_parent (occ_at c) = Some (nr_pos r)).
-  { assert (occ_at c = ccell)
-      by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) ccell);
-          [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincell ]).
-    rewrite H; exact Hpar. }
+  { assert (Hcceq : c0c = ccell)
+      by (apply (occ_unique (number_file f) (nr_pos c) c0c ccell);
+          [ apply occurrences_distinct | exact Hinc | exact Hincell ]).
+    rewrite Hocc, set_slot_parent, Hcceq; exact Hpar. }
   destruct (node_parent_some c (nr_pos r) Hcpar) as [pc [Hnp [Hpcpos Hpcfile]]].
   rewrite Hnp; f_equal; apply noderef_positional; [ rewrite Hpcfile; exact Hf | exact Hpcpos ].
 Qed.
@@ -455,10 +486,12 @@ Proof.
   intro Hnp. destruct (node_parent_inv r par Hnp) as [Hcp Hf].
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  pose proof (Hmem r eq_refl) as Hinr.
-  assert (Hinp : In (nr_pos par, occ_at par) (number_file f)) by (apply Hmem; exact Hf).
-  pose proof (number_file_complete f (nr_pos r) (occ_at r) (nr_pos par) (occ_at par) Hinr Hinp Hcp) as Hin.
-  rewrite <- (node_children_pos par) in Hin.
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem par Hf) as [c0p [Hinp Hocp]].
+  rewrite Hocr, set_slot_parent in Hcp.
+  pose proof (number_file_complete f (nr_pos r) c0r (nr_pos par) c0p Hinr Hinp Hcp) as Hin.
+  assert (Hcheq : c_children (occ_at par) = c_children c0p) by (rewrite Hocp; apply set_slot_children).
+  rewrite <- Hcheq in Hin. rewrite <- (node_children_pos par) in Hin.
   apply in_map_iff in Hin. destruct Hin as [c' [Hpos Hin']].
   assert (Hc : c' = r).
   { apply noderef_positional; [| exact Hpos ].
@@ -473,27 +506,27 @@ Proof.
   intro Hn. apply node_parent_none in Hn.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  pose proof (Hmem r eq_refl) as Hin.
+  destruct (Hmem r eq_refl) as [c0 [Hin Hoc]].
   destruct (Nat.eq_dec (nr_pos r) 0) as [H0|Hpos].
   - destruct (number_file_root f) as [ext [ch Hroot]].
-    assert (Hocc : occ_at r = mkCell VFile RPlain None ext ch)
+    assert (Hc0 : c0 = mkCell VFile RPlain None ext ch 0)
       by (apply (occ_unique (number_file f) (nr_pos r));
           [ apply occurrences_distinct | exact Hin | rewrite H0; exact Hroot ]).
-    unfold node_view. rewrite Hocc. reflexivity.
+    unfold node_view. rewrite Hoc, set_slot_view, Hc0. reflexivity.
   - exfalso.
     pose proof (number_file_positions f) as [count Hposs].
     assert (Hinp : In (nr_pos r) (map fst (number_file f)))
-      by (apply in_map_iff; exists (nr_pos r, occ_at r); split; [ reflexivity | exact Hin ]).
+      by (apply in_map_iff; exists (nr_pos r, c0); split; [ reflexivity | exact Hin ]).
     rewrite Hposs in Hinp. apply in_seq in Hinp.
     assert (Hlen : List.length (number_file f) = count).
     { first [ rewrite <- (length_map fst (number_file f)) | rewrite <- (map_length fst (number_file f)) ].
       rewrite Hposs. first [ apply length_seq | apply seq_length ]. }
     destruct (number_file_cover f (nr_pos r) ltac:(lia)) as [q [qcell [Hinq Hch]]].
     destruct (number_file_cpo f q qcell Hinq (nr_pos r) Hch) as [ccell [Hinc Hpar]].
-    assert (Hocc : ccell = occ_at r)
+    assert (Hcc : ccell = c0)
       by (apply (occ_unique (number_file f) (nr_pos r));
           [ apply occurrences_distinct | exact Hinc | exact Hin ]).
-    rewrite Hocc in Hpar. rewrite Hn in Hpar. discriminate Hpar.
+    rewrite Hcc in Hpar. rewrite Hoc, set_slot_parent in Hn. rewrite Hn in Hpar. discriminate Hpar.
 Qed.
 
 (* a child's position never exceeds its parent's exact extent, and a node's extent covers its position *)
@@ -503,18 +536,21 @@ Proof.
   intro Hp. destruct (node_parent_inv c r Hp) as [Hcp Hf].
   destruct (cellmap_number_file (nr_file c)) as [f Hcr].
   pose proof (same_file_member (nr_file c) f Hcr) as Hmem.
-  pose proof (Hmem c eq_refl) as Hinc.
-  assert (Hinr : In (nr_pos r, occ_at r) (number_file f)) by (apply Hmem; exact Hf).
-  destruct (number_file_extent f (nr_pos r) (occ_at r) Hinr) as [_ Hch].
-  exact (Hch (nr_pos c) (occ_at c) Hinc Hcp).
+  destruct (Hmem c eq_refl) as [c0c [Hinc Hocc]].
+  destruct (Hmem r Hf) as [c0r [Hinr Hocr]].
+  rewrite Hocc, set_slot_parent in Hcp.
+  destruct (number_file_extent f (nr_pos r) c0r Hinr) as [_ Hch].
+  unfold node_extent. rewrite Hocr, set_slot_extent.
+  exact (Hch (nr_pos c) c0c Hinc Hcp).
 Qed.
 
 Lemma node_extent_ge {p} {idx : ProgramIndex p} (r : NodeRef idx) : nr_pos r <= node_extent r.
 Proof.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_extent f (nr_pos r) (occ_at r) (Hmem r eq_refl)) as [[Hle _] _].
-  exact Hle.
+  destruct (Hmem r eq_refl) as [c0 [Hin Hoc]].
+  destruct (number_file_extent f (nr_pos r) c0 Hin) as [[Hle _] _].
+  unfold node_extent. rewrite Hoc, set_slot_extent. exact Hle.
 Qed.
 
 (* the children refs' length matches the stored child list *)
@@ -535,9 +571,9 @@ Qed.
 (* the per-cell shape law lifted to any node: ascending children and shape-fixed counts *)
 Lemma occ_shape_ok {p} {idx : ProgramIndex p} (r : NodeRef idx) : cell_shape_ok (occ_at r).
 Proof.
-  destruct (occ_in_number_file r) as [f [Hin _]].
+  destruct (occ_in_number_file r) as [f [c0 [Hin [Hoc _]]]].
   pose proof (number_file_shape f) as Hs. unfold shape_ok in Hs. rewrite Forall_forall in Hs.
-  exact (Hs (nr_pos r, occ_at r) Hin).
+  rewrite Hoc. exact (Hs (nr_pos r, c0) Hin).
 Qed.
 
 (* the exact child-count law: a shape-fixed count is the exact children length *)
@@ -567,6 +603,153 @@ Proof.
   - exfalso. pose proof (node_children_asc r c c j i Hgt Hj Hi). lia.
 Qed.
 
+(* combine with a fresh index sequence pairs each element with its exact ordinal — forward direction *)
+Lemma in_combine_seq_fwd {A} : forall (xs : list A) (start k : nat) (x : A),
+  nth_error xs k = Some x -> In (x, start + k) (combine xs (seq start (length xs))).
+Proof.
+  induction xs as [|y ys IH]; intros start k x H; [ destruct k; discriminate | ].
+  destruct k as [|k']; cbn [length seq combine].
+  - cbn in H. injection H as <-. left. rewrite Nat.add_0_r. reflexivity.
+  - right. cbn in H. specialize (IH (S start) k' x H).
+    replace (start + S k') with (S start + k') by lia. exact IH.
+Qed.
+
+(* and its converse: an element paired with ordinal k in the indexed combine sits at position k of the list *)
+Lemma in_combine_seq_bwd {A} : forall (xs : list A) (start k : nat) (x : A),
+  In (x, k) (combine xs (seq start (length xs))) -> nth_error xs (k - start) = Some x /\ start <= k.
+Proof.
+  induction xs as [|y ys IH]; intros start k x H; [ destruct H | ].
+  cbn [length seq combine] in H. destruct H as [Heq|Hin].
+  - injection Heq as <- <-. rewrite Nat.sub_diag. split; [ reflexivity | lia ].
+  - destruct (IH (S start) k x Hin) as [Hnth Hle]. split; [ | lia ].
+    replace (k - start) with (S (k - S start)) by lia. cbn [nth_error]. exact Hnth.
+Qed.
+
+(* a position-keyed fold resolves a key to its unique value: the sole binding for that key survives the fold *)
+Lemma map_fold_find_unique {V} : forall (pairs : list (nat * V)) cp (k : V),
+  In (cp, k) pairs -> (forall k', In (cp, k') pairs -> k' = k) ->
+  Collections.NodeMap.find (Pos.of_succ_nat cp)
+    (fold_right (fun p m => Collections.NodeMap.add (Pos.of_succ_nat (fst p)) (snd p) m)
+                (Collections.NodeMap.empty V) pairs) = Some k.
+Proof.
+  induction pairs as [|[cp0 k0] rest IH]; intros cp k Hin Huniq; [ destruct Hin | ].
+  cbn [fold_right fst snd]. rewrite NodeFacts.add_o.
+  destruct (Collections.NodeMap.E.eq_dec (Pos.of_succ_nat cp0) (Pos.of_succ_nat cp)) as [Heq|Hneq].
+  - f_equal. apply (Huniq k0). left.
+    assert (cp0 = cp) by (apply (f_equal Pos.to_nat) in Heq; rewrite !SuccNat2Pos.id_succ in Heq; lia).
+    subst cp0. reflexivity.
+  - apply IH.
+    + destruct Hin as [Heqp|Hin]; [ injection Heqp as Hcp Hk; exfalso; apply Hneq; rewrite Hcp; reflexivity | exact Hin ].
+    + intros k' Hk'. apply Huniq. right. exact Hk'.
+Qed.
+
+(* the decoration is exact: the ordinal stored for a live child equals its position in its parent's child list *)
+Lemma slot_at_child {p} {idx : ProgramIndex p} (r par : NodeRef idx) (k : nat) (f : Syntax.File) :
+  cell_map (nr_file r) = posmap_of (assign_slots (number_file f)) ->
+  occ_count (nr_file r) = length (number_file f) ->
+  node_parent r = Some par ->
+  nth_error (node_children par) k = Some r ->
+  slot_at (number_file f) (nr_pos r) = k.
+Proof.
+  intros Hcr Hcount Hnp Hk.
+  destruct (node_parent_inv r par Hnp) as [_ Hpf].
+  assert (Hcrpar : cell_map (nr_file par) = posmap_of (assign_slots (number_file f))) by (rewrite Hpf; exact Hcr).
+  destruct (same_file_member (nr_file par) f Hcrpar par eq_refl) as [c0par [Hinpar Hocpar]].
+  pose proof (node_child_pos_at par r k Hk) as Hchpos.
+  rewrite Hocpar, set_slot_children in Hchpos.
+  assert (HA : In (nr_pos r, k) (child_slots (number_file f))).
+  { unfold child_slots. apply in_flat_map. exists (nr_pos par, c0par). split; [ exact Hinpar | ].
+    cbn [snd]. pose proof (in_combine_seq_fwd (c_children c0par) 0 k (nr_pos r) Hchpos) as Hc.
+    cbn [Nat.add] in Hc. exact Hc. }
+  assert (HB : forall k', In (nr_pos r, k') (child_slots (number_file f)) -> k' = k).
+  { intros k' Hk'. unfold child_slots in Hk'. apply in_flat_map in Hk'.
+    destruct Hk' as [[pos' cell'] [Hin' Hcomb]]. cbn [snd] in Hcomb.
+    destruct (in_combine_seq_bwd (c_children cell') 0 k' (nr_pos r) Hcomb) as [Hnthc _].
+    rewrite Nat.sub_0_r in Hnthc.
+    assert (Hposlt : pos' < occ_count (nr_file r)).
+    { destruct (number_file_positions f) as [n Hn].
+      assert (Hinpos : In pos' (map fst (number_file f)))
+        by (apply in_map_iff; exists (pos', cell'); split; [ reflexivity | exact Hin' ]).
+      rewrite Hn in Hinpos. apply in_seq in Hinpos.
+      assert (Hlen : length (number_file f) = n)
+        by (apply (f_equal (@length nat)) in Hn; rewrite length_map in Hn;
+            first [ rewrite length_seq in Hn | rewrite seq_length in Hn ]; exact Hn).
+      rewrite Hcount, Hlen. lia. }
+    pose (par' := noderef_at_pos (nr_file r) pos' Hposlt).
+    assert (Hpar'pos : nr_pos par' = pos') by (apply noderef_at_pos_pos).
+    assert (Hpar'file : nr_file par' = nr_file r) by (apply noderef_at_pos_file).
+    assert (Hocc' : c_children (occ_at par') = c_children cell').
+    { assert (Hcrp' : cell_map (nr_file par') = posmap_of (assign_slots (number_file f)))
+        by (rewrite Hpar'file; exact Hcr).
+      destruct (same_file_member (nr_file par') f Hcrp' par' eq_refl) as [c0' [Hinp' Hocp']].
+      rewrite Hpar'pos in Hinp'.
+      assert (Hce : c0' = cell')
+        by (apply (occ_unique (number_file f) pos' c0' cell'); [ apply occurrences_distinct | exact Hinp' | exact Hin' ]).
+      rewrite Hocp', set_slot_children, Hce; reflexivity. }
+    assert (Hchild : nth_error (node_children par') k' = Some r).
+    { pose proof (node_children_pos par') as Hcp.
+      rewrite <- Hocc' in Hnthc. rewrite <- Hcp in Hnthc.
+      rewrite nth_error_map in Hnthc.
+      destruct (nth_error (node_children par') k') as [c''|] eqn:Ec''; cbn [option_map] in Hnthc;
+        [ | discriminate Hnthc ]. injection Hnthc as Hpos''.
+      assert (Hc2 : c'' = r).
+      { apply noderef_positional; [ | exact Hpos'' ].
+        rewrite (node_children_file par' c'' (nth_error_In _ _ Ec'')). exact Hpar'file. }
+      f_equal; exact Hc2. }
+    pose proof (node_children_inverse par' r (nth_error_In _ _ Hchild)) as Hnp'.
+    rewrite Hnp in Hnp'. injection Hnp' as Hpe. rewrite <- Hpe in Hchild.
+    exact (node_child_ord_unique par r k' k Hchild Hk). }
+  unfold slot_at, slotmap. rewrite (map_fold_find_unique (child_slots (number_file f)) (nr_pos r) k HA HB).
+  reflexivity.
+Qed.
+
+(* the child-slot tag is exact and O(1): a live child's stored slot is its own ordinal in its parent's children *)
+Lemma node_child_slot {p} {idx : ProgramIndex p} (r par : NodeRef idx) (k : nat) :
+  node_parent r = Some par -> nth_error (node_children par) k = Some r -> c_slot (occ_at r) = k.
+Proof.
+  intros Hnp Hk.
+  destruct (fileinfo_number_file (nr_file r)) as [f Hf].
+  assert (Hcr : cell_map (nr_file r) = posmap_of (assign_slots (number_file f)))
+    by (unfold cell_map; rewrite Hf; reflexivity).
+  assert (Hcount : occ_count (nr_file r) = length (number_file f))
+    by (unfold occ_count; rewrite Hf; reflexivity).
+  destruct (same_file_member (nr_file r) f Hcr r eq_refl) as [c0 [_ Hoc]].
+  rewrite Hoc, set_slot_slot.
+  exact (slot_at_child r par k f Hcr Hcount Hnp Hk).
+Qed.
+
+(* and the inverse read: the parent's child list at the stored slot recovers exactly this child, no scan *)
+Lemma node_slot_child {p} {idx : ProgramIndex p} (r par : NodeRef idx) :
+  node_parent r = Some par -> nth_error (node_children par) (c_slot (occ_at r)) = Some r.
+Proof.
+  intro Hnp. pose proof (node_parent_children r par Hnp) as Hin.
+  apply In_nth_error in Hin. destruct Hin as [k Hk].
+  rewrite (node_child_slot r par k Hnp Hk). exact Hk.
+Qed.
+
+(* a distinct-position numbering resolves each stored position to exactly its own cell *)
+Lemma posmap_find_of_in : forall occs pos c,
+  In (pos, c) occs -> NoDup (map fst occs) ->
+  Collections.NodeMap.find (Pos.of_succ_nat pos) (posmap_of occs) = Some c.
+Proof.
+  intros occs pos c Hin Hnd. unfold posmap_of.
+  apply (map_fold_find_unique occs pos c Hin).
+  intros c' Hc'. exact (occ_unique occs pos c' c Hnd Hc' Hin).
+Qed.
+
+(* the decorated cell map returns exactly the slotted cell at each position *)
+Lemma posmap_assign_find : forall occs pos c,
+  In (pos, c) occs -> NoDup (map fst occs) ->
+  Collections.NodeMap.find (Pos.of_succ_nat pos) (posmap_of (assign_slots occs))
+    = Some (set_slot (slot_at occs pos) c).
+Proof.
+  intros occs pos c Hin Hnd.
+  assert (Hin' : In (pos, set_slot (slot_at occs pos) c) (assign_slots occs)).
+  { unfold assign_slots. apply in_map_iff. exists (pos, c). split; [ reflexivity | exact Hin ]. }
+  apply posmap_find_of_in; [ exact Hin' | rewrite assign_slots_fst; exact Hnd ].
+Qed.
+
+
 (* the exact layout-role law: the child at ordinal k carries exactly the role the parent's view fixes *)
 Lemma node_child_role {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) :
   nth_error (node_children r) k = Some c -> node_role c = layout_role (node_view r) k.
@@ -576,12 +759,15 @@ Proof.
   pose proof (node_child_pos_at r c k H) as Hat.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_layout f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem c Hf) as [c0c [Hinc Hocc_c]].
+  rewrite Hocr, set_slot_children in Hat.
+  destruct (number_file_layout f (nr_pos r) c0r Hinr k (nr_pos c) Hat)
     as [cc [Hincc [Hrole _]]].
-  assert (Hocc : occ_at c = cc)
-    by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
-        [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
-  unfold node_role, node_view. rewrite Hocc. exact Hrole.
+  assert (Hce : c0c = cc)
+    by (apply (occ_unique (number_file f) (nr_pos c) c0c cc);
+        [ apply occurrences_distinct | exact Hinc | exact Hincc ]).
+  unfold node_role, node_view. rewrite Hocc_c, set_slot_role, Hce, Hocr, set_slot_view. exact Hrole.
 Qed.
 
 (* the child at ordinal k has exactly the kind the parent view fixes at that ordinal — the forward view-level layout *)
@@ -593,12 +779,15 @@ Proof.
   pose proof (node_child_pos_at r c k H) as Hat.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_kind f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem c Hf) as [c0c [Hinc Hocc_c]].
+  rewrite Hocr, set_slot_children in Hat.
+  destruct (number_file_kind f (nr_pos r) c0r Hinr k (nr_pos c) Hat)
     as [cc [Hincc Hkind]].
-  assert (Hocc : occ_at c = cc)
-    by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
-        [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
-  unfold node_view. rewrite Hocc. exact Hkind.
+  assert (Hce : c0c = cc)
+    by (apply (occ_unique (number_file f) (nr_pos c) c0c cc);
+        [ apply occurrences_distinct | exact Hinc | exact Hincc ]).
+  unfold node_view. rewrite Hocc_c, set_slot_view, Hce, Hocr, set_slot_view. exact Hkind.
 Qed.
 
 (* the fixed-main body law: the child of a main top-level occurrence is exactly a block *)
@@ -610,12 +799,16 @@ Proof.
   pose proof (node_child_pos_at r c k H) as Hat.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_layout f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem c Hf) as [c0c [Hinc Hocc_c]].
+  rewrite Hocr, set_slot_children in Hat.
+  destruct (number_file_layout f (nr_pos r) c0r Hinr k (nr_pos c) Hat)
     as [cc [Hincc [_ [Hblock _]]]].
-  assert (Hocc : occ_at c = cc)
-    by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
-        [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
-  unfold node_view in Hm |- *. rewrite Hocc. exact (Hblock Hm).
+  assert (Hce : c0c = cc)
+    by (apply (occ_unique (number_file f) (nr_pos c) c0c cc);
+        [ apply occurrences_distinct | exact Hinc | exact Hincc ]).
+  unfold node_view in Hm |- *. rewrite Hocr, set_slot_view in Hm.
+  rewrite Hocc_c, set_slot_view, Hce. exact (Hblock Hm).
 Qed.
 
 (* a declaration's children are exactly its flavor's specs, and const specs arise only under declarations *)
@@ -627,12 +820,16 @@ Proof.
   pose proof (node_child_pos_at r c k H) as Hat.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_layout f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem c Hf) as [c0c [Hinc Hocc_c]].
+  rewrite Hocr, set_slot_children in Hat.
+  destruct (number_file_layout f (nr_pos r) c0r Hinr k (nr_pos c) Hat)
     as [cc [Hincc [_ [_ [Hdecl _]]]]].
-  assert (Hocc : occ_at c = cc)
-    by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
-        [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
-  unfold node_view in Hd |- *. rewrite Hocc. exact (Hdecl fl Hd).
+  assert (Hce : c0c = cc)
+    by (apply (occ_unique (number_file f) (nr_pos c) c0c cc);
+        [ apply occurrences_distinct | exact Hinc | exact Hincc ]).
+  unfold node_view in Hd |- *. rewrite Hocr, set_slot_view in Hd.
+  rewrite Hocc_c, set_slot_view, Hce. exact (Hdecl fl Hd).
 Qed.
 
 (* the shared reverse-clause extraction: the child's exact cell and the parent's reverse clauses *)
@@ -644,12 +841,15 @@ Proof.
   pose proof (node_child_pos_at r c k H) as Hat.
   destruct (cellmap_number_file (nr_file r)) as [f Hcr].
   pose proof (same_file_member (nr_file r) f Hcr) as Hmem.
-  destruct (number_file_layout f (nr_pos r) (occ_at r) (Hmem r eq_refl) k (nr_pos c) Hat)
+  destruct (Hmem r eq_refl) as [c0r [Hinr Hocr]].
+  destruct (Hmem c Hf) as [c0c [Hinc Hocc_c]].
+  rewrite Hocr, set_slot_children in Hat.
+  destruct (number_file_layout f (nr_pos r) c0r Hinr k (nr_pos c) Hat)
     as [cc [Hincc [_ [_ [_ Hrev]]]]].
-  assert (Hocc : occ_at c = cc)
-    by (apply (occ_unique (number_file f) (nr_pos c) (occ_at c) cc);
-        [ apply occurrences_distinct | exact (Hmem c Hf) | exact Hincc ]).
-  unfold node_view. rewrite Hocc. exact Hrev.
+  assert (Hce : c0c = cc)
+    by (apply (occ_unique (number_file f) (nr_pos c) c0c cc);
+        [ apply occurrences_distinct | exact Hinc | exact Hincc ]).
+  unfold node_view. rewrite Hocr, Hocc_c, !set_slot_view, Hce. exact Hrev.
 Qed.
 
 Lemma node_child_const_parent {p} {idx : ProgramIndex p} (r c : NodeRef idx) (k : nat) (sh : ConstShape) :
@@ -723,8 +923,8 @@ Proof. apply refs_at_positions_pos. Qed.
 Lemma occ_edge_wf {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   edge_wf (nr_pos r) (occ_at r) (occ_count (nr_file r)).
 Proof.
-  destruct (occ_in_number_file r) as [f [Hin Hcount]].
-  rewrite Hcount. pose proof (number_file_edge_wf f) as Hwf. unfold ewf in Hwf.
+  destruct (occ_in_number_file r) as [f [c0 [Hin [Hoc Hcount]]]].
+  rewrite Hoc, Hcount. pose proof (number_file_edge_wf f) as Hwf. unfold ewf in Hwf.
   rewrite Forall_forall in Hwf. exact (Hwf _ Hin).
 Qed.
 
@@ -791,10 +991,10 @@ Qed.
 Lemma nr_pos_lt {p} {idx : ProgramIndex p} (r : NodeRef idx) :
   nr_pos r < occ_count (nr_file r).
 Proof.
-  destruct (occ_in_number_file r) as [f [Hin Hcount]].
+  destruct (occ_in_number_file r) as [f [c0 [Hin [_ Hcount]]]].
   destruct (BuildLaws.number_file_positions f) as [n Hpos].
   assert (Hinp : In (nr_pos r) (map fst (Build.number_file f)))
-    by (apply in_map_iff; exists (nr_pos r, occ_at r); split; [ reflexivity | exact Hin ]).
+    by (apply in_map_iff; exists (nr_pos r, c0); split; [ reflexivity | exact Hin ]).
   rewrite Hpos in Hinp. apply in_seq in Hinp.
   assert (Hlen : length (Build.number_file f) = n).
   { apply (f_equal (@length nat)) in Hpos.

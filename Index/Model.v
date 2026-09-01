@@ -71,14 +71,26 @@ Proof.
   - apply IH.
 Qed.
 
-(* one shallow cell: view, role, parent position, subtree extent, ordered direct-child positions *)
+(* one shallow cell: view, role, parent position, subtree extent, ordered direct-child positions, own parent slot *)
 Record Cell : Type := mkCell {
   c_view     : NodeView ;
   c_role     : Role ;
   c_parent   : option nat ;
   c_extent   : nat ;
-  c_children : list nat
+  c_children : list nat ;
+  c_slot     : nat
 }.
+
+(* set only the parent-slot tag, leaving every structural field of the cell untouched *)
+Definition set_slot (k : nat) (c : Cell) : Cell :=
+  mkCell (c_view c) (c_role c) (c_parent c) (c_extent c) (c_children c) k.
+
+Lemma set_slot_view : forall k c, c_view (set_slot k c) = c_view c. Proof. reflexivity. Qed.
+Lemma set_slot_role : forall k c, c_role (set_slot k c) = c_role c. Proof. reflexivity. Qed.
+Lemma set_slot_parent : forall k c, c_parent (set_slot k c) = c_parent c. Proof. reflexivity. Qed.
+Lemma set_slot_extent : forall k c, c_extent (set_slot k c) = c_extent c. Proof. reflexivity. Qed.
+Lemma set_slot_children : forall k c, c_children (set_slot k c) = c_children c. Proof. reflexivity. Qed.
+Lemma set_slot_slot : forall k c, c_slot (set_slot k c) = k. Proof. reflexivity. Qed.
 
 (* which views carry a required first-child edge, and the shape of that edge — shared vocabulary of the build *)
 Definition requires_first_edge (v : NodeView) : bool :=

@@ -15,7 +15,7 @@ Fixpoint number_list {A} (f : nat -> A -> list (nat * Cell) * nat) (b : nat) (xs
   end.
 
 Definition number_leaf (v : NodeView) (par : option nat) (role : Role) (b : nat) : list (nat * Cell) * nat :=
-  ([(b, mkCell v role par b [])], S b).
+  ([(b, mkCell v role par b [] 0)], S b).
 
 (* the shallow shape of each composite occurrence: its head constructor and immediate scalar flags only *)
 Definition constspec_shape (cs : Syntax.ConstSpec) : ConstShape :=
@@ -52,7 +52,7 @@ Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr
   | Syntax.LiteralExpr lit => number_leaf (VLiteral lit) par role b
   | Syntax.Unary op e' =>
       let '(kc, nxt) := number_expr (Some b) RUnaryOperand (S b) e' in
-      ((b, mkCell (VUnary op) role par (nxt - 1) [S b]) :: kc, nxt)
+      ((b, mkCell (VUnary op) role par (nxt - 1) [S b] 0) :: kc, nxt)
   | Syntax.Application head args =>
       let '(hc, b1) := number_expr (Some b) RApplicationHead (S b) head in
       let fix do_args (i : nat) (bi : nat) (es : list Syntax.Expr) {struct es}
@@ -65,7 +65,7 @@ Fixpoint number_expr (par : option nat) (role : Role) (b : nat) (e : Syntax.Expr
             (ac ++ rc, bf, bi :: roots)
         end in
       let '(ac, bfin, aroots) := do_args 0 b1 args in
-      ((b, mkCell VApplication role par (bfin - 1) (S b :: aroots)) :: (hc ++ ac), bfin)
+      ((b, mkCell VApplication role par (bfin - 1) (S b :: aroots) 0) :: (hc ++ ac), bfin)
   end.
 
 
@@ -102,7 +102,7 @@ Definition number_constspec (par : option nat) (role : Role) (b : nat) (cs : Syn
         (oc ++ vc, b3, oroots ++ vroots)
     | Syntax.InheritedConstInit => ([], b1, [])
     end in
-  ((self, mkCell (VConstSpec (constspec_shape cs)) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
+  ((self, mkCell (VConstSpec (constspec_shape cs)) role par (bfin - 1) (nroots ++ iroots) 0) :: (nc ++ ic), bfin).
 
 Definition number_varspec (par : option nat) (role : Role) (b : nat) (vs : Syntax.VarSpec) : list (nat * Cell) * nat :=
   let self := b in
@@ -116,14 +116,14 @@ Definition number_varspec (par : option nat) (role : Role) (b : nat) (vs : Synta
         let '(vc, b3, vroots) := number_list (number_expr (Some self) RPlain) b2 (Collections.ne_to_list vals) in
         (oc ++ vc, b3, oroots ++ vroots)
     end in
-  ((self, mkCell (VVarSpec (varspec_shape vs)) role par (bfin - 1) (nroots ++ iroots)) :: (nc ++ ic), bfin).
+  ((self, mkCell (VVarSpec (varspec_shape vs)) role par (bfin - 1) (nroots ++ iroots) 0) :: (nc ++ ic), bfin).
 
 Definition number_typespec (par : option nat) (role : Role) (b : nat) (ts : Syntax.TypeSpec) : list (nat * Cell) * nat :=
   let self := b in
   let '(bn, t) := match ts with Syntax.AliasSpec bn t | Syntax.DefSpec bn t => (bn, t) end in
   let '(bc, b1) := number_bindingname (Some self) (RSpecName TypeSpecF) (S self) bn in
   let '(tc, bfin) := number_typeexpr (Some self) RTypeUse b1 t in
-  ((self, mkCell (VTypeSpec (typespec_shape ts)) role par (bfin - 1) [S self; b1]) :: (bc ++ tc), bfin).
+  ((self, mkCell (VTypeSpec (typespec_shape ts)) role par (bfin - 1) [S self; b1] 0) :: (bc ++ tc), bfin).
 
 Definition number_decl (par : option nat) (role : Role) (b : nat) (d : Syntax.Declaration) : list (nat * Cell) * nat :=
   let self := b in
@@ -133,7 +133,7 @@ Definition number_decl (par : option nat) (role : Role) (b : nat) (d : Syntax.De
     | Syntax.VarDecl vs   => number_list (number_varspec (Some self) RPlain) (S self) vs
     | Syntax.TypeDecl ts  => number_list (number_typespec (Some self) RPlain) (S self) ts
     end in
-  ((self, mkCell (VDecl (decl_flavor d)) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell (VDecl (decl_flavor d)) role par (bfin - 1) roots 0) :: kc, bfin).
 
 Definition number_stmt (par : option nat) (role : Role) (b : nat) (s : Syntax.Stmt) : list (nat * Cell) * nat :=
   let self := b in
@@ -147,13 +147,13 @@ Definition number_stmt (par : option nat) (role : Role) (b : nat) (s : Syntax.St
         let '(vc, b2, vroots) := number_list (number_expr (Some self) RPlain) b1 (Collections.ne_to_list vals) in
         (nc ++ vc, b2, nroots ++ vroots)
     end in
-  ((self, mkCell (VStmt (stmt_shape s)) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell (VStmt (stmt_shape s)) role par (bfin - 1) roots 0) :: kc, bfin).
 
 Definition number_block (par : option nat) (role : Role) (b : nat) (blk : Syntax.Block) : list (nat * Cell) * nat :=
   let self := b in
   let stmts := match blk with Syntax.MakeBlock stmts => stmts end in
   let '(kc, bfin, roots) := number_list (number_stmt (Some self) RPlain) (S self) stmts in
-  ((self, mkCell VBlock role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell VBlock role par (bfin - 1) roots 0) :: kc, bfin).
 
 Definition number_toplevel (par : option nat) (role : Role) (b : nat) (td : Syntax.TopLevelDecl) : list (nat * Cell) * nat :=
   let self := b in
@@ -162,22 +162,39 @@ Definition number_toplevel (par : option nat) (role : Role) (b : nat) (td : Synt
     | Syntax.TopDeclaration d => let '(c, b') := number_decl (Some self) RPlain (S self) d in (c, b', [S self])
     | Syntax.Main blk         => let '(c, b') := number_block (Some self) RPlain (S self) blk in (c, b', [S self])
     end in
-  ((self, mkCell (VTop (top_shape td)) role par (bfin - 1) roots) :: kc, bfin).
+  ((self, mkCell (VTop (top_shape td)) role par (bfin - 1) roots 0) :: kc, bfin).
 
 (* the file occurrence at position 0, its children the top-level declarations, in one preorder pass *)
 Definition number_file (f : Syntax.File) : list (nat * Cell) :=
   let '(dc, bfin, droots) := number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f) in
-  (0, mkCell VFile RPlain None (bfin - 1) droots) :: dc.
+  (0, mkCell VFile RPlain None (bfin - 1) droots 0) :: dc.
 (* one per-file finite structure: the position map keyed by occurrence position, and the occurrence count *)
 Definition posmap_of (occs : list (nat * Cell)) : Collections.NodeMap.t Cell :=
   fold_right (fun kv m => Collections.NodeMap.add (Pos.of_succ_nat (fst kv)) (snd kv) m)
              (Collections.NodeMap.empty Cell) occs.
 
+(* each parent contributes one pair per direct child: that child's position paired with its exact ordinal *)
+Definition child_slots (occs : list (nat * Cell)) : list (nat * nat) :=
+  flat_map (fun kv => combine (c_children (snd kv)) (seq 0 (length (c_children (snd kv))))) occs.
+
+(* the finite child-position to ordinal map, keyed like the cell map, so a child slot is one O(1) lookup *)
+Definition slotmap (occs : list (nat * Cell)) : Collections.NodeMap.t nat :=
+  fold_right (fun p m => Collections.NodeMap.add (Pos.of_succ_nat (fst p)) (snd p) m)
+             (Collections.NodeMap.empty nat) (child_slots occs).
+
+(* the exact ordinal a position occupies in its parent, zero only for the parentless file root *)
+Definition slot_at (occs : list (nat * Cell)) (pos : nat) : nat :=
+  match Collections.NodeMap.find (Pos.of_succ_nat pos) (slotmap occs) with Some k => k | None => 0 end.
+
+(* one linear decoration pass folded into construction: each cell gains its exact parent slot, nothing else moves *)
+Definition assign_slots (occs : list (nat * Cell)) : list (nat * Cell) :=
+  map (fun kv => (fst kv, set_slot (slot_at occs (fst kv)) (snd kv))) occs.
+
 Record FileInfo : Type := mkFileInfo { fi_cells : Collections.NodeMap.t Cell ; fi_count : nat }.
 
-(* one structural traversal: [number_file] is evaluated once and its result reused for the map and the count *)
+(* one structural pass: [number_file] is evaluated once, decorated with parent slots, and reused for map and count *)
 Definition build_fileinfo (f : Syntax.File) : FileInfo :=
-  let occs := number_file f in mkFileInfo (posmap_of occs) (List.length occs).
+  let occs := number_file f in mkFileInfo (posmap_of (assign_slots occs)) (List.length occs).
 
 Definition raw_index (p : Syntax.Program) : Collections.FileMap.t FileInfo :=
   Collections.FileMap.map build_fileinfo (Syntax.files p).

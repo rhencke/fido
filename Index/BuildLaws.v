@@ -961,7 +961,7 @@ Proof.
   intro f. unfold number_file.
   pose proof (number_list_roots_length (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as Hlen.
   destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
-  cbn [snd] in Hlen. exists (mkCell VFile RPlain None (bfin - 1) droots), dc.
+  cbn [snd] in Hlen. exists (mkCell VFile RPlain None (bfin - 1) droots 0), dc.
   split; [ reflexivity | cbn [c_children]; exact Hlen ].
 Qed.
 
@@ -1996,10 +1996,10 @@ Definition class_ok (occs : list (nat * Cell)) : Prop := Forall (fun '(pos, cell
 Lemma class_ok_app : forall c1 c2, class_ok c1 -> class_ok c2 -> class_ok (c1 ++ c2).
 Proof. intros c1 c2 H1 H2. apply Forall_app; split; assumption. Qed.
 
-Lemma rv_ok_mk : forall v role par ext ch k,
-  kind_of_view v = k -> role_ok_for k role -> rv_ok (mkCell v role par ext ch).
+Lemma rv_ok_mk : forall v role par ext ch k sl,
+  kind_of_view v = k -> role_ok_for k role -> rv_ok (mkCell v role par ext ch sl).
 Proof.
-  intros v role par ext ch k Hk Hr. unfold rv_ok, role_ok_for in *. cbn [c_role c_view].
+  intros v role par ext ch k sl Hk Hr. unfold rv_ok, role_ok_for in *. cbn [c_role c_view].
   destruct (role_kind_of role) as [k'|]; [ congruence | exact I ].
 Qed.
 
@@ -2318,7 +2318,7 @@ Proof.
   intros par role b blk. unfold number_toplevel.
   destruct (number_block_view (Some b) RPlain (S b) blk) as [bcell [brest [Hb [_ Hbv]]]].
   destruct (number_block (Some b) RPlain (S b) blk) as [bc b']. cbn [fst] in Hb.
-  cbn [fst]. exists (mkCell (VTop (top_shape (Syntax.Main blk))) role par (b' - 1) [S b]), bcell, bc.
+  cbn [fst]. exists (mkCell (VTop (top_shape (Syntax.Main blk))) role par (b' - 1) [S b] 0), bcell, bc.
   split; [ reflexivity | split; [ reflexivity | split; [ reflexivity | split; [ rewrite Hb; left; reflexivity | exact Hbv ] ] ] ].
 Qed.
 
@@ -3436,7 +3436,7 @@ Proof.
 Qed.
 
 (* the numbering's head is the file root cell at position zero *)
-Lemma number_file_root : forall f, exists ext ch, In (0, mkCell VFile RPlain None ext ch) (number_file f).
+Lemma number_file_root : forall f, exists ext ch, In (0, mkCell VFile RPlain None ext ch 0) (number_file f).
 Proof.
   intro f. unfold number_file.
   destruct (number_list (number_toplevel (Some 0) RPlain) 1 (Syntax.declarations f)) as [[dc bfin] droots].
