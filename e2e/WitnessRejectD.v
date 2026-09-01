@@ -86,6 +86,27 @@ Definition r_unbound_app_dep :
           (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ]). Qed.
 
+(* §8 an overflowing literal arg under an unresolved head defers to a DepArgInvalid, not a diagnostic *)
+Definition r_arg_defers_unbound :
+  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgInvalid _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") [ ILIT ((2 ^ 63)%N) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
+
+(* §258 a folded conversion head keeps its nil arguments exact InvalidIdentity, never deferred — no DepArg row *)
+Definition r_folded_nil_no_defer :
+  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgInvalid _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt8)
+                            [ Syntax.Name (Names.predeclared_ordinary Names.PNil)
+                            ; Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ])) = false.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt8) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ; Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
+
+(* §8 a nil argument under an unmodelled-conversion head defers to a DepArgUnmet on the head's ReqApplication *)
+Definition r_arg_defers_unmet :
+  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgUnmet _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny)
+                            [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
