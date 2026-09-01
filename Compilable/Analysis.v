@@ -503,6 +503,9 @@ Definition is_name_head (r : Index.NodeRef idx) : bool :=
 Definition value_ctx (r : Index.NodeRef idx) : bool :=
   match Index.node_role r with Index.Model.RApplicationHead => false | Index.Model.RExprStatementExpr => false | _ => true end.
 
+(* §251 a zero-result result is consumed unless discarded as a bare statement; a non-name app head still consumes it *)
+Definition zero_result_consumed (r : Index.NodeRef idx) : bool := value_ctx r || is_app_head r.
+
 (* a conversion/complex head folds its argument, so a folded value's default-int type is never forced *)
 Definition head_folds (par : Index.NodeRef idx) : bool :=
   match Index.node_view par as v return Index.node_view par = v -> bool with
@@ -762,12 +765,12 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
                       end
                   | _, _ => VNonconst
                   end
-              | PMPrintln, _ => if value_ctx r then VInvalid (NoValueUsed Hv) else VNonconst
+              | PMPrintln, _ => if zero_result_consumed r then VInvalid (NoValueUsed Hv) else VNonconst
               | _, _ => VNonconst
               end
               | BN.SourceObject (BN.DOFunc _) =>
                   match Index.Edges.application_args (Index.Refs.mkAppRef r Hv) with
-                  | nil => if value_ctx r then VInvalid (NoValueUsed Hv) else VNonconst
+                  | nil => if zero_result_consumed r then VInvalid (NoValueUsed Hv) else VNonconst
                   | _ :: _ => VNonconst
                   end
               | BN.SourceObject _ => VNonconst

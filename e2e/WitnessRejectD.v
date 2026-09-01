@@ -263,6 +263,22 @@ Definition r_novalue_short_main :
           (pfacts (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (APP (OID "main") [])) ])) = true.
 Proof. obs_direct (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (APP (OID "main") [])) ]). Qed.
 
+(* §295 main()(): outer NotCallableExpr, inner main consumed as non-name head, so NoValueUsed *)
+Definition r_main_call_call :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (OID "main") []) []) ])) = true
+  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (OID "main") []) []) ])) = true.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (APP (OID "main") []) []) ]). Qed.
+
+(* §296 println()(): same shape, the zero-result println app is the consumed non-name head *)
+Definition r_println_call_call :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ])) = true
+  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ])) = true.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
