@@ -613,6 +613,37 @@ Lemma ca_cast_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat
   (E : i = j) (e : ChildAt parent i) : ca_child (ca_cast E e) = ca_child e.
 Proof. destruct E. reflexivity. Qed.
 
+(* an application argument node's stored child slot is exactly S i for its role ordinal i — one c_slot read *)
+Lemma arg_slot_eq {p} {idx : ProgramIndex p} (r par : NodeRef idx) (i : nat)
+  (Hpar : node_parent r = Some par) (Hv : node_view par = VApplication)
+  (Hrole : node_role r = RApplicationArg i) : c_slot (occ_at r) = S i.
+Proof.
+  unfold self_edge_of.
+  pose proof (ca_role (mkChildAt r (node_slot_child r par Hpar))) as Hcr.
+  cbn [ca_child] in Hcr. rewrite Hv, Hrole in Hcr.
+  remember (c_slot (occ_at r)) as s eqn:Hs. destruct s as [|k]; cbn [layout_role] in Hcr.
+  - discriminate Hcr.
+  - injection Hcr as Hik. subst k. reflexivity.
+Qed.
+
+(* the O(1) application-argument edge of a node proven to be argument i of its application parent — no scan *)
+Definition arg_edge_of {p} {idx : ProgramIndex p} (r par : NodeRef idx) (i : nat)
+  (Hpar : node_parent r = Some par) (Hv : node_view par = VApplication)
+  (Hrole : node_role r = RApplicationArg i)
+  : ApplicationArgEdge (mkAppRef par Hv) i :=
+  mkAppArg (a := mkAppRef par Hv)
+    (ca_cast (arg_slot_eq r par i Hpar Hv Hrole) (se_at (self_edge_of r par Hpar))).
+
+(* the recovered argument edge points its exact stored child back at the original node *)
+Lemma arg_edge_of_child {p} {idx : ProgramIndex p} (r par : NodeRef idx) (i : nat)
+  (Hpar : node_parent r = Some par) (Hv : node_view par = VApplication)
+  (Hrole : node_role r = RApplicationArg i)
+  : aa_child (arg_edge_of r par i Hpar Hv Hrole) = r.
+Proof.
+  unfold arg_edge_of, aa_child. cbn [aa_at].
+  rewrite ca_cast_child. exact (se_child_eq (self_edge_of r par Hpar)).
+Qed.
+
 (* the exact structural expression-use path of every live expression node — one well-founded parent-position walk *)
 Definition use_path {p} {idx : ProgramIndex p} (r : NodeRef idx) (Hr : is_expr_node r = true) : ExprUsePath r.
 Proof.

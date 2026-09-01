@@ -287,6 +287,16 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
     BN.resolution_redecl_root r = Some root -> Dependency bp site TypeUseKind
 | DepUnboundNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
     BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ValueKind
+(* §8 a target-sensitive argument deferring to its non-AOK application, retaining that exact outcome *)
+| DepArgInvalid : forall (ar : Index.Refs.AppRef idx) (i : nat),
+    Index.node_parent site = Some (Index.Refs.app_node ar) -> Index.node_role site = Index.Model.RApplicationArg i ->
+    Cause bp (Index.Refs.app_node ar) ApplicationKind -> Dependency bp site ValueKind
+| DepArgUnmet : forall (ar : Index.Refs.AppRef idx) (i : nat),
+    Index.node_parent site = Some (Index.Refs.app_node ar) -> Index.node_role site = Index.Model.RApplicationArg i ->
+    Requirement bp (Index.Refs.app_node ar) ApplicationKind -> Dependency bp site ValueKind
+| DepArgDependent : forall (ar : Index.Refs.AppRef idx) (i : nat),
+    Index.node_parent site = Some (Index.Refs.app_node ar) -> Index.node_role site = Index.Model.RApplicationArg i ->
+    Dependency bp (Index.Refs.app_node ar) ApplicationKind -> Dependency bp site ValueKind
 (* §7 iota/nil and unbound application heads are now AInvalid causes on the app row, not dependencies *)
 | DepChild : ChildFactEdge site StatementKind -> Dependency bp site StatementKind
 | DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
@@ -297,6 +307,9 @@ Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
 Arguments DepRedeclaredNameA {p idx s bd bp site} _ _ _ _ _ _.
 Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
+Arguments DepArgInvalid {p idx s bd bp site} _ _ _ _ _.
+Arguments DepArgUnmet {p idx s bd bp site} _ _ _ _ _.
+Arguments DepArgDependent {p idx s bd bp site} _ _ _ _ _.
 Arguments DepChild {p idx s bd bp site} _.
 Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
 
@@ -542,6 +555,98 @@ Proof.
       solve [ left; reflexivity | right; left; reflexivity ].
 Qed.
 
+(* §271 a binder head by spec flavor: const is noncallable, type/var are source boundaries *)
+Definition binder_head_app (ar : Index.Refs.AppRef idx) (h : Names.OrdinaryIdentifier)
+  (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (o : BN.ObjectRef idx)
+  (Hov : BN.resolution_object_view r0 = Some o) (b : BN.BinderRef idx)
+  (Hbind : BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)))
+  : AppOutcome bp (Index.Refs.app_node ar).
+Proof.
+  refine (match Index.node_role (BN.binder_node b) as rr
+            return Index.node_role (BN.binder_node b) = rr -> AppOutcome bp (Index.Refs.app_node ar) with
+          | Index.Model.RSpecName Index.Model.ConstSpecF => fun _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
+          | Index.Model.RSpecName Index.Model.VarSpecF => fun Hrole => AUnmet (ReqSourceValueApp ar eq_refl h r0 b Hbind Hrole)
+          | Index.Model.RSpecName Index.Model.TypeSpecF => fun Hrole => AUnmet (ReqSourceTypeApp ar eq_refl h r0 b Hbind Hrole)
+          | _ => fun Hrr => _
+          end eq_refl);
+    exfalso; pose proof (BN.binder_ok b) as Hbo; rewrite Hrr in Hbo; discriminate Hbo.
+Defined.
+
+(* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
+Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
+  let r := Index.Refs.app_node ar in let Hv := Index.Refs.app_ok ar in
+  let hd := Index.Edges.ah_child (Index.Edges.app_head ar) in
+      match Index.node_view hd with
+      | Index.Model.VName h =>
+          let r0 := BN.resolve bp hd h in
+          match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> AppOutcome bp r with
+          | Some o => fun Hov =>
+              match o as o' return o = o' -> AppOutcome bp r with
+              | BN.PredeclaredObject pn => fun Ho =>
+              let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
+              match pmeaning pn with
+              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))) end
+              | PMComplex =>
+                  (* application family = callability + arity only; the complex value is own_value's exact judgment *)
+                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
+                  | _ :: _ :: nil => AOK
+                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar))))
+                  end
+              | PMPrintln => AOK
+              | PMValue _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
+              | PMIota => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
+              | PMNil => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
+              | PMUnmodelled => AUnmet (ReqApplication ar eq_refl h r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))
+              end
+          | BN.SourceObject org => fun Ho =>
+              let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
+              match org as org' return org = org' -> AppOutcome bp r with
+              | BN.DOBinder b => fun Horg =>
+                  binder_head_app ar h r0 o Hov b
+                    (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg))
+              | BN.DOShort sn => fun Horg =>
+                  AUnmet (ReqShortOriginApp ar eq_refl h r0 sn
+                    (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
+              | BN.DOFunc f => fun Horg =>
+                  (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
+                  let Hfunc := eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg) in
+                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
+                  | nil => AOK
+                  | args => AInvalid (MainArity ar eq_refl h r0 f Hfunc args (Datatypes.length args))
+                  end
+              end eq_refl
+              end eq_refl
+          | None => fun Hov =>
+              match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> AppOutcome bp r with
+              | Some root => fun Hrr => ADependent (DepRedeclaredNameA ar eq_refl h r0 root Hrr)
+              | None => fun Hrv => AInvalid (UnresolvedApplicationHead ar eq_refl h r0 Hov Hrv)
+              end eq_refl
+          end eq_refl
+      | _ => AInvalid (NotCallableExpr Hv)
+      end.
+
+(* §8 argument demand after own_app: a non-folded target-sensitive argument defers to its non-AOK application outcome *)
+Definition arg_defer_or (r : Index.NodeRef idx) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
+  match Index.node_role r as ro return Index.node_role r = ro -> ValueOutcome bp r with
+  | Index.Model.RApplicationArg i => fun Hrole =>
+      match Index.node_parent r as pr return Index.node_parent r = pr -> ValueOutcome bp r with
+      | Some par => fun Hpar =>
+          match Index.node_view par as pv return Index.node_view par = pv -> ValueOutcome bp r with
+          | Index.Model.VApplication => fun Hv =>
+              if fold_consumed r then fallback
+              else match own_app (Index.Refs.mkAppRef par Hv) with
+                   | AOK => fallback
+                   | AInvalid c => VDependent (DepArgInvalid (Index.Refs.mkAppRef par Hv) i Hpar Hrole c)
+                   | AUnmet q => VDependent (DepArgUnmet (Index.Refs.mkAppRef par Hv) i Hpar Hrole q)
+                   | ADependent d => VDependent (DepArgDependent (Index.Refs.mkAppRef par Hv) i Hpar Hrole d)
+                   end
+          | _ => fun _ => fallback
+          end eq_refl
+      | None => fun _ => fallback
+      end eq_refl
+  | _ => fun _ => fallback
+  end eq_refl.
+
 (* §6 the value-of-a-name decision, factored over the resolution so convoy_at reduces it at the known resolved object *)
 Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r0 : BN.ResolutionRef (BN.use_env bp r) n)
@@ -563,7 +668,7 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
               (match Index.Edges.is_var_explicit_value r as b
                  return Index.Edges.is_var_explicit_value r = b -> ValueOutcome bp r with
                | true => fun Hvt => VUnmet (RTypedTargetIdentity r0 pn Hpre Hvt)
-               | false => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
+               | false => fun _ => arg_defer_or r (VInvalid (InvalidIdentity r0 pn Hpre))
                end) eq_refl
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
           end
@@ -605,24 +710,24 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
       own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl
   | Index.Model.VLiteral l => fun Hv =>
       match mconst ctab r with
-      | Some ci => match resolve_constant_info ci with
+      | Some ci => arg_defer_or r (match resolve_constant_info ci with
                    | Some rc => VOK rc
                    | None => if fold_consumed r then VNonconst
                              else literal_target_outcome r (TR.ci_const ci)
                                     (VInvalid (DefaultOverflow (is_value_default_lit r l Hv) (TR.ci_const ci)))
-                   end
+                   end)
       | None => VNonconst
       end
   | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
       match mconst ctab (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))) with
       | Some _ =>
           match mconst ctab r with
-          | Some ci => match resolve_constant_info ci with
+          | Some ci => arg_defer_or r (match resolve_constant_info ci with
                        | Some rc => VOK rc
                        | None => if fold_consumed r then VNonconst
                                  else literal_target_outcome r (TR.ci_const ci)
                                         (VInvalid (DefaultOverflow (is_value_default_unary r Syntax.UnaryMinus Hv) (TR.ci_const ci)))
-                       end
+                       end)
           | None => VInvalid (UnaryMismatch Hv)
           end
       | None => VNonconst
@@ -714,76 +819,6 @@ Proof.
                      (Some (BN.SourceObject (BN.DOBinder b))) Hres).
   reflexivity.
 Qed.
-
-(* §271 a binder head by spec flavor: const is noncallable, type/var are source boundaries *)
-Definition binder_head_app (ar : Index.Refs.AppRef idx) (h : Names.OrdinaryIdentifier)
-  (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (o : BN.ObjectRef idx)
-  (Hov : BN.resolution_object_view r0 = Some o) (b : BN.BinderRef idx)
-  (Hbind : BN.resolution_object_view r0 = Some (BN.SourceObject (BN.DOBinder b)))
-  : AppOutcome bp (Index.Refs.app_node ar).
-Proof.
-  refine (match Index.node_role (BN.binder_node b) as rr
-            return Index.node_role (BN.binder_node b) = rr -> AppOutcome bp (Index.Refs.app_node ar) with
-          | Index.Model.RSpecName Index.Model.ConstSpecF => fun _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
-          | Index.Model.RSpecName Index.Model.VarSpecF => fun Hrole => AUnmet (ReqSourceValueApp ar eq_refl h r0 b Hbind Hrole)
-          | Index.Model.RSpecName Index.Model.TypeSpecF => fun Hrole => AUnmet (ReqSourceTypeApp ar eq_refl h r0 b Hbind Hrole)
-          | _ => fun Hrr => _
-          end eq_refl);
-    exfalso; pose proof (BN.binder_ok b) as Hbo; rewrite Hrr in Hbo; discriminate Hbo.
-Defined.
-
-(* §10 own_app is applicability-first: it takes the exact AppRef, so there is no non-application self-dependency *)
-Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
-  let r := Index.Refs.app_node ar in let Hv := Index.Refs.app_ok ar in
-  let hd := Index.Edges.ah_child (Index.Edges.app_head ar) in
-      match Index.node_view hd with
-      | Index.Model.VName h =>
-          let r0 := BN.resolve bp hd h in
-          match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> AppOutcome bp r with
-          | Some o => fun Hov =>
-              match o as o' return o = o' -> AppOutcome bp r with
-              | BN.PredeclaredObject pn => fun Ho =>
-              let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
-              match pmeaning pn with
-              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))) end
-              | PMComplex =>
-                  (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
-                  | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar))))
-                  end
-              | PMPrintln => AOK
-              | PMValue _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
-              | PMIota => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
-              | PMNil => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
-              | PMUnmodelled => AUnmet (ReqApplication ar eq_refl h r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))
-              end
-          | BN.SourceObject org => fun Ho =>
-              let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
-              match org as org' return org = org' -> AppOutcome bp r with
-              | BN.DOBinder b => fun Horg =>
-                  binder_head_app ar h r0 o Hov b
-                    (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg))
-              | BN.DOShort sn => fun Horg =>
-                  AUnmet (ReqShortOriginApp ar eq_refl h r0 sn
-                    (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
-              | BN.DOFunc f => fun Horg =>
-                  (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
-                  let Hfunc := eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg) in
-                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
-                  | nil => AOK
-                  | args => AInvalid (MainArity ar eq_refl h r0 f Hfunc args (Datatypes.length args))
-                  end
-              end eq_refl
-              end eq_refl
-          | None => fun Hov =>
-              match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> AppOutcome bp r with
-              | Some root => fun Hrr => ADependent (DepRedeclaredNameA ar eq_refl h r0 root Hrr)
-              | None => fun Hrv => AInvalid (UnresolvedApplicationHead ar eq_refl h r0 Hov Hrv)
-              end eq_refl
-          end eq_refl
-      | _ => AInvalid (NotCallableExpr Hv)
-      end.
 
 (* the child-negativity bools an expr statement reads: whether its exact child value / application fact is negative *)
 Definition value_neg_b {r' : Index.NodeRef idx} (ov : ValueOutcome bp r') : bool :=
