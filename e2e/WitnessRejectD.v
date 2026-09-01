@@ -173,6 +173,35 @@ Definition r_nested_fold_nil :
           (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (Names.predeclared_ordinary Names.PInt8) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ] ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (Names.predeclared_ordinary Names.PInt8) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ] ]) ]). Qed.
 
+(* §286 iota() renders the exact invalid-application-identity cause view *)
+Definition r_iota_app_view :
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = [ RP.CvInvalidAppIdentity Names.PIota ].
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ]). Qed.
+
+(* §286 a type-alias-origin call renders the source-type-application requirement view *)
+Definition r_type_origin_view :
+  existsb (fun v => match v with RP.RvSourceTypeApp => true | _ => false end)
+          (RP.result_req_views (rres (prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "T")) (Syntax.NamedType (Names.predeclared_ordinary Names.PInt)) ]) ; Syntax.ExprStmt (APP (OID "T") [ ILIT 1 ]) ]))) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "T")) (Syntax.NamedType (Names.predeclared_ordinary Names.PInt)) ]) ; Syntax.ExprStmt (APP (OID "T") [ ILIT 1 ]) ]). Qed.
+
+(* §286 a var-origin call renders the source-value-application requirement view *)
+Definition r_var_origin_view :
+  existsb (fun v => match v with RP.RvSourceValueApp => true | _ => false end)
+          (RP.result_req_views (rres (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (VNAME "main"))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ]))) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (VNAME "main"))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ]). Qed.
+
+(* §286 a short-origin call renders the short-origin-application requirement view *)
+Definition r_short_origin_view :
+  existsb (fun v => match v with RP.RvShortOriginApp => true | _ => false end)
+          (RP.result_req_views (rres (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "f"))) (NE1 (VNAME "main")) ; Syntax.ExprStmt (APP (OID "f") []) ]))) = true.
+Proof. obs_direct (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "f"))) (NE1 (VNAME "main")) ; Syntax.ExprStmt (APP (OID "f") []) ]). Qed.
+
+(* §286 an unmodelled-conversion call renders the application requirement view *)
+Definition r_app_req_view :
+  existsb (fun v => match v with RP.RvApplication => true | _ => false end)
+          (RP.result_req_views (rres (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]))) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)

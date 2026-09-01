@@ -104,6 +104,7 @@ End IssueReport.
 (* bp-free descriptive views the controls read: a one-way projection of the exact cause/requirement, no bp in type *)
 Inductive CauseView : Type :=
 | CvInvalidIdentity : Names.PredeclaredName -> CauseView
+| CvInvalidAppIdentity : Names.PredeclaredName -> CauseView
 | CvUnresolvedName : CauseView
 | CvTypeAsValue : option Names.PredeclaredName -> CauseView
 | CvComplexMismatch : CauseView
@@ -118,6 +119,10 @@ Inductive ReqView : Type :=
 | RvShortUsage : ReqView
 | RvShortRhsMeaning : nat -> ReqView
 | RvShortRedeclTypes : ReqView
+| RvSourceTypeApp : ReqView
+| RvSourceValueApp : ReqView
+| RvShortOriginApp : ReqView
+| RvApplication : ReqView
 | RvOtherReq : ReqView.
 
 (* bp-free descriptive views of the exact package decision cases: the package's identity, the colliding root entry *)
@@ -167,6 +172,7 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | AN.UnresolvedNameV _ _ _ => CvUnresolvedName
   | AN.UnresolvedNameT _ _ _ => CvUnresolvedName
   | AN.UnresolvedApplicationHead _ _ _ _ _ _ => CvUnresolvedName
+  | AN.InvalidApplicationIdentity _ _ _ _ pn _ => CvInvalidAppIdentity pn
   | AN.TypeAsValue _ o _ => CvTypeAsValue (object_predeclared o)
   | AN.ComplexMismatch _ _ _ => CvComplexMismatch
   | AN.MainArity _ _ _ _ _ _ _ _ => CvMainArity
@@ -185,6 +191,10 @@ Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   | AN.ReqShortUsage _ _ => RvShortUsage
   | AN.ReqShortRhsMeaning _ j _ _ => RvShortRhsMeaning j
   | AN.ReqShortRedeclarationTypes _ _ => RvShortRedeclTypes
+  | AN.ReqSourceTypeApp _ _ _ _ _ _ _ => RvSourceTypeApp
+  | AN.ReqSourceValueApp _ _ _ _ _ _ _ => RvSourceValueApp
+  | AN.ReqShortOriginApp _ _ _ _ _ _ => RvShortOriginApp
+  | AN.ReqApplication _ _ _ _ _ _ _ => RvApplication
   | _ => RvOtherReq
   end.
 
