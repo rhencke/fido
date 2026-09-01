@@ -1029,6 +1029,53 @@ Proof.
   rewrite (Eqdep_dec.UIP_dec BN.noderef_eq_dec Heq eq_refl). reflexivity.
 Qed.
 
+(* §5 the ephemeral value map: own_value once per non-name-head node, keyed for O(log N) child-read *)
+Definition value_map_step (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (m : Collections.NodeMap.t (OccFact bp)) (r : Index.NodeRef idx) : Collections.NodeMap.t (OccFact bp) :=
+  if is_name_head r then m else Collections.NodeMap.add (Index.nr_key r) (OFValue r (own_value bp ctab r)) m.
+Definition value_map (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : Collections.NodeMap.t (OccFact bp) :=
+  fold_left (value_map_step ctab) nodes (Collections.NodeMap.empty (OccFact bp)).
+(* a key no non-name-head node in the pass carries reads straight through the fold to the accumulator *)
+Lemma value_map_skip (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (k : positive)
+  (nodes : list (Index.NodeRef idx)) (acc : Collections.NodeMap.t (OccFact bp)) :
+  (forall r, In r nodes -> is_name_head r = false -> Index.nr_key r <> k) ->
+  Collections.NodeMap.find k (fold_left (value_map_step ctab) nodes acc) = Collections.NodeMap.find k acc.
+Proof.
+  revert acc; induction nodes as [|n rest IH]; intros acc Hne; [ reflexivity | ].
+  cbn [fold_left]. rewrite IH by (intros r Hr Hnhr; exact (Hne r (or_intror Hr) Hnhr)).
+  unfold value_map_step. destruct (is_name_head n) eqn:En; [ reflexivity | ].
+  apply Collections.NodeMap.gso, not_eq_sym, (Hne n (or_introl eq_refl) En).
+Qed.
+(* §5 the value-read law: at a non-name-head node the map returns exactly its once-computed own_value *)
+Lemma value_map_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hnh : is_name_head e = false) (nodes : list (Index.NodeRef idx)) :
+  In e nodes -> NoDup nodes ->
+  (forall a b, In a nodes -> In b nodes -> Index.nr_key a = Index.nr_key b -> a = b) ->
+  Collections.NodeMap.find (Index.nr_key e) (value_map ctab nodes) = Some (OFValue e (own_value bp ctab e)).
+Proof.
+  intros Hin Hnd Hkinj. unfold value_map.
+  remember (Collections.NodeMap.empty (OccFact bp)) as acc0 eqn:Ha0. clear Ha0.
+  revert acc0 e Hnh Hin Hnd Hkinj. induction nodes as [|n rest IH]; intros acc e Hnh Hin Hnd Hkinj.
+  - inversion Hin.
+  - inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [fold_left]. destruct Hin as [Heq | Hin'].
+    + subst n. rewrite value_map_skip.
+      * unfold value_map_step. rewrite Hnh. apply Collections.NodeMap.gss.
+      * intros r Hr Hnhr Hk. apply Hnn. rewrite <- (Hkinj r e (or_intror Hr) (or_introl eq_refl) Hk). exact Hr.
+    + apply (IH (value_map_step ctab acc n) e Hnh Hin' Hnd').
+      intros a b Ha Hb Hk. exact (Hkinj a b (or_intror Ha) (or_intror Hb) Hk).
+Qed.
+(* §5 a name head carries no value row in the map either — its key is never added *)
+Lemma value_map_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
+  In e nodes -> NoDup nodes ->
+  (forall a b, In a nodes -> In b nodes -> Index.nr_key a = Index.nr_key b -> a = b) ->
+  Collections.NodeMap.find (Index.nr_key e) (value_map ctab nodes) = None.
+Proof.
+  intros Hin Hnd Hkinj. unfold value_map. rewrite value_map_skip.
+  - apply Collections.NodeMap.gempty.
+  - intros r Hr Hnhr Hk. exfalso.
+    rewrite (Hkinj r e Hr Hin Hk), Hnh in Hnhr. discriminate Hnhr.
+Qed.
+
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   flat_map (fun r => (if is_name_head r then [] else [OFValue r (own_value bp ctab r)]) ++ app_fact_app r) nodes.
