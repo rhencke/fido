@@ -895,3 +895,271 @@ Proof.
   - rewrite (app_ok a); reflexivity.
   - rewrite (app_ok a); reflexivity.
 Qed.
+
+(* the defaulting root kind reached through unary fold links — a vm-safe node_parent walk, never use_path *)
+Inductive RootKind : Type := RKConstNoType | RKConstWithType | RKVarExplicit | RKOther.
+
+(* iota roots at any const value; a no-type const literal defaults nowhere; an explicit target pins the constant *)
+Definition rk_const_rooted (k : RootKind) : bool :=
+  match k with RKConstNoType | RKConstWithType => true | _ => false end.
+Definition rk_const_no_type (k : RootKind) : bool :=
+  match k with RKConstNoType => true | _ => false end.
+Definition rk_explicit_target (k : RootKind) : bool :=
+  match k with RKConstWithType | RKVarExplicit => true | _ => false end.
+
+(* one walk step: through a unary operand keep climbing, at a const/var spec value stop with the pinned kind *)
+Definition root_step {p} {idx : ProgramIndex p} (x : NodeRef idx)
+  (rec : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) : RootKind :=
+  match node_parent x as o return node_parent x = o -> RootKind with
+  | Some par => fun Hpar =>
+      match node_view par with
+      | VUnary _ => rec par (node_parent_pos_lt x par Hpar)
+      | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
+      | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
+      | _ => RKOther
+      end
+  | None => fun _ => RKOther
+  end eq_refl.
+
+Definition root_const_var_b {p} {idx : ProgramIndex p} (r : NodeRef idx) : RootKind :=
+  Fix (well_founded_ltof _ (fun x : NodeRef idx => nr_pos x)) (fun _ => RootKind) (@root_step p idx) r.
+
+(* a dependent match on the reflexivity proof collapses a convoy scrutinee to any equal value *)
+Lemma convoy_shift {A} {T : Type} (a b : A) (F : forall y, a = y -> T) (H : a = b) :
+  F a eq_refl = F b H.
+Proof. destruct H. reflexivity. Qed.
+
+(* the node_parent convoy computes to the Some branch once the parent equation is in hand *)
+Lemma node_parent_convoy {p} {idx : ProgramIndex p} {T : Type} (x : NodeRef idx)
+  (fSome : forall par, node_parent x = Some par -> T) (fNone : node_parent x = None -> T)
+  par (H : node_parent x = Some par) :
+  match node_parent x as o return node_parent x = o -> T with
+  | Some p0 => fSome p0 | None => fNone end eq_refl = fSome par H.
+Proof.
+  exact (convoy_shift (node_parent x) (Some par)
+           (fun o (H0 : node_parent x = o) =>
+              match o as o' return node_parent x = o' -> T with
+              | Some p0 => fSome p0 | None => fNone end H0) H).
+Qed.
+
+Lemma node_parent_convoy_none {p} {idx : ProgramIndex p} {T : Type} (x : NodeRef idx)
+  (fSome : forall par, node_parent x = Some par -> T) (fNone : node_parent x = None -> T)
+  (H : node_parent x = None) :
+  match node_parent x as o return node_parent x = o -> T with
+  | Some p0 => fSome p0 | None => fNone end eq_refl = fNone H.
+Proof.
+  exact (convoy_shift (node_parent x) None
+           (fun o (H0 : node_parent x = o) =>
+              match o as o' return node_parent x = o' -> T with
+              | Some p0 => fSome p0 | None => fNone end H0) H).
+Qed.
+
+(* root_step at a real parent reduces to the view dispatch, the discarded proof carried by conversion *)
+Lemma root_step_some {p} {idx : ProgramIndex p} (x : NodeRef idx)
+  (rec : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) par (Hpar : node_parent x = Some par) :
+  root_step x rec =
+    match node_view par with
+    | VUnary _ => rec par (node_parent_pos_lt x par Hpar)
+    | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
+    | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
+    | _ => RKOther
+    end.
+Proof.
+  unfold root_step.
+  exact (node_parent_convoy x
+           (fun p0 (Hp0 : node_parent x = Some p0) =>
+              match node_view p0 with
+              | VUnary _ => rec p0 (node_parent_pos_lt x p0 Hp0)
+              | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
+              | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
+              | _ => RKOther end)
+           (fun _ => RKOther) par Hpar).
+Qed.
+
+Lemma root_step_none {p} {idx : ProgramIndex p} (x : NodeRef idx)
+  (rec : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) (H : node_parent x = None) :
+  root_step x rec = RKOther.
+Proof.
+  unfold root_step.
+  exact (node_parent_convoy_none x
+           (fun p0 (Hp0 : node_parent x = Some p0) =>
+              match node_view p0 with
+              | VUnary _ => rec p0 (node_parent_pos_lt x p0 Hp0)
+              | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
+              | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
+              | _ => RKOther end)
+           (fun _ => RKOther) H).
+Qed.
+
+(* root_step consults its recursor only at the parent, so it respects extensional equality — Fix_eq's premise *)
+Lemma root_step_ext {p} {idx : ProgramIndex p} (x : NodeRef idx)
+  (f g : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) :
+  (forall y (pf : nr_pos y < nr_pos x), f y pf = g y pf) -> root_step x f = root_step x g.
+Proof.
+  intro H. destruct (node_parent x) as [par|] eqn:E.
+  - rewrite (root_step_some x f par E), (root_step_some x g par E).
+    destruct (node_view par); try reflexivity. apply H.
+  - rewrite (root_step_none x f E), (root_step_none x g E). reflexivity.
+Qed.
+
+(* the Fix unfolding: the walk equals one root_step over the recursive self-application *)
+Lemma root_const_var_b_unfold {p} {idx : ProgramIndex p} (r : NodeRef idx) :
+  root_const_var_b r = root_step r (fun y (_ : nr_pos y < nr_pos r) => root_const_var_b y).
+Proof.
+  unfold root_const_var_b. rewrite Fix_eq.
+  - reflexivity.
+  - intros x f g Hfg. apply root_step_ext. exact Hfg.
+Qed.
+
+(* one climbed step at a real parent — the handle every bridge law rewrites with *)
+Lemma rcvb_some {p} {idx : ProgramIndex p} (x : NodeRef idx) par (Hpar : node_parent x = Some par) :
+  root_const_var_b x =
+    match node_view par with
+    | VUnary _ => root_const_var_b par
+    | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
+    | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
+    | _ => RKOther
+    end.
+Proof.
+  rewrite root_const_var_b_unfold. rewrite (root_step_some x _ par Hpar).
+  destruct (node_view par); reflexivity.
+Qed.
+
+Lemma rcvb_none {p} {idx : ProgramIndex p} (x : NodeRef idx) (H : node_parent x = None) :
+  root_const_var_b x = RKOther.
+Proof. rewrite root_const_var_b_unfold. exact (root_step_none x _ H). Qed.
+
+(* r is the direct value of an explicit-type var — the vm-safe nil boundary test, one node_parent hop *)
+Definition is_var_explicit_value {p} {idx : ProgramIndex p} (r : NodeRef idx) : bool :=
+  match node_role r with
+  | RPlain => match node_parent r with
+              | Some par => match node_view par with VVarSpec sh => shape_has_type VarSpecF sh | _ => false end
+              | None => false
+              end
+  | _ => false
+  end.
+
+(* the through-unary root kind a path pins — the vm-safe walk agrees with it, so root_const_var_b is certified *)
+Fixpoint path_root_kind {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : RootKind :=
+  match path with
+  | EUPConst sp _ _ => if shape_has_type ConstSpecF (sp_shape sp) then RKConstWithType else RKConstNoType
+  | EUPVarExplicit _ _ _ _ => RKVarExplicit
+  | EUPVarImplicit _ _ _ _ => RKOther
+  | EUPUnary _ _ sub => path_root_kind sub
+  | _ => RKOther
+  end.
+
+(* the vm-safe parent walk computes exactly the path's pinned root kind — the single-authority bridge *)
+Lemma root_const_var_b_path {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  root_const_var_b r = path_root_kind path.
+Proof.
+  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh].
+  - pose proof (up_iparent_ok (EUPExprStmt s e)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (exs_ok s). reflexivity.
+  - pose proof (up_iparent_ok (EUPConst sp j e)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (sp_ok sp). cbn [spec_view_of path_root_kind]. reflexivity.
+  - pose proof (up_iparent_ok (EUPVarExplicit sp j e Ht)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (sp_ok sp). cbn [spec_view_of path_root_kind]. rewrite Ht. reflexivity.
+  - pose proof (up_iparent_ok (EUPVarImplicit sp j e Ht)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (sp_ok sp). cbn [spec_view_of path_root_kind]. rewrite Ht. reflexivity.
+  - pose proof (up_iparent_ok (EUPShort st j e)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (sh_ok st). reflexivity.
+  - pose proof (up_iparent_ok (EUPUnary u e sub)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (un_ok u). cbn [path_root_kind]. exact IH.
+  - pose proof (up_iparent_ok (EUPArg a i e sub)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (app_ok a). reflexivity.
+  - pose proof (up_iparent_ok (EUPHead a e sub)) as Hp; cbn [up_iparent] in Hp.
+    rewrite (rcvb_some _ _ Hp), (app_ok a). reflexivity.
+Qed.
+
+(* §262 iota: the vm-safe context is exactly the canonical path's const-rooted reading *)
+Lemma up_const_rooted_prk {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_const_rooted path = rk_const_rooted (path_root_kind path).
+Proof.
+  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh];
+    cbn [up_const_rooted path_root_kind rk_const_rooted]; try reflexivity.
+  - destruct (shape_has_type ConstSpecF (sp_shape sp)); reflexivity.
+  - exact IH.
+Qed.
+Lemma up_const_rooted_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_const_rooted path = rk_const_rooted (root_const_var_b r).
+Proof. rewrite (root_const_var_b_path path). apply up_const_rooted_prk. Qed.
+
+(* §250 no-type const literal: the vm-safe context is exactly the canonical path's const-no-type reading *)
+Lemma up_const_no_type_rooted_prk {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_const_no_type_rooted path = rk_const_no_type (path_root_kind path).
+Proof.
+  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh];
+    cbn [up_const_no_type_rooted path_root_kind rk_const_no_type]; try reflexivity.
+  - destruct (shape_has_type ConstSpecF (sp_shape sp)); reflexivity.
+  - exact IH.
+Qed.
+Lemma up_const_no_type_rooted_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_const_no_type_rooted path = rk_const_no_type (root_const_var_b r).
+Proof. rewrite (root_const_var_b_path path). apply up_const_no_type_rooted_prk. Qed.
+
+(* §250 explicit-type target: the vm-safe context is exactly the canonical path's explicit-target reading *)
+Lemma up_explicit_target_prk {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_explicit_target path = rk_explicit_target (path_root_kind path).
+Proof.
+  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh];
+    cbn [up_explicit_target path_root_kind rk_explicit_target]; try reflexivity.
+  - destruct (shape_has_type ConstSpecF (sp_shape sp)); reflexivity.
+  - exact IH.
+Qed.
+Lemma up_explicit_target_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_explicit_target path = rk_explicit_target (root_const_var_b r).
+Proof. rewrite (root_const_var_b_path path). apply up_explicit_target_prk. Qed.
+
+(* §264 nil: the immediate vm-safe test is exactly the canonical path's explicit-var-top reading *)
+Lemma up_var_explicit_top_value {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  up_var_explicit_top path = is_var_explicit_value r.
+Proof.
+  unfold is_var_explicit_value.
+  destruct path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
+    cbn [up_var_explicit_top].
+  - rewrite (up_role_ok (EUPExprStmt s e)); cbn [up_role]; reflexivity.
+  - rewrite (up_role_ok (EUPConst sp j e)), (up_iparent_ok (EUPConst sp j e));
+      cbn [up_role up_iparent]; rewrite (sp_ok sp); cbn [spec_view_of]; reflexivity.
+  - rewrite (up_role_ok (EUPVarExplicit sp j e Ht)), (up_iparent_ok (EUPVarExplicit sp j e Ht));
+      cbn [up_role up_iparent]; rewrite (sp_ok sp); cbn [spec_view_of]; rewrite Ht; reflexivity.
+  - rewrite (up_role_ok (EUPVarImplicit sp j e Ht)), (up_iparent_ok (EUPVarImplicit sp j e Ht));
+      cbn [up_role up_iparent]; rewrite (sp_ok sp); cbn [spec_view_of]; rewrite Ht; reflexivity.
+  - rewrite (up_role_ok (EUPShort st j e)), (up_iparent_ok (EUPShort st j e));
+      cbn [up_role up_iparent]; rewrite (sh_ok st); reflexivity.
+  - rewrite (up_role_ok (EUPUnary u e sub)); cbn [up_role]; reflexivity.
+  - rewrite (up_role_ok (EUPArg a i e sub)); cbn [up_role]; reflexivity.
+  - rewrite (up_role_ok (EUPHead a e sub)); cbn [up_role]; reflexivity.
+Qed.
+
+(* §300 iota exact path: a name node's vm-safe const-rooted context is exactly its canonical path's reading *)
+Lemma name_const_rooted_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
+  (n : Names.OrdinaryIdentifier) (Hv : node_view r = VName n) :
+  rk_const_rooted (root_const_var_b r) = up_const_rooted (use_path r (is_expr_node_name n Hv)).
+Proof. symmetry. apply up_const_rooted_root. Qed.
+
+(* §300 nil exact path: a name node's vm-safe explicit-var context is exactly its canonical path's reading *)
+Lemma name_var_explicit_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
+  (n : Names.OrdinaryIdentifier) (Hv : node_view r = VName n) :
+  is_var_explicit_value r = up_var_explicit_top (use_path r (is_expr_node_name n Hv)).
+Proof. symmetry. apply up_var_explicit_top_value. Qed.
+
+(* §300 literal target exact path: a literal node's vm-safe target contexts are its canonical path's readings *)
+Lemma lit_const_no_type_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
+  (l : Syntax.Literal) (Hv : node_view r = VLiteral l) :
+  rk_const_no_type (root_const_var_b r) = up_const_no_type_rooted (use_path r (is_expr_node_lit l Hv)).
+Proof. symmetry. apply up_const_no_type_rooted_root. Qed.
+Lemma lit_explicit_target_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
+  (l : Syntax.Literal) (Hv : node_view r = VLiteral l) :
+  rk_explicit_target (root_const_var_b r) = up_explicit_target (use_path r (is_expr_node_lit l Hv)).
+Proof. symmetry. apply up_explicit_target_root. Qed.
+
+(* §300 unary target exact path: a unary node's vm-safe target contexts are its canonical path's readings *)
+Lemma unary_const_no_type_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
+  (u : Syntax.UnaryOp) (Hv : node_view r = VUnary u) :
+  rk_const_no_type (root_const_var_b r) = up_const_no_type_rooted (use_path r (is_expr_node_unary u Hv)).
+Proof. symmetry. apply up_const_no_type_rooted_root. Qed.
+Lemma unary_explicit_target_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
+  (u : Syntax.UnaryOp) (Hv : node_view r = VUnary u) :
+  rk_explicit_target (root_const_var_b r) = up_explicit_target (use_path r (is_expr_node_unary u Hv)).
+Proof. symmetry. apply up_explicit_target_root. Qed.

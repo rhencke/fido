@@ -176,28 +176,26 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
 | ReqShortUsage : forall (st : Index.Refs.ShortStmtRef idx),
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
-(* §262 a non-callee iota rooting at a const initializer value, through unary fold links — the retained exact path *)
+(* §262 iota rooting at a const initializer value through unary links: the vm-safe context, exact path via §300 *)
 | RInitializerIdentity : forall (n : Names.OrdinaryIdentifier)
     (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
-    forall (path : Index.Edges.ExprUsePath site),
-    Index.Edges.up_const_rooted path = true -> Requirement bp site ValueKind
-(* §264 a non-callee nil that is the direct value child of an explicit-type var — the retained exact path *)
+    Index.Edges.rk_const_rooted (Index.Edges.root_const_var_b site) = true -> Requirement bp site ValueKind
+(* §264 nil as the direct value child of an explicit-type var: the vm-safe context, exact path via §300 *)
 | RTypedTargetIdentity : forall (n : Names.OrdinaryIdentifier)
     (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
-    forall (path : Index.Edges.ExprUsePath site),
-    Index.Edges.up_var_explicit_top path = true -> Requirement bp site ValueKind
-(* §250 a no-type const literal whose default would overflow — the retained exact path and the overflowing constant *)
-| RConstNoDefault : forall (path : Index.Edges.ExprUsePath site),
-    Index.Edges.up_const_no_type_rooted path = true -> TR.Constant -> Requirement bp site ValueKind
-(* §250 an explicit-type const/var literal target that pins the constant — the retained exact path and the constant *)
-| RTypedTargetConstant : forall (path : Index.Edges.ExprUsePath site),
-    Index.Edges.up_explicit_target path = true -> TR.Constant -> Requirement bp site ValueKind.
-Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _ _.
-Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _ _.
-Arguments RConstNoDefault {p idx s bd bp site} _ _ _.
-Arguments RTypedTargetConstant {p idx s bd bp site} _ _ _.
+    Index.Edges.is_var_explicit_value site = true -> Requirement bp site ValueKind
+(* §250 a no-type const literal whose default overflows: the vm-safe context and the constant *)
+| RConstNoDefault :
+    Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind
+(* §250 an explicit-type const/var literal target pinning the constant: the vm-safe context *)
+| RTypedTargetConstant :
+    Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind.
+Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _.
+Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _.
+Arguments RConstNoDefault {p idx s bd bp site} _ _.
+Arguments RTypedTargetConstant {p idx s bd bp site} _ _.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
@@ -511,8 +509,7 @@ Qed.
 (* §6 the value-of-a-name decision, factored over the resolution so convoy_at reduces it at the known resolved object *)
 Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r0 : BN.ResolutionRef (BN.use_env bp r) n)
-  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov)
-  (Hexpr : Index.Edges.is_expr_node r = true) : ValueOutcome bp r :=
+  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov) : ValueOutcome bp r :=
   match ov as ov' return BN.resolution_object_view r0 = ov' -> ValueOutcome bp r with
   | Some o => fun Hov =>
       match o as o' return o = o' -> ValueOutcome bp r with
@@ -521,15 +518,15 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
           match pmeaning pn with
           | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end
           | PMIota =>
-              (match Index.Edges.up_const_rooted (Index.Edges.use_path r Hexpr) as b
-                 return Index.Edges.up_const_rooted (Index.Edges.use_path r Hexpr) = b -> ValueOutcome bp r with
-               | true => fun Hcr => VUnmet (RInitializerIdentity r0 pn Hpre (Index.Edges.use_path r Hexpr) Hcr)
+              (match Index.Edges.rk_const_rooted (Index.Edges.root_const_var_b r) as b
+                 return Index.Edges.rk_const_rooted (Index.Edges.root_const_var_b r) = b -> ValueOutcome bp r with
+               | true => fun Hcr => VUnmet (RInitializerIdentity r0 pn Hpre Hcr)
                | false => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
                end) eq_refl
           | PMNil =>
-              (match Index.Edges.up_var_explicit_top (Index.Edges.use_path r Hexpr) as b
-                 return Index.Edges.up_var_explicit_top (Index.Edges.use_path r Hexpr) = b -> ValueOutcome bp r with
-               | true => fun Hvt => VUnmet (RTypedTargetIdentity r0 pn Hpre (Index.Edges.use_path r Hexpr) Hvt)
+              (match Index.Edges.is_var_explicit_value r as b
+                 return Index.Edges.is_var_explicit_value r = b -> ValueOutcome bp r with
+               | true => fun Hvt => VUnmet (RTypedTargetIdentity r0 pn Hpre Hvt)
                | false => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
                end) eq_refl
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
@@ -551,15 +548,15 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
       end eq_refl
   end H.
 (* §250 overflowing untyped constant: const-no-default at a no-type const, typed-target at explicit const/var *)
-Definition literal_target_outcome (r : Index.NodeRef idx) (Hx : Index.Edges.is_expr_node r = true)
+Definition literal_target_outcome (r : Index.NodeRef idx)
   (c : TR.Constant) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
-  (match Index.Edges.up_const_no_type_rooted (Index.Edges.use_path r Hx) as b
-     return Index.Edges.up_const_no_type_rooted (Index.Edges.use_path r Hx) = b -> ValueOutcome bp r with
-   | true => fun Hcn => VUnmet (RConstNoDefault (Index.Edges.use_path r Hx) Hcn c)
+  (match Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b r) as b
+     return Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b r) = b -> ValueOutcome bp r with
+   | true => fun Hcn => VUnmet (RConstNoDefault Hcn c)
    | false => fun _ =>
-       (match Index.Edges.up_explicit_target (Index.Edges.use_path r Hx) as b2
-          return Index.Edges.up_explicit_target (Index.Edges.use_path r Hx) = b2 -> ValueOutcome bp r with
-        | true => fun Het => VUnmet (RTypedTargetConstant (Index.Edges.use_path r Hx) Het c)
+       (match Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b r) as b2
+          return Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b r) = b2 -> ValueOutcome bp r with
+        | true => fun Het => VUnmet (RTypedTargetConstant Het c)
         | false => fun _ => fallback
         end) eq_refl
    end) eq_refl.
@@ -569,13 +566,13 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
   match nv as v return Index.node_view r = v -> ValueOutcome bp r with
   | Index.Model.VName n => fun Hv =>
       let r0 := BN.resolve bp r n in
-      own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl (Index.Edges.is_expr_node_name n Hv)
+      own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl
   | Index.Model.VLiteral l => fun Hv =>
       match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
                    | Some rc => VOK rc
                    | None => if fold_consumed r then VNonconst
-                             else literal_target_outcome r (Index.Edges.is_expr_node_lit l Hv) (TR.ci_const ci)
+                             else literal_target_outcome r (TR.ci_const ci)
                                     (VInvalid (DefaultOverflow (is_value_default_lit r l Hv) (TR.ci_const ci)))
                    end
       | None => VNonconst
@@ -587,7 +584,7 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
           | Some ci => match resolve_constant_info ci with
                        | Some rc => VOK rc
                        | None => if fold_consumed r then VNonconst
-                                 else literal_target_outcome r (Index.Edges.is_expr_node_unary Syntax.UnaryMinus Hv) (TR.ci_const ci)
+                                 else literal_target_outcome r (TR.ci_const ci)
                                         (VInvalid (DefaultOverflow (is_value_default_unary r Syntax.UnaryMinus Hv) (TR.ci_const ci)))
                        end
           | None => VInvalid (UnaryMismatch Hv)
