@@ -80,9 +80,9 @@ Proof.
   injection H as Hd0. cbn. rewrite Hd0. reflexivity.
 Qed.
 
-(* an unbound application head is a dependent non-result, never a successful application fact *)
+(* §332 an unbound application head is an unresolved-application-head on the app row, a diagnostic *)
 Definition r_unbound_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.ADependent (AN.DepUnboundNameA _ _ _ _ _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.UnresolvedApplicationHead _ _ _ _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ]). Qed.
 

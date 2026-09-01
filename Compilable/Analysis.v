@@ -113,6 +113,16 @@ Inductive Cause {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} 
       (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (f : BN.FunctionDeclRef idx),
     BN.resolution_object_view r = Some (BN.SourceObject (BN.DOFunc f)) ->
     list (Index.NodeRef idx) -> nat -> Cause bp site ApplicationKind
+(* §330 iota/nil resolved as an application head: the invalid identity moves to the application row, a diagnostic *)
+| InvalidApplicationIdentity : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Cause bp site ApplicationKind
+(* §332 an unresolved application head: the head-name unresolved issue moves to the application row, a diagnostic *)
+| UnresolvedApplicationHead : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
+    forall (n : Names.OrdinaryIdentifier)
+      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n),
+    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Cause bp site ApplicationKind
 | UnresolvedNameT : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
     BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Cause bp site TypeUseKind
 | NotAType : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n) (o : BN.ObjectRef idx),
@@ -141,6 +151,8 @@ Arguments ConstMissingInit {p idx s bd bp site cs} _ _. Arguments ResultCountMis
 Arguments NotCallable {p idx s bd bp site} _ _ _ _ _ _. Arguments NotCallableExpr {p idx s bd bp site} _.
 Arguments ConversionArity {p idx s bd bp site} _ _ _. Arguments ComplexArity {p idx s bd bp site} _ _.
 Arguments MainArity {p idx s bd bp site} _ _ _ _ _ _ _ _.
+Arguments InvalidApplicationIdentity {p idx s bd bp site} _ _ _ _ _ _.
+Arguments UnresolvedApplicationHead {p idx s bd bp site} _ _ _ _ _ _.
 Arguments UnresolvedNameT {p idx s bd bp site n} _ _ _. Arguments NotAType {p idx s bd bp site n} _ _ _.
 Arguments IllegalStatement {p idx s bd bp site} _. Arguments ShortDuplicate {p idx s bd bp site st se} _ _ _ _ _.
 Arguments ShortCountMismatch {p idx s bd bp site} st _ _.
@@ -275,14 +287,7 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
     BN.resolution_redecl_root r = Some root -> Dependency bp site TypeUseKind
 | DepUnboundNameV : forall (n : Names.OrdinaryIdentifier) (r : BN.ResolutionRef (BN.use_env bp site) n),
     BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ValueKind
-| DepUnboundNameA : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
-    forall (n : Names.OrdinaryIdentifier)
-      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n),
-    BN.resolution_object_view r = None -> BN.resolution_redecl_root r = None -> Dependency bp site ApplicationKind
-| DepInvalidId : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
-    forall (n : Names.OrdinaryIdentifier)
-      (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (pn : Names.PredeclaredName),
-    BN.resolution_object_view r = Some (BN.PredeclaredObject pn) -> Dependency bp site ApplicationKind
+(* §7 iota/nil and unbound application heads are now AInvalid causes on the app row, not dependencies *)
 | DepChild : ChildFactEdge site StatementKind -> Dependency bp site StatementKind
 | DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
     (i : nat) (row : BN.ShortDecisionRowRef (BN.short_event bp st) i) (a b : nat),
@@ -292,8 +297,7 @@ Arguments DepRedeclaredNameV {p idx s bd bp site n} _ _ _.
 Arguments DepRedeclaredNameA {p idx s bd bp site} _ _ _ _ _ _.
 Arguments DepRedeclaredNameT {p idx s bd bp site n} _ _ _.
 Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
-Arguments DepUnboundNameA {p idx s bd bp site} _ _ _ _ _ _.
-Arguments DepInvalidId {p idx s bd bp site} _ _ _ _ _ _. Arguments DepChild {p idx s bd bp site} _.
+Arguments DepChild {p idx s bd bp site} _.
 Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
 
 (* each family judgment is independent per node; a prerequisite failure is a dependent non-result, never a success *)
@@ -480,6 +484,9 @@ Definition const_table (fr : Index.FileRef idx) : Collections.NodeMap.t (option 
 (* role decides value-use: an application head is a callee, not a value; expr-statement exprs go to own_stmt *)
 Definition is_app_head (r : Index.NodeRef idx) : bool :=
   match Index.node_role r with Index.Model.RApplicationHead => true | _ => false end.
+(* §7 a name on the application-head edge is callee-only: it carries no value row, only the application row *)
+Definition is_name_head (r : Index.NodeRef idx) : bool :=
+  is_app_head r && match Index.node_view r with Index.Model.VName _ => true | _ => false end.
 Definition value_ctx (r : Index.NodeRef idx) : bool :=
   match Index.node_role r with Index.Model.RApplicationHead => false | Index.Model.RExprStatementExpr => false | _ => true end.
 
@@ -747,8 +754,8 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
-              | PMIota => ADependent (DepInvalidId ar eq_refl h r0 pn Hpre)
-              | PMNil => ADependent (DepInvalidId ar eq_refl h r0 pn Hpre)
+              | PMIota => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
+              | PMNil => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
               | PMUnmodelled => AUnmet (ReqApplication ar eq_refl h r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))
               end
           | BN.SourceObject org => fun Ho =>
@@ -772,7 +779,7 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
           | None => fun Hov =>
               match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> AppOutcome bp r with
               | Some root => fun Hrr => ADependent (DepRedeclaredNameA ar eq_refl h r0 root Hrr)
-              | None => fun Hrv => ADependent (DepUnboundNameA ar eq_refl h r0 Hov Hrv)
+              | None => fun Hrv => AInvalid (UnresolvedApplicationHead ar eq_refl h r0 Hov Hrv)
               end eq_refl
           end eq_refl
       | _ => AInvalid (NotCallableExpr Hv)
@@ -926,7 +933,7 @@ Lemma type_fact_at (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
 Proof. exact (convoy_at (Index.node_view r) (type_fact_body r) (Index.Model.VTypeExpr (Syntax.NamedType n)) H). Qed.
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
-  flat_map (fun r => OFValue r (own_value bp ctab r) :: app_fact_app r) nodes.
+  flat_map (fun r => (if is_name_head r then [] else [OFValue r (own_value bp ctab r)]) ++ app_fact_app r) nodes.
 (* §10 the exact fact-row retention policy: which views retain a Value occurrence fact — not a value-expression claim *)
 Definition retains_value_fact_view (v : Index.Model.NodeView) : bool :=
   match v with
@@ -1879,20 +1886,25 @@ Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (
   end.
 
 (* va computes own_value for every file node once, so the child-read finds exactly own_value at that child *)
-Lemma va_value_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx) (nodes : list (Index.NodeRef idx)) :
+Lemma va_value_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hnh : is_name_head e = false) (nodes : list (Index.NodeRef idx)) :
   In e nodes -> NoDup nodes ->
   find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes)
   = Some (OFValue e (own_value bp ctab e)).
 Proof.
   induction nodes as [|n rest IH]; intros Hin Hnd; [ inversion Hin | ].
-  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map app find].
+  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map].
   destruct (BN.noderef_eqb n e) eqn:E.
-  - apply BN.noderef_eqb_spec in E; subst e; reflexivity.
-  - destruct Hin as [Heq|Hin'];
-      [ subst n; rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl) in E; discriminate E | ].
-    destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption).
-    rewrite (app_fact_app_at n En). cbn [app find]. apply IH; assumption.
+  - apply BN.noderef_eqb_spec in E; subst e. rewrite Hnh. cbn [app find].
+    rewrite (proj2 (BN.noderef_eqb_spec n n) eq_refl). reflexivity.
+  - assert (Htail : find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end)
+                      (app_fact_app n ++ va_facts ctab rest) = Some (OFValue e (own_value bp ctab e))).
+    { destruct Hin as [Heq|Hin'];
+        [ subst n; rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl) in E; discriminate E | ].
+      destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
+        try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption);
+        rewrite (app_fact_app_at n En); cbn [app find]; apply IH; assumption. }
+    destruct (is_name_head n); [ exact Htail | cbn [app find]; rewrite E; exact Htail ].
 Qed.
 (* likewise the child-read finds own_app at an application child — the exact OFApp app_fact_app built there *)
 Lemma va_app_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
@@ -1902,15 +1914,19 @@ Lemma va_app_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Ind
   = Some (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva))).
 Proof.
   induction nodes as [|n rest IH]; intros Hin Hnd; [ inversion Hin | ].
-  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map]. rewrite <- app_comm_cons. cbn [find].
+  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map].
   destruct Hin as [Heq|Hin'].
-  - subst n. rewrite (app_fact_app_at e Hva). cbn [app find].
-    rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl). reflexivity.
+  - subst n. destruct (is_name_head e); cbn [app find];
+      rewrite (app_fact_app_at e Hva); cbn [app find];
+      rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl); reflexivity.
   - assert (Hne : BN.noderef_eqb n e = false)
       by (destruct (BN.noderef_eqb n e) eqn:E; [ apply BN.noderef_eqb_spec in E; subst n; contradiction | reflexivity ]).
-    destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption).
-    rewrite (app_fact_app_at n En). cbn [app find]. rewrite Hne. apply IH; assumption.
+    assert (Htail : find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end)
+                      (app_fact_app n ++ va_facts ctab rest) = Some (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva)))).
+    { destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
+        try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption);
+        rewrite (app_fact_app_at n En); cbn [app find]; rewrite Hne; apply IH; assumption. }
+    destruct (is_name_head n); [ exact Htail | cbn [app find]; exact Htail ].
 Qed.
 (* off an application node the child-read finds no OFApp — va only ever records one at the exact application node *)
 Lemma va_app_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
@@ -1918,22 +1934,68 @@ Lemma va_app_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : I
   find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes) = None.
 Proof.
   induction nodes as [|n rest IH]; [ reflexivity | ].
-  cbn [va_facts flat_map]. rewrite <- app_comm_cons. cbn [find].
-  destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-    try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; exact IH).
-  rewrite (app_fact_app_at n En). cbn [app find].
-  assert (Hnn : BN.noderef_eqb n e = false)
-    by (destruct (BN.noderef_eqb n e) eqn:E; [ apply BN.noderef_eqb_spec in E; subst n; exfalso; apply Hne; exact En | reflexivity ]).
-  rewrite Hnn. exact IH.
+  cbn [va_facts flat_map].
+  assert (Htail : find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end)
+                    (app_fact_app n ++ va_facts ctab rest) = None).
+  { destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
+      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; exact IH);
+      rewrite (app_fact_app_at n En); cbn [app find];
+      assert (Hnn : BN.noderef_eqb n e = false)
+        by (destruct (BN.noderef_eqb n e) eqn:E; [ apply BN.noderef_eqb_spec in E; subst n; exfalso; apply Hne; exact En | reflexivity ]);
+      rewrite Hnn; exact IH. }
+  destruct (is_name_head n); [ exact Htail | cbn [app find]; exact Htail ].
+Qed.
+(* §7 a name application head has no value row anywhere in va — its OFValue is skipped, no other node carries it *)
+Lemma va_value_none_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
+  find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes) = None.
+Proof.
+  induction nodes as [|n rest IH]; [ reflexivity | ].
+  cbn [va_facts flat_map].
+  assert (Htail : find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end)
+                    (app_fact_app n ++ va_facts ctab rest) = None).
+  { destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
+      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; exact IH);
+      rewrite (app_fact_app_at n En); cbn [app find]; exact IH. }
+  destruct (is_name_head n) eqn:Enh; [ exact Htail | ].
+  cbn [app find]. destruct (BN.noderef_eqb n e) eqn:E;
+    [ apply BN.noderef_eqb_spec in E; subst n; rewrite Hnh in Enh; discriminate Enh | exact Htail ].
+Qed.
+
+(* §7 a name head's value negativity/nonconstancy read is false: no value row exists, so it cannot be negative there *)
+Lemma va_value_negative_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
+  va_value_negative (va_facts ctab nodes) e = false.
+Proof. unfold va_value_negative. rewrite (va_value_none_name_head ctab e Hnh nodes). reflexivity. Qed.
+Lemma va_value_nonconst_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
+  va_value_nonconst (va_facts ctab nodes) e = false.
+Proof.
+  unfold va_value_nonconst. rewrite (va_value_none_name_head ctab e Hnh nodes).
+  destruct (retains_value_fact e); reflexivity.
+Qed.
+
+(* §7 a name application head contributes no canonical fact: its value row is skipped and it holds no app row *)
+Lemma occ_facts_va_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hnh : is_name_head r = true) :
+  occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab r = [].
+Proof.
+  assert (E : exists nm, Index.node_view r = Index.Model.VName nm).
+  { pose proof Hnh as Hcopy. unfold is_name_head in Hcopy. apply andb_true_iff in Hcopy. destruct Hcopy as [_ Hf].
+    destruct (Index.node_view r) as [nm|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|]; try discriminate Hf; eauto. }
+  destruct E as [nm E].
+  unfold occ_facts_va. rewrite E. unfold retained_value_row, va_value_row.
+  rewrite (va_value_none_name_head ctab r Hnh (Index.file_nodes fr)).
+  destruct (retains_value_fact r); reflexivity.
 Qed.
 
 (* the one va computation's exact value / application row at a file node — the sole builder's row content *)
 Lemma va_value_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
+  (r : Index.NodeRef idx) (Hnh : is_name_head r = false) (Hf : Index.nr_file r = fr) :
   va_value_row (va_facts ctab (Index.file_nodes fr)) r = [OFValue r (own_value bp ctab r)].
 Proof.
   unfold va_value_row.
-  rewrite (va_value_at ctab r (Index.file_nodes fr) (file_nodes_complete fr r Hf) (file_nodes_nodup fr)); reflexivity.
+  rewrite (va_value_at ctab r Hnh (Index.file_nodes fr) (file_nodes_complete fr r Hf) (file_nodes_nodup fr)); reflexivity.
 Qed.
 Lemma va_app_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (Hva : Index.node_view r = Index.Model.VApplication) :
@@ -1948,20 +2010,20 @@ Lemma va_app_row_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (f
 Proof. unfold va_app_row. rewrite (va_app_none ctab r Hne (Index.file_nodes fr)); reflexivity. Qed.
 (* the va child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
 Lemma va_value_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   va_value_negative (va_facts ctab (Index.file_nodes fr)) e = value_neg_b bp (own_value bp ctab e).
 Proof.
   unfold va_value_negative.
-  rewrite (va_value_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
+  rewrite (va_value_at ctab e Hnh (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
 Qed.
 (* the canonical read of a node's nonconstant value: policy-applicable AND its own value is exactly VNonconst *)
 Lemma va_value_nonconst_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   va_value_nonconst (va_facts ctab (Index.file_nodes fr)) e
   = retains_value_fact e && match own_value bp ctab e with VNonconst => true | _ => false end.
 Proof.
   unfold va_value_nonconst.
-  rewrite (va_value_at ctab e (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
+  rewrite (va_value_at ctab e Hnh (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
 Qed.
 Lemma va_app_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
@@ -1976,25 +2038,25 @@ Proof.
 Qed.
 (* §19.4 a negative value fact sits only on a value-emitting node, so it is one of that node's canonical facts *)
 Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   value_neg_b bp (own_value bp ctab e) = true ->
   In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
 Proof.
   intro Hneg. unfold occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
-    try (rewrite (va_value_row_at ctab fr e Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
+    try (rewrite (va_value_row_at ctab fr e Hnh Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
     exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
 Qed.
 (* the retained Value row of a policy-applicable site is one of its canonical facts, whatever the value outcome *)
 Lemma occ_value_mem_retained (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   retains_value_fact e = true ->
   In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
 Proof.
   unfold retains_value_fact, occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
     intro Hret; try discriminate Hret;
-    rewrite (va_value_row_at ctab fr e Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ].
+    rewrite (va_value_row_at ctab fr e Hnh Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ].
 Qed.
 (* §19.4 the application fact of an application node is one of its canonical facts *)
 Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
@@ -2206,9 +2268,11 @@ Lemma occ_facts_va_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) 
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (o : OccFact bp) :
   In o (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r) -> fact_site o = r.
 Proof.
-  intro Hin. unfold occ_facts_va, retained_value_row, retains_value_fact in Hin.
+  intro Hin. destruct (is_name_head r) eqn:Hnh.
+  { rewrite (occ_facts_va_name_head bp ctab fr r Hnh) in Hin. inversion Hin. }
+  unfold occ_facts_va, retained_value_row, retains_value_fact in Hin.
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view] in Hin;
-    try (rewrite (va_value_row_at bp ctab fr r Hf) in Hin);
+    try (rewrite (va_value_row_at bp ctab fr r Hnh Hf) in Hin);
     try (rewrite (va_app_row_at bp ctab fr r Hf E) in Hin);
     try (rewrite (type_fact_at bp r nt E) in Hin);
     try (destruct (stmt_fact_content bp r _ _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; subst o; reflexivity);
@@ -2231,9 +2295,11 @@ Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantIn
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
   NoDup (map fact_key (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r)).
 Proof.
+  destruct (is_name_head r) eqn:Hnh.
+  { rewrite (occ_facts_va_name_head bp ctab fr r Hnh). apply NoDup_nil. }
   unfold occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view];
-    try (rewrite (va_value_row_at bp ctab fr r Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
+    try (rewrite (va_value_row_at bp ctab fr r Hnh Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
     try (rewrite (type_fact_at bp r nt E));
     try (exact (stmt_fact_key_nodup r (expr_sx_va bp (va_facts bp ctab (Index.file_nodes fr)) r) (va_facts bp ctab (Index.file_nodes fr)) (Index.node_view r) eq_refl));
     cbn [map fact_key fact_site fact_kind app];
@@ -2355,9 +2421,11 @@ Lemma raw_fact_is_own (o : OccFact bp) :
 Proof.
   intro Hin.
   destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
+  destruct (is_name_head r) eqn:Hnh.
+  { rewrite (occ_facts_va_name_head bp (const_table bp fr) fr r Hnh) in Ho. inversion Ho. }
   unfold occ_facts_va, retained_value_row, retains_value_fact in Ho.
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view] in Ho;
-    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hfile) in Ho);
+    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hnh Hfile) in Ho);
     try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
     try (rewrite (type_fact_at bp r nt E) in Ho);
     try (destruct (stmt_fact_content bp r _ _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
@@ -2859,13 +2927,13 @@ Qed.
 (* a negative value child's exact value fact is retained in the same FactPhase, in its own file *)
 Lemma value_fact_retained (fr : Index.FileRef (res_index res))
   (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
-  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr)
+  (e : Index.NodeRef (res_index res)) (Hnh : is_name_head e = false) (He : Index.nr_file e = fr)
   (Hneg : value_neg_b (res_binds res) (own_value (res_binds res) (const_table (res_binds res) fr) e) = true) :
   In (OFValue e (own_value (res_binds res) (const_table (res_binds res) fr) e)) (result_fact_list res).
 Proof.
   unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split;
-    [ exact (file_nodes_complete fr e He) | apply (occ_value_mem (res_binds res) (const_table (res_binds res) fr) fr e He); exact Hneg ].
+    [ exact (file_nodes_complete fr e He) | apply (occ_value_mem (res_binds res) (const_table (res_binds res) fr) fr e Hnh He); exact Hneg ].
 Qed.
 (* a negative application child's exact application fact is retained in the same FactPhase, in its own file *)
 Lemma app_fact_retained (fr : Index.FileRef (res_index res))
@@ -2961,14 +3029,14 @@ Qed.
 (* §10 a policy-applicable node whose value is nonconstant has its exact VNonconst Value row retained in the Result *)
 Lemma nonconst_value_fact_retained (fr : Index.FileRef (res_index res))
   (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
-  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr)
+  (e : Index.NodeRef (res_index res)) (Hnh : is_name_head e = false) (He : Index.nr_file e = fr)
   (Hret : retains_value_fact e = true)
   (Hnc : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst) :
   In (OFValue e VNonconst) (result_fact_list res).
 Proof.
   unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | ].
-  rewrite <- Hnc. apply (occ_value_mem_retained (res_binds res) (const_table (res_binds res) fr) fr e He Hret).
+  rewrite <- Hnc. apply (occ_value_mem_retained (res_binds res) (const_table (res_binds res) fr) fr e Hnh He Hret).
 Qed.
 (* §10/§11 the retention bridge: a canonical nonconstant child value is retrievable as its exact retained Result row *)
 Lemma nonconst_child_retained (fr : Index.FileRef (res_index res))
@@ -2980,11 +3048,15 @@ Lemma nonconst_child_retained (fr : Index.FileRef (res_index res))
     fact_row_for child ValueKind = Some child_row
     /\ frr_row child_row = OFValue child VNonconst.
 Proof.
-  intro Hva. rewrite (va_value_nonconst_correct (res_binds res) (const_table (res_binds res) fr) fr child Hf) in Hva.
+  intro Hva.
+  assert (Hnh : is_name_head child = false).
+  { destruct (is_name_head child) eqn:Enh; [ | reflexivity ].
+    rewrite (va_value_nonconst_name_head (res_binds res) (const_table (res_binds res) fr) child Enh (Index.file_nodes fr)) in Hva; discriminate Hva. }
+  rewrite (va_value_nonconst_correct (res_binds res) (const_table (res_binds res) fr) fr child Hnh Hf) in Hva.
   apply andb_prop in Hva. destruct Hva as [Hret Hnc].
   assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) child = VNonconst)
     by (destruct (own_value (res_binds res) (const_table (res_binds res) fr) child); try discriminate Hnc; reflexivity).
-  destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr child Hf Hret Hown)) as [child_row [Hcin Hcrow]].
+  destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr child Hnh Hf Hret Hown)) as [child_row [Hcin Hcrow]].
   exists child_row. split.
   - apply fact_row_for_complete;
       [ exact Hcin | unfold frr_site; rewrite Hcrow; reflexivity | unfold frr_kind; rewrite Hcrow; reflexivity ].
@@ -3029,10 +3101,15 @@ Proof.
     - symmetry in Hsx.
       exact (short_decl_decision_dep_inv (res_binds res) va (cdfr_site cdfr) nn nv Hv (cdfr_edge cdfr) Hsx). }
   destruct Hcase as [[Hk Hvn] | [Hk [Han Hva]]].
-  - assert (Hvnb : value_neg_b (res_binds res) (own_value (res_binds res) ctab e0) = true)
-      by (rewrite <- (va_value_negative_correct (res_binds res) ctab (Index.nr_file (cdfr_site cdfr)) e0 Hfe'); exact Hvn).
+  - assert (Hnh : is_name_head e0 = false).
+    { destruct (is_name_head e0) eqn:Enh; [ | reflexivity ].
+      assert (Hf0 : va_value_negative (res_binds res) va e0 = false)
+        by (unfold va; exact (va_value_negative_name_head (res_binds res) ctab e0 Enh (Index.file_nodes (Index.nr_file (cdfr_site cdfr))))).
+      rewrite Hf0 in Hvn; discriminate Hvn. }
+    assert (Hvnb : value_neg_b (res_binds res) (own_value (res_binds res) ctab e0) = true)
+      by (rewrite <- (va_value_negative_correct (res_binds res) ctab (Index.nr_file (cdfr_site cdfr)) e0 Hnh Hfe'); exact Hvn).
     assert (Hret : In (OFValue e0 (own_value (res_binds res) (const_table (res_binds res) fr) e0)) (result_fact_list res))
-      by (apply (value_fact_retained fr Hfr e0 Hfe); rewrite <- Hctab; exact Hvnb).
+      by (apply (value_fact_retained fr Hfr e0 Hnh Hfe); rewrite <- Hctab; exact Hvnb).
     destruct (fact_list_row _ Hret) as [child_row [Hcin Hcrow]].
     apply (child_prerequisite_some cdfr child_row).
     + rewrite Hk.
@@ -3338,7 +3415,7 @@ Definition sovr_origin_edge (sovr : ShortOriginValueRef)
 (* Step 6 construction: a value-position DOShort use yields the ref, its row the one canonical builder's *)
 Lemma short_origin_value_construct (fr : Index.FileRef (res_index res))
   (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
-  (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr)
+  (e : Index.NodeRef (res_index res)) (Hnh : is_name_head e = false) (He : Index.nr_file e = fr)
   (n : Names.OrdinaryIdentifier) (Hview : Index.node_view e = Index.Model.VName n)
   (sn : BN.ShortNewRef (res_index res))
   (Hres : BN.resolution_object_view (BN.resolve (res_binds res) e n) = Some (BN.SourceObject (BN.DOShort sn))) :
@@ -3347,7 +3424,7 @@ Proof.
   assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst)
     by exact (own_value_doshort (res_binds res) (const_table (res_binds res) fr) e n Hview sn Hres).
   assert (Hret : retains_value_fact e = true) by (unfold retains_value_fact; rewrite Hview; reflexivity).
-  destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr e He Hret Hown)) as [row [Hin Hrow]].
+  destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr e Hnh He Hret Hown)) as [row [Hin Hrow]].
   assert (Hlk : fact_row_for e ValueKind = Some row)
     by (apply fact_row_for_complete;
         [ exact Hin | unfold frr_site; rewrite Hrow; reflexivity | unfold frr_kind; rewrite Hrow; reflexivity ]).

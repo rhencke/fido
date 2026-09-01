@@ -37,10 +37,6 @@ Definition prov_dep_unbound_v (u : Index.NodeRef idx) (n : Names.OrdinaryIdentif
   (r : BN.ResolutionRef (BN.use_env bp u) n)
   (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None)
   : AN.Dependency bp u AN.ValueKind := AN.DepUnboundNameV r H1 H2.
-Definition prov_dep_unbound_a (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n)
-  (H1 : BN.resolution_object_view r = None) (H2 : BN.resolution_redecl_root r = None)
-  : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind := AN.DepUnboundNameA ar eq_refl n r H1 H2.
 
 (* §25.9 type-as-value / not-callable / not-a-type: the invalidity retains the exact bound resolution and object *)
 Definition prov_typeasvalue (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
@@ -58,10 +54,6 @@ Definition prov_invalidid (u : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r : BN.ResolutionRef (BN.use_env bp u) n) (pn : Names.PredeclaredName)
   (H : BN.resolution_object_view r = Some (BN.PredeclaredObject pn)) : AN.Cause bp u AN.ValueKind :=
   AN.InvalidIdentity r pn H.
-Definition prov_dep_invalidid (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
-  (r : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) n) (pn : Names.PredeclaredName)
-  (H : BN.resolution_object_view r = Some (BN.PredeclaredObject pn)) : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind :=
-  AN.DepInvalidId ar eq_refl n r pn H.
 
 (* §25.8 main arity: the cause retains the exact source-bound function resolution that supplied the fixed main *)
 Definition prov_mainarity (ar : Index.Refs.AppRef idx) (n : Names.OrdinaryIdentifier)
@@ -272,12 +264,12 @@ Definition fix_short_redecl_view (srtr : AN.ShortRedeclarationTypesRef r) : RP.S
 (* §15 short-origin value: a value-position DOShort use is the exact Result-owned ShortOriginValueRef *)
 Definition fix_short_origin_construct (fr : Index.FileRef (AN.res_index r))
   (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (AN.res_surface r))))
-  (e : Index.NodeRef (AN.res_index r)) (He : Index.nr_file e = fr)
+  (e : Index.NodeRef (AN.res_index r)) (Hnh : AN.is_name_head e = false) (He : Index.nr_file e = fr)
   (n : Names.OrdinaryIdentifier) (Hview : Index.node_view e = Index.Model.VName n)
   (sn : BN.ShortNewRef (AN.res_index r))
   (Hres : BN.resolution_object_view (BN.resolve (AN.res_binds r) e n) = Some (BN.SourceObject (BN.DOShort sn)))
   : exists sovr : AN.ShortOriginValueRef r, AN.sovr_site sovr = e /\ AN.sovr_name sovr = n /\ AN.sovr_sn sovr = sn
-  := AN.short_origin_value_construct r fr Hfr e He n Hview sn Hres.
+  := AN.short_origin_value_construct r fr Hfr e Hnh He n Hview sn Hres.
 (* §9.4 the ref's retained Value row is exactly VNonconst, found by fact_row_for at the use site *)
 Definition fix_short_origin_round_trip (sovr : AN.ShortOriginValueRef r) := AN.sovr_round_trip r sovr.
 (* §9.5 cross-origin rejection: the exact resolution of a short-origin use is never a binder origin *)

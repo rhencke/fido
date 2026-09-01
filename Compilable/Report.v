@@ -166,6 +166,7 @@ Definition cause_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface id
   | AN.InvalidIdentity _ pn _ => CvInvalidIdentity pn
   | AN.UnresolvedNameV _ _ _ => CvUnresolvedName
   | AN.UnresolvedNameT _ _ _ => CvUnresolvedName
+  | AN.UnresolvedApplicationHead _ _ _ _ _ _ => CvUnresolvedName
   | AN.TypeAsValue _ o _ => CvTypeAsValue (object_predeclared o)
   | AN.ComplexMismatch _ _ _ => CvComplexMismatch
   | AN.MainArity _ _ _ _ _ _ _ _ => CvMainArity
