@@ -776,3 +776,34 @@ Qed.
 Lemma up_iord_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
   c_slot (occ_at r) = up_iord path.
 Proof. exact (node_child_slot r (up_iparent path) (up_iord path) (up_iparent_ok path) (up_iat path)). Qed.
+
+(* the role each path constructor implies for its subject — the immediate use-context, syntactically *)
+Definition up_role {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : Role :=
+  match path with
+  | EUPExprStmt _ _ => RExprStatementExpr
+  | EUPConst _ _ _ => RPlain
+  | EUPVarExplicit _ _ _ _ => RPlain
+  | EUPVarImplicit _ _ _ _ => RPlain
+  | EUPShort _ _ _ => RPlain
+  | EUPUnary _ _ _ => RUnaryOperand
+  | EUPArg _ i _ _ => RApplicationArg i
+  | EUPHead _ _ _ => RApplicationHead
+  end.
+
+(* the role round trip: the subject's stored role is exactly the one its top constructor implies *)
+Lemma up_role_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  node_role r = up_role path.
+Proof.
+  rewrite (node_child_role (up_iparent path) r (up_iord path) (up_iat path)).
+  destruct path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
+    cbn [up_iparent up_iord up_role].
+  - rewrite (exs_ok s); reflexivity.
+  - rewrite (sp_ok sp); exact (layout_role_value ConstSpecF (sp_shape sp) j (sv_lt e)).
+  - rewrite (sp_ok sp); exact (layout_role_value VarSpecF (sp_shape sp) j (sv_lt e)).
+  - rewrite (sp_ok sp); exact (layout_role_value VarSpecF (sp_shape sp) j (sv_lt e)).
+  - rewrite (sh_ok st); cbn [layout_role];
+      replace (sh_names st + j <? sh_names st) with false by (symmetry; apply Nat.ltb_ge; lia); reflexivity.
+  - rewrite (un_ok u); reflexivity.
+  - rewrite (app_ok a); reflexivity.
+  - rewrite (app_ok a); reflexivity.
+Qed.
