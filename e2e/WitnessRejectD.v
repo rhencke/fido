@@ -202,6 +202,18 @@ Definition r_app_req_view :
           (RP.result_req_views (rres (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]))) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
 
+(* §11 a negative-unary overflow under println defaults to an exact DefaultOverflow, never a defer *)
+Definition r_neg_unary_overflow :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N)) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N)) ]) ]). Qed.
+
+(* §250 a negative-unary overflow at a no-type const is a const-no-default requirement through the unary link *)
+Definition r_neg_unary_const :
+  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RConstNoDefault _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N))))) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N))))) ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
