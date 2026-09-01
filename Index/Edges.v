@@ -388,38 +388,6 @@ Proof.
   exact (Hgen (node_children (app_node a)) eq_refl).
 Qed.
 
-(* the target's own canonical edge, recovered exactly; the scan cannot miss a real child *)
-Lemma child_eq_of {p} {idx : ProgramIndex p} {par : NodeRef idx} {o : nat} (r : NodeRef idx)
-  (e : ChildAt par o) : nr_pos (ca_child e) = nr_pos r -> nr_file par = nr_file r -> ca_child e = r.
-Proof.
-  intros Hp Hf. apply noderef_positional; [| exact Hp ].
-  rewrite (node_children_file par _ (ca_in e)). exact Hf.
-Qed.
-
-Fixpoint self_scan {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hf : nr_file par = nr_file r)
-  (l : list { o : nat & ChildAt par o }) {struct l} : option (SelfEdge r) :=
-  match l with
-  | [] => None
-  | existT _ o e :: rest =>
-      match Nat.eq_dec (nr_pos (ca_child e)) (nr_pos r) with
-      | left Hp => Some (mkSelfEdge par o e (child_eq_of r e Hp Hf))
-      | right _ => self_scan r par Hf rest
-      end
-  end.
-
-Lemma self_scan_finds {p} {idx : ProgramIndex p} (r par : NodeRef idx) (Hf : nr_file par = nr_file r) :
-  forall l, (exists o (e : ChildAt par o), In (existT _ o e) l /\ ca_child e = r) ->
-  self_scan r par Hf l <> None.
-Proof.
-  induction l as [|[o e] rest IH]; intros [o0 [e0 [Hin Heq]]]; [ destruct Hin |].
-  cbn. destruct (Nat.eq_dec (nr_pos (ca_child e)) (nr_pos r)) as [|Hne]; [ discriminate |].
-  destruct Hin as [Hhead|Hin].
-  - exfalso. apply Hne. injection Hhead as Ho He. subst o0.
-    apply Eqdep_dec.inj_pair2_eq_dec in He; [| exact Nat.eq_dec ]. subst e0.
-    rewrite Heq. reflexivity.
-  - apply IH. exists o0, e0. split; [ exact Hin | exact Heq ].
-Qed.
-
 Lemma all_children_has {p} {idx : ProgramIndex p} (par c : NodeRef idx) :
   In c (node_children par) -> exists o (e : ChildAt par o), In (existT _ o e) (all_children par) /\ ca_child e = c.
 Proof.
@@ -461,15 +429,10 @@ Proof.
   exists e'. reflexivity.
 Qed.
 
+(* the target's own parent edge, recovered in one field read from the stored child slot — never a scan *)
 Definition self_edge_of {p} {idx : ProgramIndex p} (r par : NodeRef idx)
   (H : node_parent r = Some par) : SelfEdge r :=
-  (match self_scan r par (proj2 (node_parent_inv r par H)) (all_children par)
-         as o return self_scan r par (proj2 (node_parent_inv r par H)) (all_children par) = o -> SelfEdge r with
-   | Some se => fun _ => se
-   | None => fun E =>
-       False_rect _ (self_scan_finds r par (proj2 (node_parent_inv r par H)) (all_children par)
-                       (all_children_has par r (node_parent_children r par H)) E)
-   end) eq_refl.
+  mkSelfEdge par (c_slot (occ_at r)) (mkChildAt r (node_slot_child r par H)) eq_refl.
 
 (* order and coverage per family: each collection's indices are exactly 0.. its shape-fixed total, ascending *)
 Lemma spec_name_edges_ords {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) :
