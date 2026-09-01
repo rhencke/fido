@@ -143,6 +143,18 @@ Definition r_arg_defers_redecl :
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") [ ILIT ((2 ^ 63)%N) ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ; Syntax.ExprStmt (APP (OID "f") [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
 
+(* §11 missingName(iota): the target-independent iota keeps its InvalidIdentity, the app is unresolved-head *)
+Definition r_missingname_iota :
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ]))
+  = [ RP.CvUnresolvedName ; RP.CvInvalidIdentity Names.PIota ].
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ]). Qed.
+
+(* §11 missingName(nil): the target-sensitive nil defers, leaving only the unresolved-application-head *)
+Definition r_missingname_nil :
+  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]))
+  = [ RP.CvUnresolvedName ].
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
