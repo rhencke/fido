@@ -297,6 +297,10 @@ Inductive Dependency {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface 
 | DepArgDependent : forall (ar : Index.Refs.AppRef idx) (i : nat),
     Index.node_parent site = Some (Index.Refs.app_node ar) -> Index.node_role site = Index.Model.RApplicationArg i ->
     Dependency bp (Index.Refs.app_node ar) ApplicationKind -> Dependency bp site ValueKind
+(* §251 a target-sensitive value on a non-name application head, deferring to its non-callable app *)
+| DepHeadInvalid : forall (ar : Index.Refs.AppRef idx),
+    Index.node_parent site = Some (Index.Refs.app_node ar) -> Index.node_role site = Index.Model.RApplicationHead ->
+    Cause bp (Index.Refs.app_node ar) ApplicationKind -> Dependency bp site ValueKind
 (* §7 iota/nil and unbound application heads are now AInvalid causes on the app row, not dependencies *)
 | DepChild : ChildFactEdge site StatementKind -> Dependency bp site StatementKind
 | DepShortAmbiguous : forall (st : Index.Refs.ShortStmtRef idx)
@@ -310,6 +314,7 @@ Arguments DepUnboundNameV {p idx s bd bp site n} _ _ _.
 Arguments DepArgInvalid {p idx s bd bp site} _ _ _ _ _.
 Arguments DepArgUnmet {p idx s bd bp site} _ _ _ _ _.
 Arguments DepArgDependent {p idx s bd bp site} _ _ _ _ _.
+Arguments DepHeadInvalid {p idx s bd bp site} _ _ _ _.
 Arguments DepChild {p idx s bd bp site} _.
 Arguments DepShortAmbiguous {p idx s bd bp site} st i row a b _ _.
 
@@ -628,8 +633,8 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
       | _ => AInvalid (NotCallableExpr Hv)
       end.
 
-(* §8 argument demand after own_app: a non-folded target-sensitive argument defers to its non-AOK application outcome *)
-Definition arg_defer_or (r : Index.NodeRef idx) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
+(* §8/§251 a target-sensitive value defers to its containing app, as an arg or a non-name head *)
+Definition defer_to_app (r : Index.NodeRef idx) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
   match Index.node_role r as ro return Index.node_role r = ro -> ValueOutcome bp r with
   | Index.Model.RApplicationArg i => fun Hrole =>
       match Index.node_parent r as pr return Index.node_parent r = pr -> ValueOutcome bp r with
@@ -643,6 +648,19 @@ Definition arg_defer_or (r : Index.NodeRef idx) (fallback : ValueOutcome bp r) :
                    | AUnmet q => VDependent (DepArgUnmet (Index.Refs.mkAppRef par Hv) i Hpar Hrole q)
                    | ADependent d => VDependent (DepArgDependent (Index.Refs.mkAppRef par Hv) i Hpar Hrole d)
                    end
+          | _ => fun _ => fallback
+          end eq_refl
+      | None => fun _ => fallback
+      end eq_refl
+  | Index.Model.RApplicationHead => fun Hrole =>
+      match Index.node_parent r as pr return Index.node_parent r = pr -> ValueOutcome bp r with
+      | Some par => fun Hpar =>
+          match Index.node_view par as pv return Index.node_view par = pv -> ValueOutcome bp r with
+          | Index.Model.VApplication => fun Hv =>
+              match own_app (Index.Refs.mkAppRef par Hv) with
+              | AInvalid c => VDependent (DepHeadInvalid (Index.Refs.mkAppRef par Hv) Hpar Hrole c)
+              | _ => fallback
+              end
           | _ => fun _ => fallback
           end eq_refl
       | None => fun _ => fallback
@@ -671,7 +689,7 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
               (match Index.Edges.is_var_explicit_value r as b
                  return Index.Edges.is_var_explicit_value r = b -> ValueOutcome bp r with
                | true => fun Hvt => VUnmet (RTypedTargetIdentity r0 pn Hpre Hvt)
-               | false => fun _ => arg_defer_or r (VInvalid (InvalidIdentity r0 pn Hpre))
+               | false => fun _ => defer_to_app r (VInvalid (InvalidIdentity r0 pn Hpre))
                end) eq_refl
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
           end
@@ -713,7 +731,7 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
       own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl
   | Index.Model.VLiteral l => fun Hv =>
       match mconst ctab r with
-      | Some ci => arg_defer_or r (match resolve_constant_info ci with
+      | Some ci => defer_to_app r (match resolve_constant_info ci with
                    | Some rc => VOK rc
                    | None => if fold_consumed r then VNonconst
                              else literal_target_outcome r (TR.ci_const ci)
@@ -725,7 +743,7 @@ Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)
       match mconst ctab (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))) with
       | Some _ =>
           match mconst ctab r with
-          | Some ci => arg_defer_or r (match resolve_constant_info ci with
+          | Some ci => defer_to_app r (match resolve_constant_info ci with
                        | Some rc => VOK rc
                        | None => if fold_consumed r then VNonconst
                                  else literal_target_outcome r (TR.ci_const ci)

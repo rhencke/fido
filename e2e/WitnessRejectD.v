@@ -279,6 +279,20 @@ Definition r_println_call_call :
           (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ])) = true.
 Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ]). Qed.
 
+(* §317 an overflowing literal head defers to NotCallableExpr, not its own DefaultOverflow *)
+Definition r_lithead_defers :
+  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepHeadInvalid _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = true
+  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = false.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ]). Qed.
+
+(* §369 an overflowing negative unary head likewise defers rather than emitting DefaultOverflow *)
+Definition r_neghead_defers :
+  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepHeadInvalid _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
