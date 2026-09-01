@@ -848,6 +848,11 @@ Definition family_of (v : NodeView) (k : nat) : UseFamily :=
   | _ => UFExprStmt
   end.
 
+(* a name occurrence is always a live expression node, so its use path is available without a separate check *)
+Lemma is_expr_node_name {p} {idx : ProgramIndex p} {r : NodeRef idx} (n : Names.OrdinaryIdentifier) :
+  node_view r = VName n -> is_expr_node r = true.
+Proof. intro H. unfold is_expr_node. rewrite H. reflexivity. Qed.
+
 (* the family round trip: a path's top family is the syntactic reading of its parent view and ordinal *)
 Lemma up_family_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
   up_family path = family_of (node_view (up_iparent path)) (up_iord path).

@@ -175,7 +175,21 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
 | ReqShortRhsMeaning : forall (st : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st j),
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
 | ReqShortUsage : forall (st : Index.Refs.ShortStmtRef idx),
-    site = Index.Refs.sh_node st -> Requirement bp site StatementKind.
+    site = Index.Refs.sh_node st -> Requirement bp site StatementKind
+(* §262 a non-callee iota rooting at a const initializer value, through unary fold links — the retained exact path *)
+| RInitializerIdentity : forall (n : Names.OrdinaryIdentifier)
+    (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
+    forall (path : Index.Edges.ExprUsePath site),
+    Index.Edges.up_const_rooted path = true -> Requirement bp site ValueKind
+(* §264 a non-callee nil that is the direct value child of an explicit-type var — the retained exact path *)
+| RTypedTargetIdentity : forall (n : Names.OrdinaryIdentifier)
+    (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
+    BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
+    forall (path : Index.Edges.ExprUsePath site),
+    Index.Edges.up_var_explicit_top path = true -> Requirement bp site ValueKind.
+Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _ _.
+Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _ _.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site n} _ _ _ _.
@@ -289,7 +303,7 @@ Inductive PMeaning : Type :=
 | PMConvForm : TR.TypeForm -> PMeaning
 | PMValue : TR.Constant -> PMeaning
 | PMComplex | PMPrintln
-| PMInvalidId
+| PMIota | PMNil
 | PMUnmodelled.
 
 Definition pmeaning (n : Names.PredeclaredName) : PMeaning :=
@@ -299,7 +313,7 @@ Definition pmeaning (n : Names.PredeclaredName) : PMeaning :=
   | TR.NMNoFormMeaning =>
       match n with
       | Names.PComplex => PMComplex | Names.PPrintln => PMPrintln
-      | Names.PIota => PMInvalidId | Names.PNil => PMInvalidId
+      | Names.PIota => PMIota | Names.PNil => PMNil
       | _ => PMUnmodelled
       end
   end.
@@ -489,7 +503,8 @@ Qed.
 (* §6 the value-of-a-name decision, factored over the resolution so convoy_at reduces it at the known resolved object *)
 Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (r0 : BN.ResolutionRef (BN.use_env bp r) n)
-  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov) : ValueOutcome bp r :=
+  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov)
+  (Hexpr : Index.Edges.is_expr_node r = true) : ValueOutcome bp r :=
   match ov as ov' return BN.resolution_object_view r0 = ov' -> ValueOutcome bp r with
   | Some o => fun Hov =>
       match o as o' return o = o' -> ValueOutcome bp r with
@@ -497,7 +512,18 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
           let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
           match pmeaning pn with
           | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end
-          | PMInvalidId => VInvalid (InvalidIdentity r0 pn Hpre)
+          | PMIota =>
+              (match Index.Edges.up_const_rooted (Index.Edges.use_path r Hexpr) as b
+                 return Index.Edges.up_const_rooted (Index.Edges.use_path r Hexpr) = b -> ValueOutcome bp r with
+               | true => fun Hcr => VUnmet (RInitializerIdentity r0 pn Hpre (Index.Edges.use_path r Hexpr) Hcr)
+               | false => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
+               end) eq_refl
+          | PMNil =>
+              (match Index.Edges.up_var_explicit_top (Index.Edges.use_path r Hexpr) as b
+                 return Index.Edges.up_var_explicit_top (Index.Edges.use_path r Hexpr) = b -> ValueOutcome bp r with
+               | true => fun Hvt => VUnmet (RTypedTargetIdentity r0 pn Hpre (Index.Edges.use_path r Hexpr) Hvt)
+               | false => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
+               end) eq_refl
           | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
           end
       | BN.SourceObject org => fun Ho =>
@@ -519,9 +545,9 @@ Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentif
 Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
   (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : ValueOutcome bp r :=
   match nv as v return Index.node_view r = v -> ValueOutcome bp r with
-  | Index.Model.VName n => fun _ =>
+  | Index.Model.VName n => fun Hv =>
       let r0 := BN.resolve bp r n in
-      own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl
+      own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl (Index.Edges.is_expr_node_name n Hv)
   | Index.Model.VLiteral l => fun Hv =>
       match mconst ctab r with
       | Some ci => match resolve_constant_info ci with
@@ -654,7 +680,8 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable r0 o Hov)
-              | PMInvalidId => ADependent (DepInvalidId r0 pn Hpre)
+              | PMIota => ADependent (DepInvalidId r0 pn Hpre)
+              | PMNil => ADependent (DepInvalidId r0 pn Hpre)
               | PMUnmodelled => AUnmet (ReqApplication r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv))))
               end
           | BN.SourceObject org => fun Ho =>
