@@ -742,3 +742,37 @@ Proof.
   - exact (ca_in (aa_at e)).
   - exact (ca_in (ah_at e)).
 Qed.
+
+(* the exact ordinal a path's top edge sits at within its parent — a projection *)
+Definition up_iord {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : nat :=
+  match path with
+  | EUPExprStmt _ _ => 0
+  | EUPConst sp j _ => value_ordinal ConstSpecF (sp_shape sp) j
+  | EUPVarExplicit sp j _ _ => value_ordinal VarSpecF (sp_shape sp) j
+  | EUPVarImplicit sp j _ _ => value_ordinal VarSpecF (sp_shape sp) j
+  | EUPShort st j _ => sh_names st + j
+  | EUPUnary _ _ _ => 0
+  | EUPArg _ i _ _ => S i
+  | EUPHead _ _ _ => 0
+  end.
+
+(* the subject sits at that exact ordinal in its parent's child list *)
+Lemma up_iat {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  nth_error (node_children (up_iparent path)) (up_iord path) = Some r.
+Proof.
+  destruct path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
+    cbn [up_iparent up_iord].
+  - exact (ca_at (ee_at e)).
+  - exact (ca_at (sv_at e)).
+  - exact (ca_at (sv_at e)).
+  - exact (ca_at (sv_at e)).
+  - exact (ca_at (sr_at e)).
+  - exact (ca_at (uo_at e)).
+  - exact (ca_at (aa_at e)).
+  - exact (ca_at (ah_at e)).
+Qed.
+
+(* the ordinal round trip: the stored child slot equals the path's own top ordinal *)
+Lemma up_iord_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
+  c_slot (occ_at r) = up_iord path.
+Proof. exact (node_child_slot r (up_iparent path) (up_iord path) (up_iparent_ok path) (up_iat path)). Qed.
