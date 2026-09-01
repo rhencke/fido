@@ -226,6 +226,14 @@ Definition r_main_arity :
           (pfacts (prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ]). Qed.
 
+(* §287 a const-binder call with an overflowing argument: NotCallable on the app, the argument defers to it *)
+Definition r_const_call_arg_defers :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallable _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ])) = true
+  /\ existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgInvalid _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ])) = true.
+Proof. split; obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
