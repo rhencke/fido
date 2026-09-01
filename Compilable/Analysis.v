@@ -966,6 +966,47 @@ Definition type_fact (r : Index.NodeRef idx) : list (OccFact bp) := type_fact_bo
 Lemma type_fact_at (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
   (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)) : type_fact r = [OFType r (own_type bp r n H)].
 Proof. exact (convoy_at (Index.node_view r) (type_fact_body r) (Index.Model.VTypeExpr (Syntax.NamedType n)) H). Qed.
+(* the map key faithfully names the node: same file + same key is the same node — proof-irrelevant membership *)
+Lemma noderef_file_key_inj (a b : Index.NodeRef idx) :
+  Index.nr_file a = Index.nr_file b -> Index.nr_key a = Index.nr_key b -> a = b.
+Proof.
+  destruct a as [fa ka Ha], b as [fb kb Hb]; cbn; intros Hf Hk; subst fb kb.
+  f_equal. apply (UIP_dec Bool.bool_dec).
+Qed.
+Definition app_map_step (m : Collections.NodeMap.t (OccFact bp)) (r : Index.NodeRef idx) : Collections.NodeMap.t (OccFact bp) :=
+  match app_fact_app r with f :: _ => Collections.NodeMap.add (Index.nr_key r) f m | nil => m end.
+(* §5 the ephemeral own_app map: own_app computed once per application node, keyed for O(log N) read *)
+Definition app_map (nodes : list (Index.NodeRef idx)) : Collections.NodeMap.t (OccFact bp) :=
+  fold_left app_map_step nodes (Collections.NodeMap.empty (OccFact bp)).
+(* a key no node in the pass carries reads straight through the fold to the accumulator — gso closure *)
+Lemma app_map_skip (k : positive) (nodes : list (Index.NodeRef idx)) (acc : Collections.NodeMap.t (OccFact bp)) :
+  (forall r, In r nodes -> Index.nr_key r <> k) ->
+  Collections.NodeMap.find k (fold_left app_map_step nodes acc) = Collections.NodeMap.find k acc.
+Proof.
+  revert acc; induction nodes as [|n rest IH]; intros acc Hne; [ reflexivity | ].
+  cbn [fold_left]. rewrite IH by (intros r Hr; exact (Hne r (or_intror Hr))).
+  unfold app_map_step. destruct (app_fact_app n) as [|f fr']; [ reflexivity | ].
+  apply Collections.NodeMap.gso, not_eq_sym, (Hne n (or_introl eq_refl)).
+Qed.
+(* §5 the lookup law: the map reads back the exact single own_app OFApp of each application node, computed once *)
+Lemma app_map_at (e : Index.NodeRef idx) (He : Index.node_view e = Index.Model.VApplication)
+  (nodes : list (Index.NodeRef idx)) :
+  In e nodes -> NoDup nodes ->
+  (forall a b, In a nodes -> In b nodes -> Index.nr_key a = Index.nr_key b -> a = b) ->
+  Collections.NodeMap.find (Index.nr_key e) (app_map nodes) = Some (OFApp e (own_app bp (Index.Refs.mkAppRef e He))).
+Proof.
+  intros Hin Hnd Hkinj. unfold app_map.
+  remember (Collections.NodeMap.empty (OccFact bp)) as acc0 eqn:Ha0. clear Ha0.
+  revert acc0 e He Hin Hnd Hkinj. induction nodes as [|n rest IH]; intros acc e He Hin Hnd Hkinj.
+  - inversion Hin.
+  - inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [fold_left]. destruct Hin as [Heq | Hin'].
+    + subst n. rewrite app_map_skip.
+      * unfold app_map_step. rewrite (app_fact_app_at e He). apply Collections.NodeMap.gss.
+      * intros r Hr Hk. apply Hnn. rewrite <- (Hkinj r e (or_intror Hr) (or_introl eq_refl) Hk). exact Hr.
+    + apply (IH (app_map_step acc n) e He Hin' Hnd').
+      intros a b Ha Hb Hk. exact (Hkinj a b (or_intror Ha) (or_intror Hb) Hk).
+Qed.
+
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   flat_map (fun r => (if is_name_head r then [] else [OFValue r (own_value bp ctab r)]) ++ app_fact_app r) nodes.
