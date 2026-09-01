@@ -214,6 +214,18 @@ Definition r_neg_unary_const :
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N))))) ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N))))) ]) ]). Qed.
 
+(* §287 a two-argument conversion is a conversion-arity invalidity on the app row *)
+Definition r_conversion_arity :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.ConversionArity _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt8) [ ILIT 1 ; ILIT 2 ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt8) [ ILIT 1 ; ILIT 2 ]) ]). Qed.
+
+(* §287 a one-argument call to the zero-parameter main is a main-arity invalidity, resolved at the head child *)
+Definition r_main_arity :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.MainArity _ _ _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
