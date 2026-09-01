@@ -107,6 +107,30 @@ Definition r_arg_defers_unmet :
                             [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
 
+(* §271 a var-origin function-value call is a source-value-application requirement on the app row *)
+Definition r_var_origin_app :
+  existsb (fun f => match f with AN.OFApp _ (AN.AUnmet (AN.ReqSourceValueApp _ _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (VNAME "main"))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (VNAME "main"))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ]). Qed.
+
+(* §271 a short-origin function-value call is a short-origin-application requirement on the app row *)
+Definition r_short_origin_app :
+  existsb (fun f => match f with AN.OFApp _ (AN.AUnmet (AN.ReqShortOriginApp _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "f"))) (NE1 (VNAME "main")) ; Syntax.ExprStmt (APP (OID "f") []) ])) = true.
+Proof. obs_direct (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "f"))) (NE1 (VNAME "main")) ; Syntax.ExprStmt (APP (OID "f") []) ]). Qed.
+
+(* §271 a const-binder call is a known-noncallable cause on the app row, recovered from the spec flavor *)
+Definition r_const_origin_app :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallable _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") []) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") []) ]). Qed.
+
+(* §271 a type-alias-origin call is a source-type-application requirement on the app row *)
+Definition r_type_origin_app :
+  existsb (fun f => match f with AN.OFApp _ (AN.AUnmet (AN.ReqSourceTypeApp _ _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "T")) (Syntax.NamedType (Names.predeclared_ordinary Names.PInt)) ]) ; Syntax.ExprStmt (APP (OID "T") [ ILIT 1 ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "T")) (Syntax.NamedType (Names.predeclared_ordinary Names.PInt)) ]) ; Syntax.ExprStmt (APP (OID "T") [ ILIT 1 ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
