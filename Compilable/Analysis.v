@@ -1007,6 +1007,28 @@ Proof.
       intros a b Ha Hb Hk. exact (Hkinj a b (or_intror Ha) (or_intror Hb) Hk).
 Qed.
 
+(* §5 read own_app back AT the exact application node: decidable equality transports the map's outcome to par *)
+Definition app_lookup (m : Collections.NodeMap.t (OccFact bp)) (par : Index.NodeRef idx) : option (AppOutcome bp par) :=
+  match Collections.NodeMap.find (Index.nr_key par) m with
+  | Some (OFApp r' oa) =>
+      match BN.noderef_eq_dec r' par with
+      | left Heq => Some (eq_rect r' (fun z => AppOutcome bp z) oa par Heq)
+      | right _ => None
+      end
+  | _ => None
+  end.
+(* §5 the read law: at an application node the map returns exactly its once-computed own_app, transported to par *)
+Lemma app_lookup_at (e : Index.NodeRef idx) (He : Index.node_view e = Index.Model.VApplication)
+  (nodes : list (Index.NodeRef idx)) :
+  In e nodes -> NoDup nodes ->
+  (forall a b, In a nodes -> In b nodes -> Index.nr_key a = Index.nr_key b -> a = b) ->
+  app_lookup (app_map nodes) e = Some (own_app bp (Index.Refs.mkAppRef e He)).
+Proof.
+  intros Hin Hnd Hkinj. unfold app_lookup. rewrite (app_map_at e He nodes Hin Hnd Hkinj). cbv beta iota.
+  destruct (BN.noderef_eq_dec e e) as [Heq | Hne]; [ | exfalso; apply Hne; reflexivity ].
+  rewrite (Eqdep_dec.UIP_dec BN.noderef_eq_dec Heq eq_refl). reflexivity.
+Qed.
+
 (* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
 Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   flat_map (fun r => (if is_name_head r then [] else [OFValue r (own_value bp ctab r)]) ++ app_fact_app r) nodes.
