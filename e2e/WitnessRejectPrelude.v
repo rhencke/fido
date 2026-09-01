@@ -68,7 +68,7 @@ Definition rres_observe (p : Syntax.Program) : AN.data_of_result (rres p) = AN.r
 (* direct data-level views: expose data_of_result through the view wrappers, cross the seal once, compute *)
 Ltac obs_direct p := try unfold pfacts; try unfold dsites; unfold rres, result_of_compile;
   try unfold RP.result_cause_views; try unfold RP.result_req_views;
-  try unfold RP.result_diag_families; try unfold RP.result_bound_families;
+  try unfold RP.result_diag_families; try unfold RP.result_bound_families; try unfold RP.result_fact_views;
   unfold AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
   rewrite (Compilable.compile_observe_data p); vm_compute; reflexivity.
 

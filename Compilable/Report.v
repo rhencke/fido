@@ -229,6 +229,67 @@ Definition result_bound_families {p} (r : AN.Result p) : list AN.Family :=
   flat_map (fun o => match AN.occ_req o with Some _ => [AN.fact_family o] | None => [] end)
            (AN.result_fact_list r).
 
+(* §11 the bp-free dependency view: a one-way projection of the exact retained dependency, no bp in its type *)
+Inductive DepView : Type :=
+| DvRedeclaredName : DepView
+| DvUnboundName : DepView
+| DvArgInvalid : nat -> DepView
+| DvArgUnmet : nat -> DepView
+| DvArgDependent : nat -> DepView
+| DvHeadInvalid : DepView
+| DvChild : DepView
+| DvShortAmbiguous : DepView
+| DvOtherDep : DepView.
+(* the bp-free view of one occurrence fact: its displayed family paired with its exact outcome class and view *)
+Inductive FactView : Type :=
+| FvOK : AN.Family -> FactView
+| FvNonconst : AN.Family -> FactView
+| FvInvalid : AN.Family -> CauseView -> FactView
+| FvUnmet : AN.Family -> ReqView -> FactView
+| FvDependent : AN.Family -> DepView -> FactView.
+Definition dep_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} {site : Index.NodeRef idx} {k : AN.FactKind} (d : AN.Dependency bp site k) : DepView :=
+  match d with
+  | AN.DepRedeclaredNameV _ _ _ => DvRedeclaredName
+  | AN.DepRedeclaredNameA _ _ _ _ _ _ => DvRedeclaredName
+  | AN.DepRedeclaredNameT _ _ _ => DvRedeclaredName
+  | AN.DepUnboundNameV _ _ _ => DvUnboundName
+  | AN.DepArgInvalid _ i _ _ _ => DvArgInvalid i
+  | AN.DepArgUnmet _ i _ _ _ => DvArgUnmet i
+  | AN.DepArgDependent _ i _ _ _ => DvArgDependent i
+  | AN.DepHeadInvalid _ _ _ _ => DvHeadInvalid
+  | AN.DepChild _ => DvChild
+  | AN.DepShortAmbiguous _ _ _ _ _ _ _ => DvShortAmbiguous
+  end.
+(* §11 the complete ordered occurrence-fact list projected bp-free, in order, off the vm_compute path *)
+Definition fact_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx} {bd : BN.PhaseData s}
+  {bp : BN.BindingPhase s bd} (o : AN.OccFact bp) : FactView :=
+  let fam := AN.fact_family o in
+  match o with
+  | AN.OFValue _ ov => match ov with
+      | AN.VOK _ => FvOK fam | AN.VNonconst => FvNonconst fam
+      | AN.VInvalid c => FvInvalid fam (cause_view c)
+      | AN.VUnmet q => FvUnmet fam (req_view q)
+      | AN.VDependent d => FvDependent fam (dep_view d) end
+  | AN.OFApp _ oa => match oa with
+      | AN.AOK => FvOK fam
+      | AN.AInvalid c => FvInvalid fam (cause_view c)
+      | AN.AUnmet q => FvUnmet fam (req_view q)
+      | AN.ADependent d => FvDependent fam (dep_view d) end
+  | AN.OFStmt _ os => match os with
+      | AN.SOK => FvOK fam
+      | AN.SInvalid c => FvInvalid fam (cause_view c)
+      | AN.SUnmet q => FvUnmet fam (req_view q)
+      | AN.SDependent d => FvDependent fam (dep_view d) end
+  | AN.OFType _ ot => match ot with
+      | AN.TOK _ => FvOK fam
+      | AN.TInvalid c => FvInvalid fam (cause_view c)
+      | AN.TUnmet q => FvUnmet fam (req_view q)
+      | AN.TDependent d => FvDependent fam (dep_view d) end
+  end.
+Definition result_fact_views {p} (r : AN.Result p) : list FactView :=
+  map fact_view (AN.result_fact_list r).
+
 (* bp-free descriptive view of a redeclared-group diagnostic: its exact root's name (contexts via result_group_* ) *)
 Definition diag_group_name {p} {r : AN.Result p} (d : AN.Diagnostic r) : option Names.OrdinaryIdentifier :=
   match d with @AN.DRedeclaredGroup _ _ n _ => Some n | _ => None end.
