@@ -155,6 +155,18 @@ Definition r_missingname_nil :
   = [ RP.CvUnresolvedName ].
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ]). Qed.
 
+(* §11 arbitrary depth: iota under three unary links still roots at the const, an exact initializer-identity *)
+Definition r_deep_unary_iota :
+  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RInitializerIdentity _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Name (Names.predeclared_ordinary Names.PIota))))))) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Name (Names.predeclared_ordinary Names.PIota))))))) ]) ]). Qed.
+
+(* §11 a folded conversion head keeps its iota argument exact InvalidIdentity, never deferred *)
+Definition r_folded_iota_no_defer :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt8) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt8) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ]). Qed.
+
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :
   existsb (fun f => match f with AN.OFStmt _ (AN.SDependent _) => true | _ => false end)
