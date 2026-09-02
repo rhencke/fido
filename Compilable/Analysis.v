@@ -2098,12 +2098,100 @@ Proof.
   rewrite Hocc, (stmt_fact_ssshort e (expr_sx_va (neg_map ctab (Index.file_nodes fr)) e)
     (neg_map ctab (Index.file_nodes fr)) nn nv Hv). apply in_eq.
 Qed.
-(* one const table per file, built once child-first: every fact is a projection of the same va computation, no rerun *)
+(* §5 fused pieces: own_value/own_app computed once per node, feeding the rows AND the cell *)
+Definition node_rows_of (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : list (OccFact bp)) : list (OccFact bp) :=
+  match Index.node_view r with
+  | Index.Model.VApplication => oa ++ (if retains_value_fact r then (if is_name_head r then [] else [OFValue r ov]) else [])
+  | Index.Model.VStmt _ => []
+  | Index.Model.VTypeExpr _ => type_fact r
+  | _ => if retains_value_fact r then (if is_name_head r then [] else [OFValue r ov]) else []
+  end.
+Definition cell_of' (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : list (OccFact bp)) : NegCell :=
+  mkNegCell (if is_name_head r then false else value_neg_b bp ov)
+            (match oa with OFApp _ o :: _ => app_neg_b bp o | _ => false end)
+            (if is_name_head r then false else match ov with VNonconst => true | _ => false end).
+(* the fused per-file pass: ONE fold; own_value/own_app (via the let) computed once per node, fed to both outputs *)
+Definition file_pass (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx))
+  : list (list (OccFact bp)) * Collections.NodeMap.t NegCell :=
+  fold_left (fun st r =>
+       let ov := own_value bp ctab r in
+       let oa := app_fact_app r in
+       (node_rows_of r ov oa :: fst st, Collections.NodeMap.add (Index.nr_key r) (cell_of' r ov oa) (snd st)))
+     nodes ([], Collections.NodeMap.empty NegCell).
+(* the fused fact list: the pass's own rows, each statement's row assembled from the complete carrier *)
+Definition file_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
+  let pass := file_pass ctab nodes in
+  List.concat (map (fun ro => match Index.node_view (fst ro) with
+                         | Index.Model.VStmt _ => stmt_fact (fst ro) (expr_sx_va (snd pass) (fst ro)) (snd pass)
+                         | _ => snd ro end)
+              (combine nodes (rev (fst pass)))).
+(* the cell's app field reads back the exact once-built app row's negativity — the same own_app app_neg_at names *)
+Lemma app_row_neg_eq (r : Index.NodeRef idx) :
+  (match app_fact_app r with OFApp _ o :: _ => app_neg_b bp o | _ => false end) = app_neg_at bp r.
+Proof.
+  destruct (Index.node_view r) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E;
+    try (rewrite (app_fact_app_none r _ E ltac:(discriminate)); rewrite (app_neg_at_off r _ E ltac:(discriminate)); reflexivity).
+  rewrite (app_fact_app_at r E). cbn [app_neg_b]. rewrite (app_neg_at_app r E). reflexivity.
+Qed.
+(* the fused cell equals the canonical neg_cell_of — value fields share own_value, app shares own_app *)
+Lemma cell_of'_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
+  cell_of' r (own_value bp ctab r) (app_fact_app r) = neg_cell_of ctab r.
+Proof. unfold cell_of', neg_cell_of. rewrite app_row_neg_eq. reflexivity. Qed.
+(* the fold decomposition: the rows accumulate reversed, the carrier is exactly the canonical neg_map fold *)
+Lemma file_pass_spec (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx))
+  (ar : list (list (OccFact bp))) (ac : Collections.NodeMap.t NegCell) :
+  fold_left (fun st r => let ov := own_value bp ctab r in let oa := app_fact_app r in
+                (node_rows_of r ov oa :: fst st, Collections.NodeMap.add (Index.nr_key r) (cell_of' r ov oa) (snd st)))
+            nodes (ar, ac)
+  = (rev (map (fun r => node_rows_of r (own_value bp ctab r) (app_fact_app r)) nodes) ++ ar,
+     fold_left (fun c r => Collections.NodeMap.add (Index.nr_key r) (neg_cell_of ctab r) c) nodes ac).
+Proof.
+  revert ar ac. induction nodes as [|n rest IH]; intros ar ac; [ reflexivity | ].
+  cbn [fold_left]. rewrite cell_of'_eq. rewrite IH. cbn [map rev].
+  rewrite <- app_assoc. reflexivity.
+Qed.
+(* the assembled contribution of a node is exactly its occ_facts_va contribution over the complete carrier *)
+Lemma assembly_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) (r : Index.NodeRef idx) :
+  (match Index.node_view r with
+   | Index.Model.VStmt _ => stmt_fact r (expr_sx_va (neg_map ctab nodes) r) (neg_map ctab nodes)
+   | _ => node_rows_of r (own_value bp ctab r) (app_fact_app r) end)
+  = occ_facts_va (neg_map ctab nodes) ctab r.
+Proof.
+  unfold occ_facts_va, node_rows_of, va_app_row, retained_value_row, va_value_row.
+  destruct (Index.node_view r); reflexivity.
+Qed.
+(* combine with the mapped self-rows collapses to a pointwise map — the plumbing lemma for the assembly *)
+Lemma combine_map_self {A B C} (f : A * B -> C) (h : A -> B) (l : list A) :
+  map f (combine l (map h l)) = map (fun x => f (x, h x)) l.
+Proof. induction l as [|a l IH]; [ reflexivity | cbn; f_equal; exact IH ]. Qed.
+(* the pass evaluates to the reversed self-rows and exactly the canonical neg_map carrier *)
+Lemma file_pass_val (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) :
+  file_pass ctab nodes
+  = (rev (map (fun r => node_rows_of r (own_value bp ctab r) (app_fact_app r)) nodes), neg_map ctab nodes).
+Proof.
+  unfold file_pass. rewrite file_pass_spec, app_nil_r. reflexivity.
+Qed.
+(* the fused fact list equals the canonical raw projection over the complete carrier — the byte-identity bridge *)
+Lemma file_facts_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) :
+  file_facts ctab nodes = flat_map (occ_facts_va (neg_map ctab nodes) ctab) nodes.
+Proof.
+  unfold file_facts. cbv zeta. unfold file_pass. rewrite !file_pass_spec. cbn [fst snd].
+  rewrite !app_nil_r, rev_involutive.
+  rewrite combine_map_self. rewrite flat_map_concat_map. f_equal. apply map_ext. intro r. cbn [fst snd]. apply assembly_eq.
+Qed.
+
 Local Definition raw_facts : list (OccFact bp) :=
+  flat_map (fun fr => file_facts (const_table bp fr) (Index.file_nodes fr))
+           (flat_map BN.PI.pkg_members (BN.PI.packages s)).
+(* the fused raw list projects to the canonical per-file occ_facts_va form — the retention proofs read this *)
+Lemma raw_facts_flat : raw_facts =
   flat_map (fun fr => let ctab := const_table bp fr in
                       let va := neg_map ctab (Index.file_nodes fr) in
                       flat_map (occ_facts_va va ctab) (Index.file_nodes fr))
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
+Proof.
+  unfold raw_facts. rewrite !flat_map_concat_map. f_equal. apply map_ext. intro fr. apply file_facts_eq.
+Qed.
 
 Definition FactPhase : Type := { m : list (OccFact bp) | m = raw_facts }.
 
@@ -2336,7 +2424,7 @@ Qed.
 (* §11 canonical-key soundness at the source: no two retained facts share a site+kind key across the whole program *)
 Lemma raw_facts_key_nodup : NoDup (map fact_key (raw_facts bp)).
 Proof.
-  unfold raw_facts; cbv zeta. rewrite map_flat_map.
+  rewrite raw_facts_flat; cbv zeta. rewrite map_flat_map.
   apply (BN.flat_map_nodup _ (fun sk => Index.nr_file (fst sk))).
   - apply files_nodup.
   - intros fr _. rewrite map_flat_map. apply (BN.flat_map_nodup _ (fun sk => fst sk)).
@@ -2355,7 +2443,7 @@ Lemma raw_facts_node (o : OccFact bp) :
   In o (raw_facts bp) -> exists fr r, In r (Index.file_nodes fr)
     /\ In o (occ_facts_va bp (neg_map bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
 Proof.
-  unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
+  rewrite raw_facts_flat; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
 Qed.
 
@@ -2394,7 +2482,7 @@ Lemma raw_facts_node_file (o : OccFact bp) :
                /\ In r (Index.file_nodes fr)
                /\ In o (occ_facts_va bp (neg_map bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
 Proof.
-  unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
+  rewrite raw_facts_flat; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [exact Hfr | split; [exact Hr | exact Ho]].
 Qed.
 
@@ -2948,7 +3036,7 @@ Lemma value_fact_retained (fr : Index.FileRef (res_index res))
   (Hneg : value_neg_b (res_binds res) (own_value (res_binds res) (const_table (res_binds res) fr) e) = true) :
   In (OFValue e (own_value (res_binds res) (const_table (res_binds res) fr) e)) (result_fact_list res).
 Proof.
-  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  unfold result_fact_list; rewrite fact_once; rewrite raw_facts_flat; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split;
     [ exact (file_nodes_complete fr e He) | apply (occ_value_mem (res_binds res) (const_table (res_binds res) fr) fr e Hnh He); exact Hneg ].
 Qed.
@@ -2958,7 +3046,7 @@ Lemma app_fact_retained (fr : Index.FileRef (res_index res))
   (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr) (Hva : Index.node_view e = Index.Model.VApplication) :
   In (OFApp e (own_app (res_binds res) (Index.Refs.mkAppRef e Hva))) (result_fact_list res).
 Proof.
-  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  unfold result_fact_list; rewrite fact_once; rewrite raw_facts_flat; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split;
     [ exact (file_nodes_complete fr e He) | apply (occ_app_mem (res_binds res) (const_table (res_binds res) fr) fr e He Hva) ].
 Qed.
@@ -2971,7 +3059,7 @@ Lemma stmt_fact_retained (fr : Index.FileRef (res_index res))
        (neg_map (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) e nn nv Hv))
      (result_fact_list res).
 Proof.
-  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  unfold result_fact_list; rewrite fact_once; rewrite raw_facts_flat; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split;
     [ exact (file_nodes_complete fr e He) | apply (occ_stmt_mem (res_binds res) (const_table (res_binds res) fr) fr e He nn nv Hv) ].
 Qed.
@@ -3051,7 +3139,7 @@ Lemma nonconst_value_fact_retained (fr : Index.FileRef (res_index res))
   (Hnc : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst) :
   In (OFValue e VNonconst) (result_fact_list res).
 Proof.
-  unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
+  unfold result_fact_list; rewrite fact_once; rewrite raw_facts_flat; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | ].
   rewrite <- Hnc. apply (occ_value_mem_retained (res_binds res) (const_table (res_binds res) fr) fr e Hnh He Hret).
 Qed.
