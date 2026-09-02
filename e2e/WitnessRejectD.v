@@ -206,6 +206,15 @@ Proof. obs_uc uc51_prog. Qed.
 Definition uc_case_52 : uc_obs (rres uc52_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault; RP.FvNonconst AN.FamValue ] [] [ RP.RvConstDecl; RP.RvConstNoDefault ].
 Proof. obs_uc uc52_prog. Qed.
 
+(* uc_path_total: every expression node has its exact use-path — use_path is total *)
+Definition uc_path_total := @Index.Edges.use_path.
+(* uc_path_progress: a use-path's root sits strictly before its subject, so the walk terminates *)
+Definition uc_path_progress := @Index.Edges.up_root_lt.
+(* uc_path_edge_roundtrip: the subject sits at its path's exact ordinal in its recorded parent *)
+Definition uc_path_edge_roundtrip := @Index.Edges.up_iat.
+(* uc_path_canonical_query: a subject's stored role is exactly the one its path implies *)
+Definition uc_path_canonical_query := @Index.Edges.up_role_ok.
+
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
 Lemma reader_index_outside : AN.res_index (rres oprobe) = AN.res_index (AN.analyze oprobe). Proof. obs_eq oprobe. Qed.
