@@ -957,7 +957,7 @@ Qed.
 Section Retain.
 Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} (bp : BN.BindingPhase s bd).
 
-(* §11/§10 the single application fact of a node, shared by va_facts and occ_facts_va so the AppRef proof is one term *)
+(* §11/§10 the single application fact of a node, shared by neg_map and occ_facts_va so the AppRef proof is one term *)
 Definition app_fact_body (r : Index.NodeRef idx) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
   match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
   | Index.Model.VApplication => fun H0 => [OFApp r (own_app bp (Index.Refs.mkAppRef r H0))]
@@ -1102,9 +1102,48 @@ Proof.
     rewrite (Hkinj r e Hr Hin Hk), Hnh in Hnhr. discriminate Hnhr.
 Qed.
 
-(* the value (and, at applications, application) facts of a file's nodes, computed once: the child-read pre-pass *)
-Definition va_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
-  flat_map (fun r => (if is_name_head r then [] else [OFValue r (own_value bp ctab r)]) ++ app_fact_app r) nodes.
+(* §5 the child-read negativity cell — the small vm-safe projection a parent needs of a child, keyed once *)
+Record NegCell : Type := mkNegCell { nc_val_neg : bool ; nc_app_neg : bool ; nc_val_nonconst : bool }.
+(* the one-per-node cell replicates exactly what the child-first find over va returned: value fields skip name heads *)
+Definition neg_cell_of (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : NegCell :=
+  mkNegCell
+    (if is_name_head r then false else value_neg_b bp (own_value bp ctab r))
+    (app_neg_at bp r)
+    (if is_name_head r then false else match own_value bp ctab r with VNonconst => true | _ => false end).
+Definition neg_map_step (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (m : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) : Collections.NodeMap.t NegCell :=
+  Collections.NodeMap.add (Index.nr_key r) (neg_cell_of ctab r) m.
+(* §5 the ephemeral negativity carrier: one cell per node, keyed for a constant-event child read, no growing scan *)
+Definition neg_map (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : Collections.NodeMap.t NegCell :=
+  fold_left (neg_map_step ctab) nodes (Collections.NodeMap.empty NegCell).
+(* a key no node in the pass carries reads straight through the fold to the accumulator — gso closure *)
+Lemma neg_map_skip (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (k : positive)
+  (nodes : list (Index.NodeRef idx)) (acc : Collections.NodeMap.t NegCell) :
+  (forall r, In r nodes -> Index.nr_key r <> k) ->
+  Collections.NodeMap.find k (fold_left (neg_map_step ctab) nodes acc) = Collections.NodeMap.find k acc.
+Proof.
+  revert acc; induction nodes as [|n rest IH]; intros acc Hne; [ reflexivity | ].
+  cbn [fold_left]. rewrite IH by (intros r Hr; exact (Hne r (or_intror Hr))).
+  unfold neg_map_step. apply Collections.NodeMap.gso, not_eq_sym, (Hne n (or_introl eq_refl)).
+Qed.
+(* §5 the cell-read law: the carrier reads back each node's exact once-computed cell — a constant-event lookup *)
+Lemma neg_map_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+  (nodes : list (Index.NodeRef idx)) :
+  In e nodes -> NoDup nodes ->
+  (forall a b, In a nodes -> In b nodes -> Index.nr_key a = Index.nr_key b -> a = b) ->
+  Collections.NodeMap.find (Index.nr_key e) (neg_map ctab nodes) = Some (neg_cell_of ctab e).
+Proof.
+  intros Hin Hnd Hkinj. unfold neg_map.
+  remember (Collections.NodeMap.empty NegCell) as acc0 eqn:Ha0. clear Ha0.
+  revert acc0 e Hin Hnd Hkinj. induction nodes as [|n rest IH]; intros acc e Hin Hnd Hkinj.
+  - inversion Hin.
+  - inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [fold_left]. destruct Hin as [Heq | Hin'].
+    + subst n. rewrite neg_map_skip.
+      * unfold neg_map_step. apply Collections.NodeMap.gss.
+      * intros r Hr Hk. apply Hnn. rewrite <- (Hkinj r e (or_intror Hr) (or_introl eq_refl) Hk). exact Hr.
+    + apply (IH (neg_map_step ctab acc n) e Hin' Hnd').
+      intros a b Ha Hb Hk. exact (Hkinj a b (or_intror Ha) (or_intror Hb) Hk).
+Qed.
+
 (* §10 the exact fact-row retention policy: which views retain a Value occurrence fact — not a value-expression claim *)
 Definition retains_value_fact_view (v : Index.Model.NodeView) : bool :=
   match v with
@@ -1113,22 +1152,19 @@ Definition retains_value_fact_view (v : Index.Model.NodeView) : bool :=
   | _ => false
   end.
 Definition retains_value_fact (site : Index.NodeRef idx) : bool := retains_value_fact_view (Index.node_view site).
-Definition va_value_negative (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
-  match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
-  | Some (OFValue _ ov) => match ov with VInvalid _ | VUnmet _ | VDependent _ => true | _ => false end | _ => false end.
-Definition va_app_negative (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
-  match find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end) va with
-  | Some (OFApp _ oa) => match oa with AInvalid _ | AUnmet _ | ADependent _ => true | _ => false end | _ => false end.
+Definition va_value_negative (va : Collections.NodeMap.t NegCell) (e : Index.NodeRef idx) : bool :=
+  match Collections.NodeMap.find (Index.nr_key e) va with Some c => nc_val_neg c | None => false end.
+Definition va_app_negative (va : Collections.NodeMap.t NegCell) (e : Index.NodeRef idx) : bool :=
+  match Collections.NodeMap.find (Index.nr_key e) va with Some c => nc_app_neg c | None => false end.
 (* the child-first expr-statement driver: read the child's value/app negativity from va, then own_stmt_expr *)
-Definition expr_sx_va (va : list (OccFact bp)) (r : Index.NodeRef idx)
+Definition expr_sx_va (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx)
   (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : StmtOutcome bp r :=
   let e := Index.Edges.ee_child (Index.Edges.exprstmt_expr (Index.Refs.mkExprStmtRef r Hv)) in
   own_stmt_expr bp (Index.Refs.mkExprStmtRef r Hv) (va_value_negative va e) (va_app_negative va e).
 (* the child-first read that a node's value is nonconstant AND its Value fact is retained by policy at that site *)
-Definition va_value_nonconst (va : list (OccFact bp)) (e : Index.NodeRef idx) : bool :=
+Definition va_value_nonconst (va : Collections.NodeMap.t NegCell) (e : Index.NodeRef idx) : bool :=
   retains_value_fact e &&
-  match find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) va with
-  | Some (OFValue _ ov) => match ov with VNonconst => true | _ => false end | _ => false end.
+  match Collections.NodeMap.find (Index.nr_key e) va with Some c => nc_val_nonconst c | None => false end.
 (* find returns the FIRST match: it splits its list at the match with every earlier element failing the test *)
 Lemma find_prefix_false {A} (f : A -> bool) (l : list A) (x : A) :
   find f l = Some x -> exists l1 l2, l = l1 ++ x :: l2 /\ forallb (fun y => negb (f y)) l1 = true /\ f x = true.
@@ -1139,11 +1175,11 @@ Proof.
     split; [ cbn; f_equal; exact Hl | split; [ cbn; rewrite Ha; exact Hf | exact Hx ] ].
 Qed.
 (* the first source-ordered short RHS whose exact child value is nonconstant — its value meaning is not yet known *)
-Definition find_rhs_vnonconst (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Definition find_rhs_vnonconst (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   : option { j : nat & Index.Edges.ShortRhsEdge st j } :=
   find (fun sig => va_value_nonconst va (Index.Edges.sr_child (projT2 sig))) (Index.Edges.short_rhs_edges st).
 (* §19 RHS-meaning firstness: the selected nonconstant RHS is the first — every earlier RHS child is not VNonconst *)
-Lemma find_rhs_vnonconst_first (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma find_rhs_vnonconst_first (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   (j : nat) (edge : Index.Edges.ShortRhsEdge st j) :
   find_rhs_vnonconst va st = Some (existT _ j edge) ->
   exists l1 l2, Index.Edges.short_rhs_edges st = l1 ++ (existT _ j edge) :: l2
@@ -1152,7 +1188,7 @@ Proof.
   intro H. destruct (find_prefix_false _ _ _ H) as [l1 [l2 [Hl [Hf _]]]]. exists l1, l2. split; [ exact Hl | exact Hf ].
 Qed.
 (* the application-child branch at one RHS node, factored on the exact child view so a convoy step can invert it *)
-Definition rhs_app_neg_at (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+Definition rhs_app_neg_at (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (ve : Index.Model.NodeView)
   (He : Index.node_view (Index.Edges.sr_child edge) = ve) : option (StmtOutcome bp (Index.Refs.sh_node st)) :=
   match ve as ve0 return Index.node_view (Index.Edges.sr_child edge) = ve0 -> option (StmtOutcome bp (Index.Refs.sh_node st)) with
@@ -1163,19 +1199,19 @@ Definition rhs_app_neg_at (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef
   | _ => fun _ => None
   end He.
 (* the negative-child verdict at one exact RHS edge: value before application, or none *)
-Definition rhs_neg_at (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+Definition rhs_neg_at (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) : option (StmtOutcome bp (Index.Refs.sh_node st)) :=
   if va_value_negative va (Index.Edges.sr_child edge)
   then Some (SDependent (DepChild (ShortValueChild st j edge eq_refl)))
   else rhs_app_neg_at va st j edge (Index.node_view (Index.Edges.sr_child edge)) eq_refl.
 (* the first source-ordered negative short RHS, value before application, as its exact child edge *)
-Definition short_rhs_neg (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Definition short_rhs_neg (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   : option (StmtOutcome bp (Index.Refs.sh_node st)) :=
   fold_right (fun sig acc => match sig with existT _ j edge =>
     match rhs_neg_at va st j edge with Some o => Some o | None => acc end end)
     None (Index.Edges.short_rhs_edges st).
 (* §19 negative-RHS firstness: the selected negative RHS is the first — every earlier RHS edge is non-negative *)
-Lemma short_rhs_neg_first (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma short_rhs_neg_first (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   (out : StmtOutcome bp (Index.Refs.sh_node st)) :
   short_rhs_neg va st = Some out ->
   exists l1 (sig : { j : nat & Index.Edges.ShortRhsEdge st j }) l2,
@@ -1192,7 +1228,7 @@ Proof.
     split; [ cbn; f_equal; exact Hl | split; [ exact Hg | cbn; rewrite Hb; exact Hf ] ].
 Qed.
 (* inverting the application branch: it fires only at an application child that is application-negative *)
-Lemma rhs_app_neg_at_inv (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+Lemma rhs_app_neg_at_inv (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (ve : Index.Model.NodeView)
   (He : Index.node_view (Index.Edges.sr_child edge) = ve) (out : StmtOutcome bp (Index.Refs.sh_node st)) :
   rhs_app_neg_at va st j edge ve He = Some out ->
@@ -1205,7 +1241,7 @@ Proof.
   intro Heq; injection Heq as Heq; subst out. exists He. split; reflexivity.
 Qed.
 (* inverting one RHS verdict: a fired negative names either a value-negative or an application-negative child *)
-Lemma rhs_neg_at_inv (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) (j : nat)
+Lemma rhs_neg_at_inv (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx) (j : nat)
   (edge : Index.Edges.ShortRhsEdge st j) (out : StmtOutcome bp (Index.Refs.sh_node st)) :
   rhs_neg_at va st j edge = Some out ->
   (out = SDependent (DepChild (ShortValueChild st j edge eq_refl)) /\ va_value_negative va (Index.Edges.sr_child edge) = true)
@@ -1218,7 +1254,7 @@ Proof.
   - intro Heq. right. exact (rhs_app_neg_at_inv va st j edge _ _ out Heq).
 Qed.
 (* inverting the fold: a fired first-negative RHS is exactly one exact source edge's negative verdict *)
-Lemma short_rhs_neg_inv (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma short_rhs_neg_inv (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   (out : StmtOutcome bp (Index.Refs.sh_node st)) :
   short_rhs_neg va st = Some out ->
   exists j (edge : Index.Edges.ShortRhsEdge st j), rhs_neg_at va st j edge = Some out.
@@ -1331,7 +1367,7 @@ Lemma sdd_blocker_branch_ok_inv (r : Index.NodeRef idx) (nn nv : nat)
   sdd_blocker_branch r nn nv Hv cont blk Hblk = SOK -> exists H, cont H = SOK.
 Proof. unfold sdd_blocker_branch. destruct blk; cbn; intro Heq; [ exists Hblk; exact Heq | discriminate Heq | discriminate Heq ]. Qed.
 (* the canonical short-declaration decision: the fixed precedence read off the exact retained rows and RHS facts *)
-Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Definition short_decl_decision (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) : StmtOutcome bp r :=
   let st := Index.Refs.mkShortStmtRef r nn nv Hv in
   let se := BN.short_event bp st in
@@ -1361,7 +1397,7 @@ Definition short_decl_decision (va : list (OccFact bp)) (r : Index.NodeRef idx) 
       end)
     (BN.short_dup_decision_name (BN.short_duplicate_decision se)) eq_refl.
 (* §19.3/§19.4 inverting a retained short child dependency: it names a value- or application-negative RHS child *)
-Lemma short_decl_decision_dep_inv (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_dep_inv (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (edge : ChildFactEdge r StatementKind) :
   short_decl_decision va r nn nv Hv = SDependent (DepChild edge) ->
@@ -1388,7 +1424,7 @@ Proof.
     cbn [cfe_child_kind cfe_child_site]. right. split; [ reflexivity | split; [ exact Han | exact Hap ] ].
 Qed.
 (* inverting the RHS-meaning branch: no earlier branch fired, no negative RHS, and a first nonconstant RHS exists *)
-Lemma short_decl_decision_rhsmeaning_inv (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_rhsmeaning_inv (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (st' : Index.Refs.ShortStmtRef idx) (j : nat) (edge : Index.Edges.ShortRhsEdge st' j)
   (Hs : r = Index.Refs.sh_node st') :
@@ -1435,7 +1471,7 @@ Lemma sdd_blocker_branch_cont (r : Index.NodeRef idx) (nn nv : nat)
   sdd_blocker_branch r nn nv Hv cont blk Hblk = cont H.
 Proof. unfold sdd_blocker_branch. destruct blk; [ cbn; apply Hg | discriminate Hn | discriminate Hn ]. Qed.
 (* the RHS-meaning branch soundness: the cleared guards, no negative RHS, and a first nonconstant RHS produce it *)
-Lemma short_decl_decision_rhsmeaning_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_rhsmeaning_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (j0 : nat) (edge0 : Index.Edges.ShortRhsEdge (Index.Refs.mkShortStmtRef r nn nv Hv) j0)
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
@@ -1482,7 +1518,7 @@ Proof.
   rewrite Hneg, Hfind. reflexivity.
 Qed.
 (* the same soundness over an exact ShortStmtRef, so the decision names the caller's own statement, not a rebuild *)
-Lemma short_decl_decision_rhsmeaning_sound_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma short_decl_decision_rhsmeaning_sound_st (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   (j0 : nat) (edge0 : Index.Edges.ShortRhsEdge st j0)
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
   (Hcount : Index.Refs.sh_names st = Index.Refs.sh_values st)
@@ -1494,7 +1530,7 @@ Lemma short_decl_decision_rhsmeaning_sound_st (va : list (OccFact bp)) (st : Ind
   = SUnmet (ReqShortRhsMeaning st j0 edge0 eq_refl).
 Proof. destruct st as [node names values ok]; apply short_decl_decision_rhsmeaning_sound; assumption. Qed.
 (* the decision, past the cleared duplicate/count/blocker/no-new guards, is exactly its RHS-and-mixed tail *)
-Lemma short_decl_decision_tail (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_tail (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1545,7 +1581,7 @@ Proof.
     as [Htrue | Hnt]; [ | exfalso; exact (Hnt Hnew) ]. reflexivity.
 Qed.
 (* §18.8 usage soundness: all guards cleared, no negative or nonconstant RHS, and no existing-variable reuse *)
-Lemma short_decl_decision_usage_sound_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma short_decl_decision_usage_sound_st (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
   (Hcount : Index.Refs.sh_names st = Index.Refs.sh_values st)
   (Hblk : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker)
@@ -1561,7 +1597,7 @@ Proof.
     [ rewrite Hmix in Ht; discriminate Ht | reflexivity ].
 Qed.
 (* §18.7 mixed-redeclaration soundness: all guards cleared, no negative or nonconstant RHS, some existing variable *)
-Lemma short_decl_decision_redecl_sound_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma short_decl_decision_redecl_sound_st (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None)
   (Hcount : Index.Refs.sh_names st = Index.Refs.sh_values st)
   (Hblk : BN.short_blocker_decision (BN.short_event bp st) = BN.ShortNoBlocker)
@@ -1577,7 +1613,7 @@ Proof.
     [ reflexivity | exfalso; exact (Hf Hmix) ].
 Qed.
 (* every unmet short outcome sits past the cleared duplicate/count/blocker/no-new guards, with no negative RHS *)
-Lemma short_decl_decision_unmet_guards (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_unmet_guards (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) (q : Requirement bp r StatementKind) :
   short_decl_decision va r nn nv Hv = SUnmet q ->
   BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None
@@ -1600,7 +1636,7 @@ Proof.
   split; [ exact Hdup | split; [ exact Hcount | split; [ exact Hblk | split; [ exact Hnew | reflexivity ] ] ] ].
 Qed.
 (* the same unmet-guard inversion over an exact short statement ref, matching the case-ref construction hypotheses *)
-Lemma short_decl_decision_unmet_guards_st (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx)
+Lemma short_decl_decision_unmet_guards_st (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx)
   {q : Requirement bp (Index.Refs.sh_node st) StatementKind} :
   short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
   = SUnmet q ->
@@ -1614,7 +1650,7 @@ Proof.
   apply short_decl_decision_unmet_guards.
 Qed.
 (* §18.8 usage completeness: the exact usage requirement implies every final guard, including no RHS meaning or mix *)
-Lemma short_decl_decision_usage_complete (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) :
+Lemma short_decl_decision_usage_complete (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx) :
   short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
   = SUnmet (ReqShortUsage st eq_refl) ->
   BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None
@@ -1637,7 +1673,7 @@ Proof.
   repeat split; try assumption. apply Bool.not_true_is_false; exact Hf.
 Qed.
 (* §18.7 mixed completeness: the exact redeclaration-types requirement implies every guard, existing row present *)
-Lemma short_decl_decision_redecl_complete (va : list (OccFact bp)) (st : Index.Refs.ShortStmtRef idx) :
+Lemma short_decl_decision_redecl_complete (va : Collections.NodeMap.t NegCell) (st : Index.Refs.ShortStmtRef idx) :
   short_decl_decision va (Index.Refs.sh_node st) (Index.Refs.sh_names st) (Index.Refs.sh_values st) (Index.Refs.sh_ok st)
   = SUnmet (ReqShortRedeclarationTypes st eq_refl) ->
   BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp st)) = None
@@ -1660,7 +1696,7 @@ Proof.
   repeat split; assumption.
 Qed.
 (* §18.5 negative-RHS soundness: past the cleared guards, a present negative RHS is the decision verbatim *)
-Lemma short_decl_decision_rhsneg_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_rhsneg_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1685,7 +1721,7 @@ Proof.
   exists Hdup. unfold sdd_dup_branch. reflexivity.
 Qed.
 (* §18.1 duplicate soundness: a present duplicate name makes the decision exactly the duplicate invalid *)
-Lemma short_decl_decision_dup_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_dup_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) (n : Names.OrdinaryIdentifier)
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = Some n) :
   exists H, short_decl_decision va r nn nv Hv
@@ -1695,7 +1731,7 @@ Proof.
   exact (sdd_dup_branch_some r nn nv Hv _ _ eq_refl n Hdup).
 Qed.
 (* past the cleared duplicate the decision is exactly its count/blocker continuation, written once for §18.2-18.4 *)
-Lemma short_decl_decision_dup_none (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_dup_none (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None) :
   short_decl_decision va r nn nv Hv =
@@ -1738,7 +1774,7 @@ Proof.
     eq_refl Hdup Hdup (fun _ _ => eq_refl)). cbv beta. reflexivity.
 Qed.
 (* §18.2 count-mismatch soundness: no duplicate and unequal projected counts is exactly the count-mismatch invalid *)
-Lemma short_decl_decision_count_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_count_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hne : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) <> Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv)) :
@@ -1772,7 +1808,7 @@ Lemma sdd_blocker_branch_ambiguous (r : Index.NodeRef idx) (nn nv : nat)
     = SDependent (DepShortAmbiguous (Index.Refs.mkShortStmtRef r nn nv Hv) i row a b Hrow eq_refl).
 Proof. revert Hblk. rewrite Hn. intro Hblk. cbn [sdd_blocker_branch]. reflexivity. Qed.
 (* §18.3 blocker soundness: past no duplicate and equal counts, a nonvariable reuse is exactly that invalid *)
-Lemma short_decl_decision_blocker_nonvar_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_blocker_nonvar_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1787,7 +1823,7 @@ Proof.
   exact (sdd_blocker_branch_nonvar r nn nv Hv _ _ eq_refl i row m Hrow Hblk).
 Qed.
 (* §18.3 blocker soundness: past no duplicate and equal counts, an ambiguous reuse is exactly that dependent *)
-Lemma short_decl_decision_blocker_ambiguous_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_blocker_ambiguous_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1802,7 +1838,7 @@ Proof.
   exact (sdd_blocker_branch_ambiguous r nn nv Hv _ _ eq_refl i row a b Hrow Hblk).
 Qed.
 (* past the cleared duplicate, equal counts and no structural blocker: the no-new-name guard and its later tail *)
-Lemma short_decl_decision_blocker_none (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_blocker_none (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1836,7 +1872,7 @@ Proof.
            end end end end) _ eq_refl Hblk Hblk (fun _ _ => eq_refl)). cbv beta. reflexivity.
 Qed.
 (* §18.4 no-new soundness: past all earlier cleared branches, an empty new-name filter is exactly that invalid *)
-Lemma short_decl_decision_nonew_sound (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_nonew_sound (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1851,7 +1887,7 @@ Proof.
   f_equal. f_equal. apply (Eqdep_dec.UIP_dec Bool.bool_dec).
 Qed.
 (* §18.4 no-new completeness: the exact no-new invalid retains the exact empty new-name filter certificate *)
-Lemma short_decl_decision_nonew_complete (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_nonew_complete (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (st : Index.Refs.ShortStmtRef idx)
   (P : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = false) (e : r = Index.Refs.sh_node st) :
@@ -1859,7 +1895,7 @@ Lemma short_decl_decision_nonew_complete (va : list (OccFact bp)) (r : Index.Nod
   existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = false.
 Proof. intros _. exact P. Qed.
 (* §18.4 the exact no-new invalid is impossible whenever any exact New row is present at the same statement *)
-Lemma short_decl_decision_nonew_impossible (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_nonew_impossible (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (st : Index.Refs.ShortStmtRef idx)
   (P : existsb BN.is_new_row (BN.se_rows (BN.short_event bp st)) = false) (e : r = Index.Refs.sh_node st) :
@@ -1875,7 +1911,7 @@ Proof.
   destruct (f x); [ discriminate Hx | reflexivity ].
 Qed.
 (* §18.4 all-blank inclusion: every row non-New is exactly the empty filter, hence that no-new invalid *)
-Lemma short_decl_decision_nonew_allblank (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_nonew_allblank (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv))
   (Hdup : BN.short_dup_decision_name (BN.short_duplicate_decision (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv))) = None)
   (Hcount : Index.Refs.sh_names (Index.Refs.mkShortStmtRef r nn nv Hv) = Index.Refs.sh_values (Index.Refs.mkShortStmtRef r nn nv Hv))
@@ -1885,7 +1921,7 @@ Lemma short_decl_decision_nonew_allblank (va : list (OccFact bp)) (r : Index.Nod
   = SInvalid (ShortNoNewName (Index.Refs.mkShortStmtRef r nn nv Hv) (existsb_false_forallb_negb _ _ Hblank) eq_refl).
 Proof. exact (short_decl_decision_nonew_sound va r nn nv Hv Hdup Hcount Hblk (existsb_false_forallb_negb _ _ Hblank)). Qed.
 (* the short-declaration decision never returns the clean SOK outcome: every branch is invalid, dependent or unmet *)
-Lemma short_decl_decision_not_ok (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_not_ok (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
   short_decl_decision va r nn nv Hv <> SOK.
 Proof.
@@ -1905,7 +1941,7 @@ Proof.
       (BN.se_rows (BN.short_event bp (Index.Refs.mkShortStmtRef r nn nv Hv)))) true); discriminate Heq.
 Qed.
 (* §18.9 whole-decision: exactly one of the nine fixed-order cases holds, each paired with its exact outcome *)
-Lemma short_decl_decision_cases (va : list (OccFact bp)) (r : Index.NodeRef idx) (nn nv : nat)
+Lemma short_decl_decision_cases (va : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) (nn nv : nat)
   (Hv : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
   let st := Index.Refs.mkShortStmtRef r nn nv Hv in
   let se := BN.short_event bp st in
@@ -2009,7 +2045,7 @@ Qed.
 (* §10 the statement fact: expr arm from the driver, short arm the canonical decision over va, else no fact *)
 Definition stmt_fact_body (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
-  (va : list (OccFact bp)) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
+  (va : Collections.NodeMap.t NegCell) (v : Index.Model.NodeView) (H : Index.node_view r = v) : list (OccFact bp) :=
   match v as v0 return Index.node_view r = v0 -> list (OccFact bp) with
   | Index.Model.VStmt Index.Model.SSExpr => fun Hv => [OFStmt r (sx Hv)]
   | Index.Model.VStmt (Index.Model.SSShort nn nv) => fun Hv => [OFStmt r (short_decl_decision va r nn nv Hv)]
@@ -2017,21 +2053,21 @@ Definition stmt_fact_body (r : Index.NodeRef idx)
   end H.
 Definition stmt_fact (r : Index.NodeRef idx)
   (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r)
-  (va : list (OccFact bp)) : list (OccFact bp) :=
+  (va : Collections.NodeMap.t NegCell) : list (OccFact bp) :=
   stmt_fact_body r sx va (Index.node_view r) eq_refl.
 Lemma stmt_fact_ssexpr (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : Collections.NodeMap.t NegCell)
   (H : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr) : stmt_fact r sx va = [OFStmt r (sx H)].
 Proof. exact (convoy_at (Index.node_view r) (stmt_fact_body r sx va) (Index.Model.VStmt Index.Model.SSExpr) H). Qed.
 (* a short statement node's one retained fact is exactly its canonical short-declaration decision *)
 Lemma stmt_fact_ssshort (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : Collections.NodeMap.t NegCell)
   (nn nv : nat) (H : Index.node_view r = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
   stmt_fact r sx va = [OFStmt r (short_decl_decision va r nn nv H)].
 Proof. exact (convoy_at (Index.node_view r) (stmt_fact_body r sx va) (Index.Model.VStmt (Index.Model.SSShort nn nv)) H). Qed.
 (* every fact stmt_fact retains is an OFStmt at that exact node — and it retains one only at a statement node *)
 Lemma stmt_fact_content (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : Collections.NodeMap.t NegCell)
   (o : OccFact bp) (v : Index.Model.NodeView) (H : Index.node_view r = v) :
   In o (stmt_fact_body r sx va v H) -> (exists os, o = OFStmt r os) /\ exists st, Index.node_view r = Index.Model.VStmt st.
 Proof.
@@ -2039,179 +2075,92 @@ Proof.
   destruct nst; cbn; intro Hin; try (exfalso; exact Hin);
     (destruct Hin as [Hin|Hin]; [ subst o; split; [ eexists; reflexivity | eexists; exact H ] | exfalso; exact Hin ]).
 Qed.
-(* the exact value / application row a node already has in the child-first table — projected, never recomputed *)
-Definition va_value_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list (OccFact bp) :=
-  match find (fun o => match o with OFValue r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
-Definition va_app_row (va : list (OccFact bp)) (r : Index.NodeRef idx) : list (OccFact bp) :=
-  match find (fun o => match o with OFApp r' _ => BN.noderef_eqb r' r | _ => false end) va with Some o => [o] | None => [] end.
+(* the node's own value row, direct at the node — a name head carries none *)
+Definition va_value_row (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
+  if is_name_head r then [] else [OFValue r (own_value bp ctab r)].
+(* the node's own application row — the canonical app_fact_app, one own_app construction *)
+Definition va_app_row (r : Index.NodeRef idx) : list (OccFact bp) := app_fact_app r.
 (* the Value row is retained exactly when the shared policy admits the site's view — the one retention gate *)
-Definition retained_value_row (va : list (OccFact bp)) (site : Index.NodeRef idx) : list (OccFact bp) :=
-  if retains_value_fact site then va_value_row va site else [].
-(* §11 raw_facts projects the one va computation through the shared retention policy at each node's view *)
-Definition occ_facts_va (va : list (OccFact bp)) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
+Definition retained_value_row (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (site : Index.NodeRef idx) : list (OccFact bp) :=
+  if retains_value_fact site then va_value_row ctab site else [].
+(* §11 raw_facts projects each node's own outcome directly; a statement reads its child via the carrier *)
+Definition occ_facts_va (va : Collections.NodeMap.t NegCell) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
-  | Index.Model.VApplication => va_app_row va r ++ retained_value_row va r
+  | Index.Model.VApplication => va_app_row r ++ retained_value_row ctab r
   | Index.Model.VStmt _ => stmt_fact r (expr_sx_va va r) va
   | Index.Model.VTypeExpr _ => type_fact r
-  | _ => retained_value_row va r
+  | _ => retained_value_row ctab r
   end.
 
-(* va computes own_value for every file node once, so the child-read finds exactly own_value at that child *)
-Lemma va_value_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (Hnh : is_name_head e = false) (nodes : list (Index.NodeRef idx)) :
-  In e nodes -> NoDup nodes ->
-  find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes)
-  = Some (OFValue e (own_value bp ctab e)).
+(* the carrier read at a file node is the exact once-computed cell — In + NoDup + key-injectivity are file facts *)
+Lemma neg_map_cell (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
+  Collections.NodeMap.find (Index.nr_key e) (neg_map ctab (Index.file_nodes fr)) = Some (neg_cell_of ctab e).
 Proof.
-  induction nodes as [|n rest IH]; intros Hin Hnd; [ inversion Hin | ].
-  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map].
-  destruct (BN.noderef_eqb n e) eqn:E.
-  - apply BN.noderef_eqb_spec in E; subst e. rewrite Hnh. cbn [app find].
-    rewrite (proj2 (BN.noderef_eqb_spec n n) eq_refl). reflexivity.
-  - assert (Htail : find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end)
-                      (app_fact_app n ++ va_facts ctab rest) = Some (OFValue e (own_value bp ctab e))).
-    { destruct Hin as [Heq|Hin'];
-        [ subst n; rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl) in E; discriminate E | ].
-      destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-        try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption);
-        rewrite (app_fact_app_at n En); cbn [app find]; apply IH; assumption. }
-    destruct (is_name_head n); [ exact Htail | cbn [app find]; rewrite E; exact Htail ].
+  apply neg_map_at.
+  - exact (file_nodes_complete fr e Hf).
+  - apply file_nodes_nodup.
+  - intros a b Ha Hb Hk. apply noderef_file_key_inj; [ | exact Hk ].
+    rewrite (file_nodes_file fr a Ha), (file_nodes_file fr b Hb); reflexivity.
 Qed.
-(* likewise the child-read finds own_app at an application child — the exact OFApp app_fact_app built there *)
-Lemma va_app_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (Hva : Index.node_view e = Index.Model.VApplication) (nodes : list (Index.NodeRef idx)) :
-  In e nodes -> NoDup nodes ->
-  find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes)
-  = Some (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva))).
+(* §7 a name head's value read is false — its cell carries a false value field (name heads skip the value row) *)
+Lemma va_value_negative_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = true) (Hf : Index.nr_file e = fr) :
+  va_value_negative (neg_map ctab (Index.file_nodes fr)) e = false.
+Proof. unfold va_value_negative. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_neg neg_cell_of]. rewrite Hnh. reflexivity. Qed.
+Lemma va_value_nonconst_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = true) (Hf : Index.nr_file e = fr) :
+  va_value_nonconst (neg_map ctab (Index.file_nodes fr)) e = false.
 Proof.
-  induction nodes as [|n rest IH]; intros Hin Hnd; [ inversion Hin | ].
-  inversion Hnd as [|? ? Hnn Hnd']; subst. cbn [va_facts flat_map].
-  destruct Hin as [Heq|Hin'].
-  - subst n. destruct (is_name_head e); cbn [app find];
-      rewrite (app_fact_app_at e Hva); cbn [app find];
-      rewrite (proj2 (BN.noderef_eqb_spec e e) eq_refl); reflexivity.
-  - assert (Hne : BN.noderef_eqb n e = false)
-      by (destruct (BN.noderef_eqb n e) eqn:E; [ apply BN.noderef_eqb_spec in E; subst n; contradiction | reflexivity ]).
-    assert (Htail : find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end)
-                      (app_fact_app n ++ va_facts ctab rest) = Some (OFApp e (own_app bp (Index.Refs.mkAppRef e Hva)))).
-    { destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-        try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; apply IH; assumption);
-        rewrite (app_fact_app_at n En); cbn [app find]; rewrite Hne; apply IH; assumption. }
-    destruct (is_name_head n); [ exact Htail | cbn [app find]; exact Htail ].
-Qed.
-(* off an application node the child-read finds no OFApp — va only ever records one at the exact application node *)
-Lemma va_app_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (Hne : Index.node_view e <> Index.Model.VApplication) (nodes : list (Index.NodeRef idx)) :
-  find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes) = None.
-Proof.
-  induction nodes as [|n rest IH]; [ reflexivity | ].
-  cbn [va_facts flat_map].
-  assert (Htail : find (fun o => match o with OFApp r _ => BN.noderef_eqb r e | _ => false end)
-                    (app_fact_app n ++ va_facts ctab rest) = None).
-  { destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; exact IH);
-      rewrite (app_fact_app_at n En); cbn [app find];
-      assert (Hnn : BN.noderef_eqb n e = false)
-        by (destruct (BN.noderef_eqb n e) eqn:E; [ apply BN.noderef_eqb_spec in E; subst n; exfalso; apply Hne; exact En | reflexivity ]);
-      rewrite Hnn; exact IH. }
-  destruct (is_name_head n); [ exact Htail | cbn [app find]; exact Htail ].
-Qed.
-(* §7 a name application head has no value row anywhere in va — its OFValue is skipped, no other node carries it *)
-Lemma va_value_none_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
-  find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end) (va_facts ctab nodes) = None.
-Proof.
-  induction nodes as [|n rest IH]; [ reflexivity | ].
-  cbn [va_facts flat_map].
-  assert (Htail : find (fun o => match o with OFValue r _ => BN.noderef_eqb r e | _ => false end)
-                    (app_fact_app n ++ va_facts ctab rest) = None).
-  { destruct (Index.node_view n) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:En;
-      try (rewrite (app_fact_app_none n _ En) by discriminate; cbn [app find]; exact IH);
-      rewrite (app_fact_app_at n En); cbn [app find]; exact IH. }
-  destruct (is_name_head n) eqn:Enh; [ exact Htail | ].
-  cbn [app find]. destruct (BN.noderef_eqb n e) eqn:E;
-    [ apply BN.noderef_eqb_spec in E; subst n; rewrite Hnh in Enh; discriminate Enh | exact Htail ].
-Qed.
-
-(* §7 a name head's value negativity/nonconstancy read is false: no value row exists, so it cannot be negative there *)
-Lemma va_value_negative_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
-  va_value_negative (va_facts ctab nodes) e = false.
-Proof. unfold va_value_negative. rewrite (va_value_none_name_head ctab e Hnh nodes). reflexivity. Qed.
-Lemma va_value_nonconst_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
-  (Hnh : is_name_head e = true) (nodes : list (Index.NodeRef idx)) :
-  va_value_nonconst (va_facts ctab nodes) e = false.
-Proof.
-  unfold va_value_nonconst. rewrite (va_value_none_name_head ctab e Hnh nodes).
+  unfold va_value_nonconst. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_nonconst neg_cell_of]. rewrite Hnh.
   destruct (retains_value_fact e); reflexivity.
 Qed.
-
 (* §7 a name application head contributes no canonical fact: its value row is skipped and it holds no app row *)
 Lemma occ_facts_va_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hnh : is_name_head r = true) :
-  occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab r = [].
+  occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab r = [].
 Proof.
   assert (E : exists nm, Index.node_view r = Index.Model.VName nm).
   { pose proof Hnh as Hcopy. unfold is_name_head in Hcopy. apply andb_true_iff in Hcopy. destruct Hcopy as [_ Hf].
     destruct (Index.node_view r) as [nm|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|]; try discriminate Hf; eauto. }
   destruct E as [nm E].
-  unfold occ_facts_va. rewrite E. unfold retained_value_row, va_value_row.
-  rewrite (va_value_none_name_head ctab r Hnh (Index.file_nodes fr)).
+  unfold occ_facts_va. rewrite E. unfold retained_value_row, va_value_row. rewrite Hnh.
   destruct (retains_value_fact r); reflexivity.
 Qed.
 
-(* the one va computation's exact value / application row at a file node — the sole builder's row content *)
+(* the node's own value / application row content at a file node — computed directly, the sole builder's row *)
 Lemma va_value_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hnh : is_name_head r = false) (Hf : Index.nr_file r = fr) :
-  va_value_row (va_facts ctab (Index.file_nodes fr)) r = [OFValue r (own_value bp ctab r)].
-Proof.
-  unfold va_value_row.
-  rewrite (va_value_at ctab r Hnh (Index.file_nodes fr) (file_nodes_complete fr r Hf) (file_nodes_nodup fr)); reflexivity.
-Qed.
+  va_value_row ctab r = [OFValue r (own_value bp ctab r)].
+Proof. unfold va_value_row. rewrite Hnh. reflexivity. Qed.
 Lemma va_app_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (Hva : Index.node_view r = Index.Model.VApplication) :
-  va_app_row (va_facts ctab (Index.file_nodes fr)) r = [OFApp r (own_app bp (Index.Refs.mkAppRef r Hva))].
-Proof.
-  unfold va_app_row.
-  rewrite (va_app_at ctab r Hva (Index.file_nodes fr) (file_nodes_complete fr r Hf) (file_nodes_nodup fr)); reflexivity.
-Qed.
+  va_app_row r = [OFApp r (own_app bp (Index.Refs.mkAppRef r Hva))].
+Proof. unfold va_app_row. exact (app_fact_app_at r Hva). Qed.
 Lemma va_app_row_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hne : Index.node_view r <> Index.Model.VApplication) :
-  va_app_row (va_facts ctab (Index.file_nodes fr)) r = [].
-Proof. unfold va_app_row. rewrite (va_app_none ctab r Hne (Index.file_nodes fr)); reflexivity. Qed.
-(* the va child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
+  va_app_row r = [].
+Proof. unfold va_app_row. exact (app_fact_app_none r (Index.node_view r) eq_refl Hne). Qed.
+(* the carrier child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
 Lemma va_value_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
-  va_value_negative (va_facts ctab (Index.file_nodes fr)) e = value_neg_b bp (own_value bp ctab e).
-Proof.
-  unfold va_value_negative.
-  rewrite (va_value_at ctab e Hnh (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
-Qed.
-(* the canonical read of a node's nonconstant value: policy-applicable AND its own value is exactly VNonconst *)
+  va_value_negative (neg_map ctab (Index.file_nodes fr)) e = value_neg_b bp (own_value bp ctab e).
+Proof. unfold va_value_negative. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_neg neg_cell_of]. rewrite Hnh. reflexivity. Qed.
 Lemma va_value_nonconst_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
-  va_value_nonconst (va_facts ctab (Index.file_nodes fr)) e
+  va_value_nonconst (neg_map ctab (Index.file_nodes fr)) e
   = retains_value_fact e && match own_value bp ctab e with VNonconst => true | _ => false end.
-Proof.
-  unfold va_value_nonconst.
-  rewrite (va_value_at ctab e Hnh (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)); reflexivity.
-Qed.
+Proof. unfold va_value_nonconst. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_nonconst neg_cell_of]. rewrite Hnh. reflexivity. Qed.
 Lemma va_app_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
-  va_app_negative (va_facts ctab (Index.file_nodes fr)) e = app_neg_at bp e.
-Proof.
-  unfold va_app_negative.
-  destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:Ee;
-    try (rewrite (va_app_none ctab e ltac:(rewrite Ee; discriminate) (Index.file_nodes fr));
-         rewrite (app_neg_at_off e _ Ee ltac:(discriminate)); reflexivity).
-  rewrite (va_app_at ctab e Ee (Index.file_nodes fr) (file_nodes_complete fr e Hf) (file_nodes_nodup fr)).
-  rewrite (app_neg_at_app e Ee); reflexivity.
-Qed.
+  va_app_negative (neg_map ctab (Index.file_nodes fr)) e = app_neg_at bp e.
+Proof. unfold va_app_negative. rewrite (neg_map_cell ctab fr e Hf). reflexivity. Qed.
+
 (* §19.4 a negative value fact sits only on a value-emitting node, so it is one of that node's canonical facts *)
 Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   value_neg_b bp (own_value bp ctab e) = true ->
-  In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+  In (OFValue e (own_value bp ctab e)) (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
   intro Hneg. unfold occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
@@ -2222,7 +2171,7 @@ Qed.
 Lemma occ_value_mem_retained (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   retains_value_fact e = true ->
-  In (OFValue e (own_value bp ctab e)) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+  In (OFValue e (own_value bp ctab e)) (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
   unfold retains_value_fact, occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
@@ -2232,10 +2181,10 @@ Qed.
 (* §19.4 the application fact of an application node is one of its canonical facts *)
 Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (He : Index.node_view e = Index.Model.VApplication) :
-  In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+  In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
-  assert (Hocc : occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e
-      = va_app_row (va_facts ctab (Index.file_nodes fr)) e ++ retained_value_row (va_facts ctab (Index.file_nodes fr)) e)
+  assert (Hocc : occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e
+      = va_app_row e ++ retained_value_row ctab e)
     by (unfold occ_facts_va; rewrite He; reflexivity).
   rewrite Hocc, (va_app_row_at ctab fr e Hf He). apply in_or_app. left. apply in_eq.
 Qed.
@@ -2243,19 +2192,19 @@ Qed.
 Lemma occ_stmt_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (nn nv : nat)
   (Hv : Index.node_view e = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
-  In (OFStmt e (short_decl_decision (va_facts ctab (Index.file_nodes fr)) e nn nv Hv))
-     (occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e).
+  In (OFStmt e (short_decl_decision (neg_map ctab (Index.file_nodes fr)) e nn nv Hv))
+     (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
-  assert (Hocc : occ_facts_va (va_facts ctab (Index.file_nodes fr)) ctab e
-      = stmt_fact e (expr_sx_va (va_facts ctab (Index.file_nodes fr)) e) (va_facts ctab (Index.file_nodes fr)))
+  assert (Hocc : occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e
+      = stmt_fact e (expr_sx_va (neg_map ctab (Index.file_nodes fr)) e) (neg_map ctab (Index.file_nodes fr)))
     by (unfold occ_facts_va; rewrite Hv; reflexivity).
-  rewrite Hocc, (stmt_fact_ssshort e (expr_sx_va (va_facts ctab (Index.file_nodes fr)) e)
-    (va_facts ctab (Index.file_nodes fr)) nn nv Hv). apply in_eq.
+  rewrite Hocc, (stmt_fact_ssshort e (expr_sx_va (neg_map ctab (Index.file_nodes fr)) e)
+    (neg_map ctab (Index.file_nodes fr)) nn nv Hv). apply in_eq.
 Qed.
 (* one const table per file, built once child-first: every fact is a projection of the same va computation, no rerun *)
 Local Definition raw_facts : list (OccFact bp) :=
   flat_map (fun fr => let ctab := const_table bp fr in
-                      let va := va_facts ctab (Index.file_nodes fr) in
+                      let va := neg_map ctab (Index.file_nodes fr) in
                       flat_map (occ_facts_va va ctab) (Index.file_nodes fr))
            (flat_map BN.PI.pkg_members (BN.PI.packages s)).
 
@@ -2437,7 +2386,7 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
 (* every fact the one canonical builder retains at a node carries that exact node as its site *)
 Lemma occ_facts_va_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (o : OccFact bp) :
-  In o (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r) -> fact_site o = r.
+  In o (occ_facts_va bp (neg_map bp ctab (Index.file_nodes fr)) ctab r) -> fact_site o = r.
 Proof.
   intro Hin. destruct (is_name_head r) eqn:Hnh.
   { rewrite (occ_facts_va_name_head bp ctab fr r Hnh) in Hin. inversion Hin. }
@@ -2452,7 +2401,7 @@ Qed.
 
 (* stmt_fact is a singleton or empty, so its site+kind keys are trivially duplicate-free *)
 Lemma stmt_fact_key_nodup (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : Collections.NodeMap.t NegCell)
   (v : Index.Model.NodeView) (H : Index.node_view r = v) :
   NoDup (map fact_key (stmt_fact_body bp r sx va v H)).
 Proof.
@@ -2464,7 +2413,7 @@ Qed.
 (* the facts the one canonical builder retains at a node have duplicate-free keys: one per family, app's two distinct *)
 Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
-  NoDup (map fact_key (occ_facts_va bp (va_facts bp ctab (Index.file_nodes fr)) ctab r)).
+  NoDup (map fact_key (occ_facts_va bp (neg_map bp ctab (Index.file_nodes fr)) ctab r)).
 Proof.
   destruct (is_name_head r) eqn:Hnh.
   { rewrite (occ_facts_va_name_head bp ctab fr r Hnh). apply NoDup_nil. }
@@ -2472,7 +2421,7 @@ Proof.
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view];
     try (rewrite (va_value_row_at bp ctab fr r Hnh Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
     try (rewrite (type_fact_at bp r nt E));
-    try (exact (stmt_fact_key_nodup r (expr_sx_va bp (va_facts bp ctab (Index.file_nodes fr)) r) (va_facts bp ctab (Index.file_nodes fr)) (Index.node_view r) eq_refl));
+    try (exact (stmt_fact_key_nodup r (expr_sx_va bp (neg_map bp ctab (Index.file_nodes fr)) r) (neg_map bp ctab (Index.file_nodes fr)) (Index.node_view r) eq_refl));
     cbn [map fact_key fact_site fact_kind app];
     repeat (apply NoDup_cons; [ intro H; cbn in H; repeat (destruct H as [H|H]); solve [ discriminate H | exfalso; exact H ] | ]);
     apply NoDup_nil.
@@ -2507,7 +2456,7 @@ Qed.
 (* every retained fact decomposes to the exact package file and node the one canonical builder produced it at *)
 Lemma raw_facts_node (o : OccFact bp) :
   In o (raw_facts bp) -> exists fr r, In r (Index.file_nodes fr)
-    /\ In o (occ_facts_va bp (va_facts bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
+    /\ In o (occ_facts_va bp (neg_map bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
 Proof.
   unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [_ Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [ exact Hr | exact Ho ].
@@ -2546,7 +2495,7 @@ Lemma raw_facts_node_file (o : OccFact bp) :
   In o (raw_facts bp) ->
   exists fr r, In fr (flat_map BN.PI.pkg_members (BN.PI.packages s))
                /\ In r (Index.file_nodes fr)
-               /\ In o (occ_facts_va bp (va_facts bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
+               /\ In o (occ_facts_va bp (neg_map bp (const_table bp fr) (Index.file_nodes fr)) (const_table bp fr) r).
 Proof.
   unfold raw_facts; cbv zeta. intro Hin. apply in_flat_map in Hin. destruct Hin as [fr [Hfr Hin]].
   apply in_flat_map in Hin. destruct Hin as [r [Hr Ho]]. exists fr, r. split; [exact Hfr | split; [exact Hr | exact Ho]].
@@ -2554,7 +2503,7 @@ Qed.
 
 (* a retained SDependent statement fact came from the expr-statement arm: its outcome is the exact driver result *)
 Lemma stmt_fact_dependent (r : Index.NodeRef idx)
-  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : list (OccFact bp))
+  (sx : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr -> StmtOutcome bp r) (va : Collections.NodeMap.t NegCell)
   (d : Dependency bp r StatementKind) :
   In (OFStmt r (SDependent d)) (stmt_fact bp r sx va) ->
   (exists (Hv : Index.node_view r = Index.Model.VStmt Index.Model.SSExpr), SDependent d = sx Hv) \/
@@ -2585,7 +2534,7 @@ Lemma raw_fact_is_own (o : OccFact bp) :
   | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
   | OFStmt r os => In (OFStmt r os)
-      (stmt_fact bp r (expr_sx_va bp (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r) (va_facts bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
+      (stmt_fact bp r (expr_sx_va bp (neg_map bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r) (neg_map bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
   | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
       ot = own_type bp r n H
   end.
@@ -2938,8 +2887,8 @@ Lemma fact_row_is_own (ref : FactRowRef res) :
   | OFValue r ov => ov = own_value (res_binds res) (const_table (res_binds res) (Index.nr_file r)) r
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app (res_binds res) (Index.Refs.mkAppRef r H)
   | OFStmt r os => In (OFStmt r os)
-      (stmt_fact (res_binds res) r (expr_sx_va (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r)
-        (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
+      (stmt_fact (res_binds res) r (expr_sx_va (res_binds res) (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r)
+        (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
   | OFType r ot => exists n (H : Index.node_view r = Index.Model.VTypeExpr (Syntax.NamedType n)),
       ot = own_type (res_binds res) r n H
   end.
@@ -3085,7 +3034,7 @@ Lemma row_file (row : FactRowRef res) :
   exists fr, In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res)))
              /\ Index.nr_file (frr_site row) = fr
              /\ In (frr_row row)
-                  (occ_facts_va (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) (const_table (res_binds res) fr) (frr_site row)).
+                  (occ_facts_va (res_binds res) (neg_map (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) (const_table (res_binds res) fr) (frr_site row)).
 Proof.
   intro Hin. assert (Hil : In (frr_row row) (result_fact_list res))
     by (rewrite <- fact_rows_rows; apply in_map; exact Hin).
@@ -3122,7 +3071,7 @@ Lemma stmt_fact_retained (fr : Index.FileRef (res_index res))
   (e : Index.NodeRef (res_index res)) (He : Index.nr_file e = fr) (nn nv : nat)
   (Hv : Index.node_view e = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
   In (OFStmt e (short_decl_decision (res_binds res)
-       (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) e nn nv Hv))
+       (neg_map (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) e nn nv Hv))
      (result_fact_list res).
 Proof.
   unfold result_fact_list; rewrite fact_once; unfold raw_facts; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
@@ -3213,8 +3162,8 @@ Qed.
 Lemma nonconst_child_retained (fr : Index.FileRef (res_index res))
   (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
   (child : Index.NodeRef (res_index res)) (Hf : Index.nr_file child = fr) :
-  va_value_nonconst (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) child = true ->
+  va_value_nonconst
+    (neg_map (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr)) child = true ->
   exists child_row : FactRowRef res,
     fact_row_for child ValueKind = Some child_row
     /\ frr_row child_row = OFValue child VNonconst.
@@ -3222,7 +3171,7 @@ Proof.
   intro Hva.
   assert (Hnh : is_name_head child = false).
   { destruct (is_name_head child) eqn:Enh; [ | reflexivity ].
-    rewrite (va_value_nonconst_name_head (res_binds res) (const_table (res_binds res) fr) child Enh (Index.file_nodes fr)) in Hva; discriminate Hva. }
+    rewrite (va_value_nonconst_name_head (res_binds res) (const_table (res_binds res) fr) fr child Enh Hf) in Hva; discriminate Hva. }
   rewrite (va_value_nonconst_correct (res_binds res) (const_table (res_binds res) fr) fr child Hnh Hf) in Hva.
   apply andb_prop in Hva. destruct Hva as [Hret Hnc].
   assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) child = VNonconst)
@@ -3255,13 +3204,13 @@ Proof.
   pose proof (fact_row_is_own (cdfr_rowref cdfr)) as Hown. rewrite Hok in Hown.
   set (e0 := cdfr_edge_site cdfr) in *.
   set (ctab := const_table (res_binds res) (Index.nr_file (cdfr_site cdfr))) in *.
-  set (va := va_facts (res_binds res) ctab (Index.file_nodes (Index.nr_file (cdfr_site cdfr)))) in *.
+  set (va := neg_map (res_binds res) ctab (Index.file_nodes (Index.nr_file (cdfr_site cdfr)))) in *.
   assert (Hfe : Index.nr_file e0 = fr)
     by (unfold e0; rewrite <- (proj2 (Index.node_parent_inv _ _ (cdfr_child_parent cdfr))); exact Hfile).
   assert (Hctab : ctab = const_table (res_binds res) fr) by (unfold ctab; rewrite Hfile; reflexivity).
   assert (Hfe' : Index.nr_file e0 = Index.nr_file (cdfr_site cdfr)) by (rewrite Hfe, Hfile; reflexivity).
-  assert (Hcase : (cdfr_edge_kind cdfr = ValueKind /\ va_value_negative (res_binds res) va e0 = true)
-                \/ (cdfr_edge_kind cdfr = ApplicationKind /\ va_app_negative (res_binds res) va e0 = true
+  assert (Hcase : (cdfr_edge_kind cdfr = ValueKind /\ va_value_negative va e0 = true)
+                \/ (cdfr_edge_kind cdfr = ApplicationKind /\ va_app_negative va e0 = true
                     /\ Index.node_view e0 = Index.Model.VApplication)).
   { destruct (stmt_fact_dependent (cdfr_site cdfr) _ _ (DepChild (cdfr_edge cdfr)) Hown) as [[Hv Hsx] | [nn [nv [Hv Hsx]]]].
     - symmetry in Hsx. unfold expr_sx_va in Hsx.
@@ -3274,8 +3223,8 @@ Proof.
   destruct Hcase as [[Hk Hvn] | [Hk [Han Hva]]].
   - assert (Hnh : is_name_head e0 = false).
     { destruct (is_name_head e0) eqn:Enh; [ | reflexivity ].
-      assert (Hf0 : va_value_negative (res_binds res) va e0 = false)
-        by (unfold va; exact (va_value_negative_name_head (res_binds res) ctab e0 Enh (Index.file_nodes (Index.nr_file (cdfr_site cdfr))))).
+      assert (Hf0 : va_value_negative va e0 = false)
+        by (unfold va; exact (va_value_negative_name_head (res_binds res) ctab (Index.nr_file (cdfr_site cdfr)) e0 Enh Hfe')).
       rewrite Hf0 in Hvn; discriminate Hvn. }
     assert (Hvnb : value_neg_b (res_binds res) (own_value (res_binds res) ctab e0) = true)
       by (rewrite <- (va_value_negative_correct (res_binds res) ctab (Index.nr_file (cdfr_site cdfr)) e0 Hnh Hfe'); exact Hvn).
@@ -3508,7 +3457,7 @@ Qed.
 Lemma ssfr_is_short_decl (ssfr : ShortStatementFactRef) :
   frr_row (ssfr_row ssfr) = OFStmt (Index.Refs.sh_node (ssfr_stmt ssfr))
     (short_decl_decision (res_binds res)
-      (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+      (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
         (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr)))))
       (Index.Refs.sh_node (ssfr_stmt ssfr))
       (Index.Refs.sh_names (ssfr_stmt ssfr)) (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))).
@@ -3522,7 +3471,7 @@ Proof.
   assert (Hr' : r' = Index.Refs.sh_node (ssfr_stmt ssfr))
     by (unfold frr_site in Hsite; rewrite Hfrow in Hsite; cbn in Hsite; exact Hsite).
   subst r'. cbn [fact_site] in Hown.
-  set (va := va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  set (va := neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
              (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) in *.
   rewrite (stmt_fact_ssshort (res_binds res) (Index.Refs.sh_node (ssfr_stmt ssfr))
     (expr_sx_va (res_binds res) va (Index.Refs.sh_node (ssfr_stmt ssfr))) va
@@ -3620,11 +3569,11 @@ Lemma short_rhs_meaning_construct (ssfr : ShortStatementFactRef)
   (Hblk : BN.short_blocker_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr)) = BN.ShortNoBlocker)
   (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true)
   (Hneg : short_rhs_neg (res_binds res)
-            (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+            (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
               (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
   (j0 : nat) (edge0 : Index.Edges.ShortRhsEdge (ssfr_stmt ssfr) j0)
-  (Hfind : find_rhs_vnonconst (res_binds res)
-             (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  (Hfind : find_rhs_vnonconst
+             (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
                (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
            = Some (existT _ j0 edge0)) :
   exists srmr : ShortRhsMeaningRef, srmr_parent srmr = ssfr /\ srmr_j srmr = j0.
@@ -3639,7 +3588,7 @@ Proof.
   destruct (nonconst_child_retained fr Hfr (Index.Edges.sr_child edge0) Hcf Hnc0) as [child_row [Hlk Hcrow]].
   pose proof (ssfr_is_short_decl ssfr) as Hrow. fold fr in Hrow.
   rewrite (short_decl_decision_rhsmeaning_sound_st (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr))
+    (neg_map (res_binds res) (const_table (res_binds res) fr) (Index.file_nodes fr))
     (ssfr_stmt ssfr) j0 edge0 Hdup Hcount Hblk Hnew Hneg Hfind) in Hrow.
   exists (mk_srmr ssfr j0 edge0 (mk_nvfr child_row (Index.Edges.sr_child edge0) Hcrow) Hrow eq_refl Hlk).
   split; reflexivity.
@@ -3674,16 +3623,16 @@ Lemma short_usage_construct (ssfr : ShortStatementFactRef)
   (Hcount : Index.Refs.sh_names (ssfr_stmt ssfr) = Index.Refs.sh_values (ssfr_stmt ssfr))
   (Hblk : BN.short_blocker_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr)) = BN.ShortNoBlocker)
   (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true)
-  (Hneg : short_rhs_neg (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  (Hneg : short_rhs_neg (res_binds res) (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
             (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
-  (Hfind : find_rhs_vnonconst (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  (Hfind : find_rhs_vnonconst (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
             (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
   (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = false) :
   exists sur : ShortUsageRef, sur_parent sur = ssfr.
 Proof.
   pose proof (ssfr_is_short_decl ssfr) as Hrow.
   rewrite (short_decl_decision_usage_sound_st (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
     Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
   exists (mk_sur ssfr Hrow). reflexivity.
@@ -3694,16 +3643,16 @@ Lemma short_redecl_construct (ssfr : ShortStatementFactRef)
   (Hcount : Index.Refs.sh_names (ssfr_stmt ssfr) = Index.Refs.sh_values (ssfr_stmt ssfr))
   (Hblk : BN.short_blocker_decision (BN.short_event (res_binds res) (ssfr_stmt ssfr)) = BN.ShortNoBlocker)
   (Hnew : existsb BN.is_new_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true)
-  (Hneg : short_rhs_neg (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  (Hneg : short_rhs_neg (res_binds res) (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
             (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
-  (Hfind : find_rhs_vnonconst (res_binds res) (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  (Hfind : find_rhs_vnonconst (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
             (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr) = None)
   (Hmix : existsb BN.is_existing_var_row (BN.se_rows (BN.short_event (res_binds res) (ssfr_stmt ssfr))) = true) :
   exists srtr : ShortRedeclarationTypesRef, srtr_parent srtr = ssfr.
 Proof.
   pose proof (ssfr_is_short_decl ssfr) as Hrow.
   rewrite (short_decl_decision_redecl_sound_st (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)
     Hdup Hcount Hblk Hnew Hneg Hfind Hmix) in Hrow.
   exists (mk_srtr ssfr Hrow). reflexivity.
@@ -3728,7 +3677,7 @@ Proof.
   pose proof (sur_req sur) as Hreq. rewrite (ssfr_is_short_decl (sur_parent sur)) in Hreq.
   apply ofstmt_outcome_inj in Hreq.
   destruct (short_decl_decision_usage_complete (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur)))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur)))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (sur_parent sur))))))
     (ssfr_stmt (sur_parent sur)) Hreq) as [_ [_ [_ [Hnew _]]]]. exact Hnew.
 Qed.
@@ -3761,7 +3710,7 @@ Proof.
   pose proof (srtr_req srtr) as Hreq. rewrite (ssfr_is_short_decl (srtr_parent srtr)) in Hreq.
   apply ofstmt_outcome_inj in Hreq.
   destruct (short_decl_decision_redecl_complete (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr))))))
     (ssfr_stmt (srtr_parent srtr)) Hreq) as [_ [_ [_ [Hnew [_ [_ Hmix]]]]]]. split; [ exact Hmix | exact Hnew ].
 Qed.
@@ -3793,7 +3742,7 @@ Proof.
   pose proof (srtr_req srtr) as Hreq. rewrite (ssfr_is_short_decl (srtr_parent srtr)) in Hreq.
   apply ofstmt_outcome_inj in Hreq.
   destruct (short_decl_decision_redecl_complete (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt (srtr_parent srtr)))))) (ssfr_stmt (srtr_parent srtr)) Hreq)
     as [_ [Hcount _]]. exact Hcount.
 Qed.
@@ -3817,7 +3766,7 @@ Proof.
   pose proof (ssfr_is_short_decl ssfr) as Hrow.
   rewrite Hrow in Hc, Hd, Hq.
   destruct (short_decl_decision (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr)))))
     (Index.Refs.sh_node (ssfr_stmt ssfr)) (Index.Refs.sh_names (ssfr_stmt ssfr))
     (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) eqn:Hdec.
@@ -3837,15 +3786,15 @@ Proof.
   { rewrite <- Hu, (ufr_ok ufr). discriminate. }
   rewrite (ssfr_is_short_decl ssfr) in Hne.
   destruct (short_decl_decision (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr)))))
     (Index.Refs.sh_node (ssfr_stmt ssfr)) (Index.Refs.sh_names (ssfr_stmt ssfr))
     (Index.Refs.sh_values (ssfr_stmt ssfr)) (Index.Refs.sh_ok (ssfr_stmt ssfr))) eqn:Hdec;
     cbn in Hne; try (exfalso; apply Hne; reflexivity). clear Hne.
   pose proof (short_decl_decision_unmet_guards_st (res_binds res) _ (ssfr_stmt ssfr) Hdec) as Hg.
   destruct Hg as [Hdup [Hcount [Hblk [Hnew Hneg]]]].
-  destruct (find_rhs_vnonconst (res_binds res)
-    (va_facts (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
+  destruct (find_rhs_vnonconst
+    (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))
       (Index.file_nodes (Index.nr_file (Index.Refs.sh_node (ssfr_stmt ssfr))))) (ssfr_stmt ssfr)) as [[j0 e0]|] eqn:Hfind.
   - left. destruct (short_rhs_meaning_construct ssfr Hdup Hcount Hblk Hnew Hneg j0 e0 Hfind) as [srmr [Hpar _]].
     exists srmr. exact Hpar.
