@@ -214,6 +214,10 @@ Definition uc_path_progress := @Index.Edges.up_root_lt.
 Definition uc_path_edge_roundtrip := @Index.Edges.up_iat.
 (* uc_path_canonical_query: a subject's stored role is exactly the one its path implies *)
 Definition uc_path_canonical_query := @Index.Edges.up_role_ok.
+(* uc_path_root_exhaustive: a path's family is exactly the syntactic reading of its parent, over the eight families *)
+Definition uc_path_root_exhaustive := @Index.Edges.up_family_ok.
+(* uc_path_arbitrary_depth: the vm-safe root walk equals the path's root kind through any depth of fold links *)
+Definition uc_path_arbitrary_depth := @Index.Edges.root_const_var_b_path.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
