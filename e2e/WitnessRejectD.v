@@ -115,6 +115,54 @@ Definition uc_case_24 : uc_obs (rres uc24_prog) = mk_uc_obs Compilable.Rejected 
 Proof. obs_uc uc24_prog. Qed.
 Definition uc_case_25 : uc_obs (rres uc25_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue RP.DvHeadInvalid ] [ RP.CvNotCallableExpr ] [].
 Proof. obs_uc uc25_prog. Qed.
+Definition uc26_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "T")) (Syntax.NamedType (Names.predeclared_ordinary Names.PInt)) ]) ; Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "T") [ ILIT 1 ] ]) ].
+Definition uc27_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "A")) (Syntax.NamedType (Names.predeclared_ordinary Names.PAny)) ]) ; Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "A") [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ] ]) ].
+Definition uc28_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.TypeDecl [ Syntax.AliasSpec (Syntax.BNamed (OID "U")) (Syntax.NamedType (Names.predeclared_ordinary Names.PUint64)) ]) ; Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "U") [ ILIT ((2 ^ 63)%N) ] ]) ].
+Definition uc29_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (Names.predeclared_ordinary Names.PAny) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ] ]) ].
+Definition uc30_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") []) ].
+Definition uc31_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ].
+Definition uc32_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "f"))) (Syntax.VarValues None (NE1 (VNAME "main"))) ]) ; Syntax.ExprStmt (APP (OID "f") []) ].
+Definition uc33_prog : Syntax.Program := prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "f"))) (NE1 (VNAME "main")) ; Syntax.ExprStmt (APP (OID "f") []) ].
+Definition uc34_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ].
+Definition uc35_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT ((2 ^ 63)%N) ]) ].
+Definition uc36_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PTrue) []) ].
+Definition uc37_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PTrue) [ ILIT ((2 ^ 63)%N) ]) ].
+Definition uc38_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ].
+Definition uc39_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PNil) []) ].
+Definition uc40_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "missingName") []) ].
+Definition uc41_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "missingName") [ ILIT ((2 ^ 63)%N) ]) ].
+Definition uc_case_26 : uc_obs (rres uc26_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvOK AN.FamTypeUse; RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamApplication RP.RvSourceTypeApp; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgUnmet 0) ] [] [ RP.RvDeclMeaningV; RP.RvSourceTypeApp ].
+Proof. obs_uc uc26_prog. Qed.
+Definition uc_case_27 : uc_obs (rres uc27_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvUnmet AN.FamTypeUse RP.RvTypeMeaning; RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamApplication RP.RvSourceTypeApp; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgUnmet 0) ] [] [ RP.RvDeclMeaningV; RP.RvTypeMeaning; RP.RvSourceTypeApp ].
+Proof. obs_uc uc27_prog. Qed.
+Definition uc_case_28 : uc_obs (rres uc28_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvOK AN.FamTypeUse; RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamApplication RP.RvSourceTypeApp; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgUnmet 0) ] [] [ RP.RvDeclMeaningV; RP.RvSourceTypeApp ].
+Proof. obs_uc uc28_prog. Qed.
+Definition uc_case_29 : uc_obs (rres uc29_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamApplication RP.RvApplication; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgUnmet 0) ] [] [ RP.RvApplication ].
+Proof. obs_uc uc29_prog. Qed.
+Definition uc_case_30 : uc_obs (rres uc30_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvOK AN.FamValue; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallable ] [ RP.RvConstDecl ].
+Proof. obs_uc uc30_prog. Qed.
+Definition uc_case_31 : uc_obs (rres uc31_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvOK AN.FamValue; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvNotCallable ] [ RP.RvConstDecl ].
+Proof. obs_uc uc31_prog. Qed.
+Definition uc_case_32 : uc_obs (rres uc32_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvUnmet AN.FamValue RP.RvMainUse; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvUnmet AN.FamApplication RP.RvSourceValueApp; RP.FvNonconst AN.FamValue ] [] [ RP.RvDeclMeaningV; RP.RvMainUse; RP.RvSourceValueApp ].
+Proof. obs_uc uc32_prog. Qed.
+Definition uc_case_33 : uc_obs (rres uc33_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvDependent AN.FamDeclaration RP.DvChild; RP.FvUnmet AN.FamValue RP.RvMainUse; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvUnmet AN.FamApplication RP.RvShortOriginApp; RP.FvNonconst AN.FamValue ] [] [ RP.RvMainUse; RP.RvShortOriginApp ].
+Proof. obs_uc uc33_prog. Qed.
+Definition uc_case_34 : uc_obs (rres uc34_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvMainArity; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvMainArity ] [].
+Proof. obs_uc uc34_prog. Qed.
+Definition uc_case_35 : uc_obs (rres uc35_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvMainArity; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvMainArity ] [].
+Proof. obs_uc uc35_prog. Qed.
+Definition uc_case_36 : uc_obs (rres uc36_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallable ] [].
+Proof. obs_uc uc36_prog. Qed.
+Definition uc_case_37 : uc_obs (rres uc37_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvNotCallable ] [].
+Proof. obs_uc uc37_prog. Qed.
+Definition uc_case_38 : uc_obs (rres uc38_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication (RP.CvInvalidAppIdentity Names.PIota); RP.FvNonconst AN.FamValue ] [ RP.CvInvalidAppIdentity Names.PIota ] [].
+Proof. obs_uc uc38_prog. Qed.
+Definition uc_case_39 : uc_obs (rres uc39_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication (RP.CvInvalidAppIdentity Names.PNil); RP.FvNonconst AN.FamValue ] [ RP.CvInvalidAppIdentity Names.PNil ] [].
+Proof. obs_uc uc39_prog. Qed.
+Definition uc_case_40 : uc_obs (rres uc40_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvUnresolvedName; RP.FvDependent AN.FamValue RP.DvUnboundName ] [ RP.CvUnresolvedName ] [].
+Proof. obs_uc uc40_prog. Qed.
+Definition uc_case_41 : uc_obs (rres uc41_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvUnresolvedName; RP.FvDependent AN.FamValue RP.DvUnboundName; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvUnresolvedName ] [].
+Proof. obs_uc uc41_prog. Qed.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
