@@ -196,6 +196,15 @@ Definition uc_case_54 : uc_obs (rres uc54_prog) = mk_uc_obs Compilable.Rejected 
 Proof. obs_uc uc54_prog. Qed.
 Definition uc_case_55 : uc_obs (rres uc55_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue RP.DvHeadInvalid; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallableExpr ] [].
 Proof. obs_uc uc55_prog. Qed.
+Definition uc42_prog : Syntax.Program := prog_tops [ Syntax.TopDeclaration (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PAny))) (NE1 (APP (Names.predeclared_ordinary Names.PPrintln) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]))) ]) ; main0 ].
+Definition uc51_prog : Syntax.Program := prog_tops [ Syntax.TopDeclaration (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PInt))) (NE1 (NEG (ILIT ((2 ^ 63 + 1)%N))))) ]) ; main0 ].
+Definition uc52_prog : Syntax.Program := prog_tops [ Syntax.TopDeclaration (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (NEG (ILIT ((2 ^ 63 + 1)%N))))) ]) ; main0 ].
+Definition uc_case_42 : uc_obs (rres uc42_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvUnmet AN.FamTypeUse RP.RvTypeMeaning; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvNoValueUsed; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ RP.CvNoValueUsed; (RP.CvInvalidIdentity Names.PNil) ] [ RP.RvDeclMeaningV; RP.RvTypeMeaning ].
+Proof. obs_uc uc42_prog. Qed.
+Definition uc_case_51 : uc_obs (rres uc51_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvOK AN.FamTypeUse; RP.FvUnmet AN.FamValue RP.RvTypedTargetConstant; RP.FvNonconst AN.FamValue ] [] [ RP.RvDeclMeaningV; RP.RvTypedTargetConstant ].
+Proof. obs_uc uc51_prog. Qed.
+Definition uc_case_52 : uc_obs (rres uc52_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault; RP.FvNonconst AN.FamValue ] [] [ RP.RvConstDecl; RP.RvConstNoDefault ].
+Proof. obs_uc uc52_prog. Qed.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
