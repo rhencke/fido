@@ -296,6 +296,8 @@ Definition uc_own_app_once := @AN.own_app_once.
 Definition uc_linear_index_build := conj (@Index.file_nodes_pos) (@Index.node_slot_child).
 (* uc_linear_analysis_pass: one row-entry and one cell per node, each child read a single keyed lookup, no scan *)
 Definition uc_linear_analysis_pass := conj (@AN.file_pass_val) (@AN.neg_map_at).
+(* uc_path_unique: two canonical use paths for one exact occurrence cannot disagree observably *)
+Definition uc_path_unique := @Index.Edges.path_observation_unique.
 Definition uc_dep_ainvalid_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)

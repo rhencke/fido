@@ -927,6 +927,27 @@ Proof.
   - rewrite (app_ok a); reflexivity.
 Qed.
 
+(* uc_path_unique: the proof-erased observation of a use path — parent ref, ordinal, role, and root family *)
+Definition path_observation {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :=
+  (up_iparent path, up_iord path, up_role path, up_family path).
+(* a path is canonical for r when its parent link is exactly the index parent — the sole builder yields such *)
+Definition CanonicalFor {p} {idx : ProgramIndex p} (r : NodeRef idx) (path : ExprUsePath r) : Prop :=
+  node_parent r = Some (up_iparent path).
+(* two canonical paths for one exact occurrence cannot disagree observably — each component is fixed by r *)
+Lemma path_observation_unique {p} {idx : ProgramIndex p} {r : NodeRef idx} (a b : ExprUsePath r) :
+  CanonicalFor r a -> CanonicalFor r b -> path_observation a = path_observation b.
+Proof.
+  intros _ _. unfold path_observation.
+  assert (Hpar : up_iparent a = up_iparent b).
+  { pose proof (up_iparent_ok a) as Ha. pose proof (up_iparent_ok b) as Hb.
+    rewrite Ha in Hb. injection Hb as Hb. exact Hb. }
+  assert (Hord : up_iord a = up_iord b) by (rewrite <- (up_iord_ok a), <- (up_iord_ok b); reflexivity).
+  assert (Hrole : up_role a = up_role b) by (rewrite <- (up_role_ok a), <- (up_role_ok b); reflexivity).
+  assert (Hfam : up_family a = up_family b)
+    by (rewrite (up_family_ok a), (up_family_ok b), Hpar, Hord; reflexivity).
+  rewrite Hpar, Hord, Hrole, Hfam. reflexivity.
+Qed.
+
 (* the defaulting root kind reached through unary fold links — a vm-safe node_parent walk, never use_path *)
 Inductive RootKind : Type := RKConstNoType | RKConstWithType | RKVarExplicit | RKOther.
 
