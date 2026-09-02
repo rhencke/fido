@@ -218,6 +218,12 @@ Definition uc_path_canonical_query := @Index.Edges.up_role_ok.
 Definition uc_path_root_exhaustive := @Index.Edges.up_family_ok.
 (* uc_path_arbitrary_depth: the vm-safe root walk equals the path's root kind through any depth of fold links *)
 Definition uc_path_arbitrary_depth := @Index.Edges.root_const_var_b_path.
+(* uc_head_name_no_value: a name on the application-head edge contributes no occurrence fact, its value row deleted *)
+Definition uc_head_name_no_value := @AN.occ_facts_va_name_head.
+(* uc_nonname_head_value: a non-name application head retains its exact value fact *)
+Definition uc_nonname_head_value := @AN.nonconst_value_fact_retained.
+(* uc_application_row_retained: every application node keeps its exact application row in the fact list *)
+Definition uc_application_row_retained := @AN.app_fact_retained.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
