@@ -290,6 +290,8 @@ Proof.
   rewrite (proj2 (AN.data_diagnostics_empty_correct r) Hd), (proj2 (AN.data_boundaries_empty_correct r) Hb).
   reflexivity.
 Qed.
+(* uc_own_app_once: an application's own_app is one construction, the OFApp fact row, the cell its projection *)
+Definition uc_own_app_once := @AN.own_app_once.
 Definition uc_dep_ainvalid_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)

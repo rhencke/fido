@@ -2179,6 +2179,17 @@ Proof.
   rewrite !app_nil_r, rev_involutive.
   rewrite combine_map_self. rewrite flat_map_concat_map. f_equal. apply map_ext. intro r. cbn [fst snd]. apply assembly_eq.
 Qed.
+(* uc_own_app_once: the app node's own_app is ONE construction — its OFApp is the fact row, its projection the cell *)
+Lemma own_app_once (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (Hv : Index.node_view r = Index.Model.VApplication) :
+  In (OFApp r (own_app bp (Index.Refs.mkAppRef r Hv))) (file_facts ctab (Index.file_nodes fr))
+  /\ va_app_negative (neg_map ctab (Index.file_nodes fr)) r = app_neg_b bp (own_app bp (Index.Refs.mkAppRef r Hv)).
+Proof.
+  split.
+  - rewrite file_facts_eq. apply in_flat_map. exists r.
+    split; [ exact (file_nodes_complete fr r Hf) | apply (occ_app_mem ctab fr r Hf Hv) ].
+  - rewrite (va_app_negative_correct ctab fr r Hf). apply (app_neg_at_app r Hv).
+Qed.
 
 Local Definition raw_facts : list (OccFact bp) :=
   flat_map (fun fr => file_facts (const_table bp fr) (Index.file_nodes fr))
