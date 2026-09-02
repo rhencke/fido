@@ -225,6 +225,10 @@ Definition uc_nonname_head_value := @AN.nonconst_value_fact_retained.
 (* uc_application_row_retained: every application node keeps its exact application row in the fact list *)
 Definition uc_application_row_retained := @AN.app_fact_retained.
 (* uc_dep_ainvalid_roundtrip: a deferred argument's DepArgInvalid is recovered exactly by occ_dep *)
+Definition ucdeep_prog : Syntax.Program := prog [ Syntax.ExprStmt (NEG (APP (Names.predeclared_ordinary Names.PInt) [ NEG (APP (Names.predeclared_ordinary Names.PInt) [ ILIT 1 ]) ])) ].
+(* uc_deep_path_exact: a deep alternating unary/application program retains every intermediate fact *)
+Definition uc_deep_path_exact : uc_obs (rres ucdeep_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue ] [ RP.CvIllegalStatement ] [].
+Proof. obs_uc ucdeep_prog. Qed.
 Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
