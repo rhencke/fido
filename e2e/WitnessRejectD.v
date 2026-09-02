@@ -224,6 +224,24 @@ Definition uc_head_name_no_value := @AN.occ_facts_va_name_head.
 Definition uc_nonname_head_value := @AN.nonconst_value_fact_retained.
 (* uc_application_row_retained: every application node keeps its exact application row in the fact list *)
 Definition uc_application_row_retained := @AN.app_fact_retained.
+(* uc_dep_ainvalid_roundtrip: a deferred argument's DepArgInvalid is recovered exactly by occ_dep *)
+Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+  (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
+  (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
+  (c : AN.Cause bp (Index.Refs.app_node ar) AN.ApplicationKind) :
+  AN.occ_dep (AN.OFValue r (AN.VDependent (AN.DepArgInvalid ar i Hpar Hrole c))) = Some (AN.DepArgInvalid ar i Hpar Hrole c) := eq_refl.
+(* uc_dep_aunmet_roundtrip: a deferred argument's DepArgUnmet is recovered exactly by occ_dep *)
+Definition uc_dep_aunmet_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+  (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
+  (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
+  (q : AN.Requirement bp (Index.Refs.app_node ar) AN.ApplicationKind) :
+  AN.occ_dep (AN.OFValue r (AN.VDependent (AN.DepArgUnmet ar i Hpar Hrole q))) = Some (AN.DepArgUnmet ar i Hpar Hrole q) := eq_refl.
+(* uc_dep_adependent_roundtrip: a deferred argument's DepArgDependent is recovered exactly by occ_dep *)
+Definition uc_dep_adependent_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+  (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
+  (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
+  (d : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind) :
+  AN.occ_dep (AN.OFValue r (AN.VDependent (AN.DepArgDependent ar i Hpar Hrole d))) = Some (AN.DepArgDependent ar i Hpar Hrole d) := eq_refl.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
