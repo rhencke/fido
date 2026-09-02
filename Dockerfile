@@ -2021,16 +2021,23 @@ echo "fido: e2e audit chunk coverage OK — the audit root set is the on-disk ch
 if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
 echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
-# fixture-inventory control: every entry fixture name in the tracked manifest must still resolve through the
-# aggregate module path (Fido.WitnessReject re-exports the chunk surface); a lost or renamed fixture fails here.
+# fixture-inventory control: the tracked manifest is EXACTLY 205 entry names — no blank lines, no duplicates,
+# none of the removed category-error/superseded names — and every one resolves through the aggregate exactly
+# once (Fido.WitnessReject re-exports the chunk surface). A lost, renamed, stranded, or forbidden name fails here.
+inv_names=$(grep -vE '^#' e2e/WitnessRejectInventory.txt)
+if printf '%s\n' "$inv_names" | grep -qE '^[[:space:]]*$'; then fail "fixture inventory: a blank line is not a fixture name"; fi
+inv_dups=$(printf '%s\n' "$inv_names" | sort | uniq -d)
+[ -z "$inv_dups" ] || fail "fixture inventory: duplicate name(s) in the manifest: $inv_dups"
+if printf '%s\n' "$inv_names" | grep -qxE 'uc_no_new_compiled|uc_assumptions_closed|mf_dep_row_silent|r_invalidid_app_dep|r_unbound_app_dep'; then
+  fail "fixture inventory: a removed category-error or superseded name returned to the manifest"; fi
 n=0
 printf 'From Fido Require Import WitnessReject.\n' > /tmp/e2eaudit/Inventory.v
-for nm in $(grep -v '^#' e2e/WitnessRejectInventory.txt); do
+for nm in $inv_names; do
   printf 'Definition __probe_%d := %s.\n' "$n" "$nm" >> /tmp/e2eaudit/Inventory.v; n=$((n+1)); done
-[ "$n" -ge 120 ] || fail "fixture inventory: only $n entry fixture names found in the tracked manifest (expected >= 120)"
+[ "$n" -eq 205 ] || fail "fixture inventory: $n entry fixture names in the manifest (expected exactly 205)"
 if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Inventory.v > /tmp/e2eaudit/inventory.log 2>&1; then
   cat /tmp/e2eaudit/inventory.log; fail "fixture inventory: an entry fixture name no longer resolves through the WitnessReject aggregate"; fi
-echo "fido: fixture inventory OK — all $n entry fixture names resolve through the aggregate (none deleted, renamed, or stranded)"
+echo "fido: fixture inventory OK — exactly 205 names, no blanks or duplicates, all resolve, removed names absent"
 
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
 # transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The axiom/variable fixtures
