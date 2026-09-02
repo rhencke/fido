@@ -281,6 +281,15 @@ Proof. repeat split; first [ obs_direct (prog [ Syntax.ExprStmt (APP (Names.pred
 Definition uc_fact_transform_exact := @AN.fact_rows_rows.
 (* uc_issue_order_preserved: result_issues is exactly the diagnostics block then the boundaries block *)
 Definition uc_issue_order_preserved := @AN.result_issues_class_split.
+(* uc_compiled_admission_exact: over the full result domain, Compiled = exactly no diagnostics and no boundaries *)
+Definition uc_compiled_admission_exact {p} (r : AN.Result p) :
+  Compilable.disposition_of r = Compilable.Compiled <-> Compilable.AdmissibleData r.
+Proof.
+  split; [ apply Compilable.disposition_compiled | ].
+  intros [Hd Hb]. unfold Compilable.disposition_of, Compilable.disposition_from_data.
+  rewrite (proj2 (AN.data_diagnostics_empty_correct r) Hd), (proj2 (AN.data_boundaries_empty_correct r) Hb).
+  reflexivity.
+Qed.
 Definition uc_dep_ainvalid_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
