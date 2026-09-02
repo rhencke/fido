@@ -163,6 +163,39 @@ Definition uc_case_40 : uc_obs (rres uc40_prog) = mk_uc_obs Compilable.Rejected 
 Proof. obs_uc uc40_prog. Qed.
 Definition uc_case_41 : uc_obs (rres uc41_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvUnresolvedName; RP.FvDependent AN.FamValue RP.DvUnboundName; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvUnresolvedName ] [].
 Proof. obs_uc uc41_prog. Qed.
+Definition uc43_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PInt))) (NE1 (NEG (Syntax.Name (Names.predeclared_ordinary Names.PNil))))) ]) ].
+Definition uc44_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PAny))) (NE1 (APP (Names.predeclared_ordinary Names.PNil) []))) ]) ].
+Definition uc45_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "missingName") [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ].
+Definition uc46_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (OID "missingName") [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ].
+Definition uc47_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (Names.predeclared_ordinary Names.PInt) [ ILIT 1 ] ]) ].
+Definition uc48_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ].
+Definition uc49_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]) ].
+Definition uc50_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ] ]) ].
+Definition uc53_prog : Syntax.Program := prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ NEG (ILIT ((2 ^ 63 + 1)%N)) ]) ].
+Definition uc54_prog : Syntax.Program := prog [ Syntax.ExprStmt (NEG (ILIT ((2 ^ 63 + 1)%N))) ].
+Definition uc55_prog : Syntax.Program := prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ].
+Definition uc_case_43 : uc_obs (rres uc43_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvOK AN.FamTypeUse; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ (RP.CvInvalidIdentity Names.PNil) ] [ RP.RvDeclMeaningV ].
+Proof. obs_uc uc43_prog. Qed.
+Definition uc_case_44 : uc_obs (rres uc44_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvUnmet AN.FamTypeUse RP.RvTypeMeaning; RP.FvInvalid AN.FamApplication (RP.CvInvalidAppIdentity Names.PNil); RP.FvNonconst AN.FamValue ] [ (RP.CvInvalidAppIdentity Names.PNil) ] [ RP.RvDeclMeaningV; RP.RvTypeMeaning ].
+Proof. obs_uc uc44_prog. Qed.
+Definition uc_case_45 : uc_obs (rres uc45_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvUnresolvedName; RP.FvDependent AN.FamValue RP.DvUnboundName; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PIota) ] [ RP.CvUnresolvedName; (RP.CvInvalidIdentity Names.PIota) ] [].
+Proof. obs_uc uc45_prog. Qed.
+Definition uc_case_46 : uc_obs (rres uc46_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvUnresolvedName; RP.FvDependent AN.FamValue RP.DvUnboundName; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvUnresolvedName ] [].
+Proof. obs_uc uc46_prog. Qed.
+Definition uc_case_47 : uc_obs (rres uc47_prog) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue ] [] [].
+Proof. obs_uc uc47_prog. Qed.
+Definition uc_case_48 : uc_obs (rres uc48_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PIota) ] [ RP.CvIllegalStatement; (RP.CvInvalidIdentity Names.PIota) ] [].
+Proof. obs_uc uc48_prog. Qed.
+Definition uc_case_49 : uc_obs (rres uc49_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ RP.CvIllegalStatement; (RP.CvInvalidIdentity Names.PNil) ] [].
+Proof. obs_uc uc49_prog. Qed.
+Definition uc_case_50 : uc_obs (rres uc50_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ (RP.CvInvalidIdentity Names.PNil) ] [].
+Proof. obs_uc uc50_prog. Qed.
+Definition uc_case_53 : uc_obs (rres uc53_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow; RP.FvNonconst AN.FamValue ] [ RP.CvDefaultOverflow ] [].
+Proof. obs_uc uc53_prog. Qed.
+Definition uc_case_54 : uc_obs (rres uc54_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvNonconst AN.FamValue; RP.FvNonconst AN.FamValue ] [ RP.CvIllegalStatement ] [].
+Proof. obs_uc uc54_prog. Qed.
+Definition uc_case_55 : uc_obs (rres uc55_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue RP.DvHeadInvalid; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallableExpr ] [].
+Proof. obs_uc uc55_prog. Qed.
 
 Lemma reader_index_compiled : AN.res_index (rres cprobe) = AN.res_index (AN.analyze cprobe). Proof. obs_eq cprobe. Qed.
 
