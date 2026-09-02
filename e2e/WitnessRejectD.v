@@ -236,6 +236,23 @@ Proof. destruct o as [b|f|sn]; [ left; exists b | right; left; exists f | right;
 (* uc_path_constructor_disjoint: the eight use-path families form a discrete, decidably-distinct enumeration *)
 Lemma uc_path_constructor_disjoint (f1 f2 : Index.Edges.UseFamily) : {f1 = f2} + {f1 <> f2}.
 Proof. decide equality. Qed.
+(* uc_resolved_application_roundtrip: an application's observable negativity equals its own_app classification *)
+Definition uc_resolved_application_roundtrip := @AN.app_neg_at_app.
+(* uc_unresolved_head_on_app: an unresolved application head lands its issue on the application row *)
+Definition uc_unresolved_head_on_app :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.UnresolvedApplicationHead _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (OID "missingName") []) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "missingName") []) ]). Qed.
+(* uc_invalid_identity_head_on_app: an iota or nil application head lands invalid-application-identity on the app row *)
+Definition uc_invalid_identity_head_on_app :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.InvalidApplicationIdentity _ _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ]). Qed.
+(* uc_nonname_application_roundtrip: a non-name application head lands NotCallableExpr on the app row *)
+Definition uc_nonname_application_roundtrip :
+  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ]). Qed.
 Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
