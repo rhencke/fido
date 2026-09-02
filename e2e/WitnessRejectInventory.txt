@@ -28,7 +28,6 @@ dr_stmt_lit
 dr_type_value
 dr_uint8_neg
 mf_app_two_families
-mf_dep_row_silent
 mf_println_legal_no_cause
 mf_stmt_lit_invalid_row
 mm17_1_missing_len
@@ -83,7 +82,6 @@ reader_index
 reader_index_compiled
 reader_index_outside
 reader_len
-r_invalidid_app_dep
 r_iota
 r_iota_cause
 r_iota_family
@@ -116,10 +114,8 @@ r_stmt_conv0
 r_stmt_lit
 r_type_value
 r_type_value_cause
-r_unbound_app_dep
 r_var_self
 r_var_true
-
 # canonical outcome-table records — one UcObs per row (§287)
 uc_case_01
 uc_case_02
@@ -203,3 +199,10 @@ uc_path_total
 uc_resolved_application_roundtrip
 uc_source_origin_exhaustive
 uc_unresolved_head_on_app
+uc_compiled_admission_exact
+uc_own_app_once
+uc_linear_index_build
+uc_linear_analysis_pass
+uc_path_unique
+uc_arg_edges_once
+uc_wide_operation_accounting

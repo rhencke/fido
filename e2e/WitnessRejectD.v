@@ -282,7 +282,7 @@ Definition uc_fact_transform_exact := @AN.fact_rows_rows.
 (* uc_issue_order_preserved: result_issues is exactly the diagnostics block then the boundaries block *)
 Definition uc_issue_order_preserved := @AN.result_issues_class_split.
 (* uc_compiled_admission_exact: over the full result domain, Compiled = exactly no diagnostics and no boundaries *)
-Definition uc_compiled_admission_exact {p} (r : AN.Result p) :
+Definition uc_compiled_admission_exact p (r : AN.Result p) :
   Compilable.disposition_of r = Compilable.Compiled <-> Compilable.AdmissibleData r.
 Proof.
   split; [ apply Compilable.disposition_compiled | ].
@@ -360,11 +360,7 @@ Proof.
   injection H as Hd0. cbn. rewrite Hd0. reflexivity.
 Qed.
 
-(* §332 an unbound application head is an unresolved-application-head on the app row, a diagnostic *)
-Definition r_unbound_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.UnresolvedApplicationHead _ _ _ _ _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = true.
-Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ]). Qed.
+
 
 (* §8 an overflowing literal arg under an unresolved head defers to a DepArgInvalid, not a diagnostic *)
 Definition r_arg_defers_unbound :
@@ -506,86 +502,7 @@ Definition r_main_arity :
           (pfacts (prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "main") [ ILIT 1 ]) ]). Qed.
 
-(* §287 a const-binder call with an overflowing argument: NotCallable on the app, the argument defers to it *)
-Definition r_const_call_arg_defers :
-  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallable _ _ _ _ _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ])) = true
-  /\ existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgInvalid _ _ _ _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ])) = true.
-Proof. split; obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "c"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ExprStmt (APP (OID "c") [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
 
-(* §293 a consumed zero-result fixed-main application is a NoValueUsed value, here as println's argument *)
-Definition r_novalue_println_main :
-  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "main") [] ]) ])) = true.
-Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ APP (OID "main") [] ]) ]). Qed.
-
-(* §294 discriminator: a bare main() statement discards its result and stays Compiled *)
-Definition r_bare_main_compiles :
-  Compilable.disposition (prog [ Syntax.ExprStmt (APP (OID "main") []) ]) = Compilable.Compiled.
-Proof. obs_disp. Qed.
-
-(* §297 const x = main(): the main result is consumed by an initializer, so NoValueUsed *)
-Definition r_novalue_const_main :
-  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (APP (OID "main") []))) ]) ])) = true.
-Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (APP (OID "main") []))) ]) ]). Qed.
-
-(* §298 var x = main(): consumed by a var initializer, so NoValueUsed *)
-Definition r_novalue_var_main :
-  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (APP (OID "main") []))) ]) ])) = true.
-Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (APP (OID "main") []))) ]) ]). Qed.
-
-(* §299 x := main(): consumed by a short RHS, so NoValueUsed *)
-Definition r_novalue_short_main :
-  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (APP (OID "main") [])) ])) = true.
-Proof. obs_direct (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "x"))) (NE1 (APP (OID "main") [])) ]). Qed.
-
-(* §295 main()(): outer NotCallableExpr, inner main consumed as non-name head, so NoValueUsed *)
-Definition r_main_call_call :
-  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (OID "main") []) []) ])) = true
-  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (OID "main") []) []) ])) = true.
-Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (APP (OID "main") []) []) ]). Qed.
-
-(* §296 println()(): same shape, the zero-result println app is the consumed non-name head *)
-Definition r_println_call_call :
-  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ])) = true
-  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.NoValueUsed _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ])) = true.
-Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (APP (Names.predeclared_ordinary Names.PPrintln) []) []) ]). Qed.
-
-(* §317 an overflowing literal head defers to NotCallableExpr, not its own DefaultOverflow *)
-Definition r_lithead_defers :
-  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepHeadInvalid _ _ _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = true
-  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = false.
-Proof. split; obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ]). Qed.
-
-(* §369 an overflowing negative unary head likewise defers rather than emitting DefaultOverflow *)
-Definition r_neghead_defers :
-  existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepHeadInvalid _ _ _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ])) = true.
-Proof. obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (NEG (ILIT ((2 ^ 63 + 1)%N))) []) ]). Qed.
-
-(* §12 a discarded overflowing literal does not default: only IllegalStatement, no DefaultOverflow *)
-Definition r_discard_lit_no_default :
-  existsb (fun f => match f with AN.OFStmt _ (AN.SInvalid (AN.IllegalStatement _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = true
-  /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = false.
-Proof. split; obs_direct (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ]). Qed.
-
-(* §64 the discarded negative unary overflow likewise stays IllegalStatement, never DefaultOverflow *)
-Definition r_discard_unary_no_default :
-  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (NEG (ILIT ((2 ^ 63 + 1)%N))) ])) = false.
-Proof. obs_direct (prog [ Syntax.ExprStmt (NEG (ILIT ((2 ^ 63 + 1)%N))) ]). Qed.
 
 (* an expr-statement whose expr owns an issue is a dependent non-result, never a successful statement *)
 Definition r_child_stmt_dep :

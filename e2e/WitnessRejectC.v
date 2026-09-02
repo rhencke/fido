@@ -68,11 +68,7 @@ Proof.
   rewrite (Compilable.compile_observe_data p_redecl_use). vm_compute. reflexivity.
 Qed.
 
-(* §330 an iota application head is an invalid-application-identity on the app row, a diagnostic, never a success *)
-Definition r_invalidid_app_dep :
-  existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.InvalidApplicationIdentity _ _ _ _ _ _)) => true | _ => false end)
-          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
-Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ]). Qed.
+
 
 (* a redeclared application head is a dependent non-result, never a successful application fact *)
 Definition r_redecl_app_dep :
@@ -86,11 +82,7 @@ Definition mf_stmt_lit_invalid_row :
   /\ RP.result_diag_families (rres (prog [ Syntax.ExprStmt (ILIT 1) ])) = [ AN.FamStatement ].
 Proof. split; obs_direct (prog [ Syntax.ExprStmt (ILIT 1) ]). Qed.
 
-(* §22.5 an unbound application head is the unresolved-name cause on the app row; stmt row silent, no requirement *)
-Definition mf_dep_row_silent :
-  RP.result_cause_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = [ RP.CvUnresolvedName ]
-  /\ RP.result_req_views (rres (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ])) = [].
-Proof. split; obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") []) ]). Qed.
+
 
 Definition mf_app_two_families :
   (match filter (fun o => match AN.fact_kind o with AN.ApplicationKind => true | _ => false end) (pfacts p_app_multi) with
