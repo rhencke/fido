@@ -229,6 +229,13 @@ Definition ucdeep_prog : Syntax.Program := prog [ Syntax.ExprStmt (NEG (APP (Nam
 (* uc_deep_path_exact: a deep alternating unary/application program retains every intermediate fact *)
 Definition uc_deep_path_exact : uc_obs (rres ucdeep_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue ] [ RP.CvIllegalStatement ] [].
 Proof. obs_uc ucdeep_prog. Qed.
+(* uc_source_origin_exhaustive: every source-object declaration origin is a binder, a function, or a short new *)
+Lemma uc_source_origin_exhaustive {p} {idx : Index.ProgramIndex p} (o : BN.DeclOrigin idx) :
+  (exists b, o = BN.DOBinder b) \/ (exists f, o = BN.DOFunc f) \/ (exists sn, o = BN.DOShort sn).
+Proof. destruct o as [b|f|sn]; [ left; exists b | right; left; exists f | right; right; exists sn ]; reflexivity. Qed.
+(* uc_path_constructor_disjoint: the eight use-path families form a discrete, decidably-distinct enumeration *)
+Lemma uc_path_constructor_disjoint (f1 f2 : Index.Edges.UseFamily) : {f1 = f2} + {f1 <> f2}.
+Proof. decide equality. Qed.
 Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
