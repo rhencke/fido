@@ -230,7 +230,7 @@ Definition ucdeep_prog : Syntax.Program := prog [ Syntax.ExprStmt (NEG (APP (Nam
 Definition uc_deep_path_exact : uc_obs (rres ucdeep_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue ] [ RP.CvIllegalStatement ] [].
 Proof. obs_uc ucdeep_prog. Qed.
 (* uc_source_origin_exhaustive: every source-object declaration origin is a binder, a function, or a short new *)
-Lemma uc_source_origin_exhaustive {p} {idx : Index.ProgramIndex p} (o : BN.DeclOrigin idx) :
+Lemma uc_source_origin_exhaustive p (idx : Index.ProgramIndex p) (o : BN.DeclOrigin idx) :
   (exists b, o = BN.DOBinder b) \/ (exists f, o = BN.DOFunc f) \/ (exists sn, o = BN.DOShort sn).
 Proof. destruct o as [b|f|sn]; [ left; exists b | right; left; exists f | right; right; exists sn ]; reflexivity. Qed.
 (* uc_path_constructor_disjoint: the eight use-path families form a discrete, decidably-distinct enumeration *)
@@ -281,19 +281,19 @@ Proof. repeat split; first [ obs_direct (prog [ Syntax.ExprStmt (APP (Names.pred
 Definition uc_fact_transform_exact := @AN.fact_rows_rows.
 (* uc_issue_order_preserved: result_issues is exactly the diagnostics block then the boundaries block *)
 Definition uc_issue_order_preserved := @AN.result_issues_class_split.
-Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Definition uc_dep_ainvalid_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
   (c : AN.Cause bp (Index.Refs.app_node ar) AN.ApplicationKind) :
   AN.occ_dep (AN.OFValue r (AN.VDependent (AN.DepArgInvalid ar i Hpar Hrole c))) = Some (AN.DepArgInvalid ar i Hpar Hrole c) := eq_refl.
 (* uc_dep_aunmet_roundtrip: a deferred argument's DepArgUnmet is recovered exactly by occ_dep *)
-Definition uc_dep_aunmet_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Definition uc_dep_aunmet_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
   (q : AN.Requirement bp (Index.Refs.app_node ar) AN.ApplicationKind) :
   AN.occ_dep (AN.OFValue r (AN.VDependent (AN.DepArgUnmet ar i Hpar Hrole q))) = Some (AN.DepArgUnmet ar i Hpar Hrole q) := eq_refl.
 (* uc_dep_adependent_roundtrip: a deferred argument's DepArgDependent is recovered exactly by occ_dep *)
-Definition uc_dep_adependent_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
+Definition uc_dep_adependent_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
   (d : AN.Dependency bp (Index.Refs.app_node ar) AN.ApplicationKind) :
