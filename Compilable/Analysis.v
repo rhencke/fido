@@ -584,6 +584,7 @@ Defined.
 Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_node ar) :=
   let r := Index.Refs.app_node ar in let Hv := Index.Refs.app_ok ar in
   let hd := Index.Edges.ah_child (Index.Edges.app_head ar) in
+      let arg_vec := map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) in
       match Index.node_view hd with
       | Index.Model.VName h =>
           let r0 := BN.resolve bp hd h in
@@ -593,18 +594,18 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
               | BN.PredeclaredObject pn => fun Ho =>
               let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
               match pmeaning pn with
-              | PMConvForm _ => match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))) end
+              | PMConvForm _ => match arg_vec with _ :: nil => AOK | _ => AInvalid (ConversionArity Hv pn (Datatypes.length (arg_vec))) end
               | PMComplex =>
                   (* application family = callability + arity only; the complex value is own_value's exact judgment *)
-                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
+                  match arg_vec with
                   | _ :: _ :: nil => AOK
-                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar))))
+                  | _ => AInvalid (ComplexArity Hv (Datatypes.length (arg_vec)))
                   end
               | PMPrintln => AOK
               | PMValue _ => AInvalid (NotCallable ar eq_refl h r0 o Hov)
               | PMIota => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
               | PMNil => AInvalid (InvalidApplicationIdentity ar eq_refl h r0 pn Hpre)
-              | PMUnmodelled => AUnmet (ReqApplication ar eq_refl h r0 pn Hpre (map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar)))
+              | PMUnmodelled => AUnmet (ReqApplication ar eq_refl h r0 pn Hpre (arg_vec))
               end
           | BN.SourceObject org => fun Ho =>
               let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
@@ -618,7 +619,7 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
               | BN.DOFunc f => fun Horg =>
                   (* the fixed main is zero-parameter: a zero-argument call is a known zero-result call *)
                   let Hfunc := eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg) in
-                  match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args ar) with
+                  match arg_vec with
                   | nil => AOK
                   | args => AInvalid (MainArity ar eq_refl h r0 f Hfunc args (Datatypes.length args))
                   end

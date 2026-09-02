@@ -388,6 +388,14 @@ Proof.
   exact (Hgen (node_children (app_node a)) eq_refl).
 Qed.
 
+(* uc_wide_operation_accounting: an m-argument application's edge vector has exactly m entries, no padding *)
+Lemma arg_vector_length {p} {idx : ProgramIndex p} (a : AppRef idx) :
+  length (application_args a) = pred (length (node_children (app_node a))).
+Proof.
+  pose proof (proj1 (application_args_exact a)) as H.
+  apply (f_equal (@length _)) in H. rewrite length_map, seq_length in H. exact H.
+Qed.
+
 Lemma all_children_has {p} {idx : ProgramIndex p} (par c : NodeRef idx) :
   In c (node_children par) -> exists o (e : ChildAt par o), In (existT _ o e) (all_children par) /\ ca_child e = c.
 Proof.

@@ -298,6 +298,10 @@ Definition uc_linear_index_build := conj (@Index.file_nodes_pos) (@Index.node_sl
 Definition uc_linear_analysis_pass := conj (@AN.file_pass_val) (@AN.neg_map_at).
 (* uc_path_unique: two canonical use paths for one exact occurrence cannot disagree observably *)
 Definition uc_path_unique := @Index.Edges.path_observation_unique.
+(* uc_arg_edges_once: the ordered arg-edge vector holds each ordinal 0..m-1 exactly once, the non-head children *)
+Definition uc_arg_edges_once := @Index.Edges.application_args_exact.
+(* uc_wide_operation_accounting: an m-argument application's arg-edge vector has exactly m entries *)
+Definition uc_wide_operation_accounting := @Index.Edges.arg_vector_length.
 Definition uc_dep_ainvalid_roundtrip p (idx : Index.ProgramIndex p) (s : BN.PI.PackageSurface idx) (bd : BN.PhaseData s) (bp : BN.BindingPhase s bd)
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
