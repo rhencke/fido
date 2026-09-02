@@ -253,6 +253,18 @@ Definition uc_nonname_application_roundtrip :
   existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ]). Qed.
+(* uc_head_folds_priority: a true fold keeps its iota argument InvalidIdentity, never a deferred DepArg *)
+Definition uc_head_folds_priority :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ])) = true
+  /\ existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgInvalid _ _ _ _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ])) = false.
+Proof. split; obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ]). Qed.
+(* uc_nonfolded_aok_is_println: a nonfolded AOK application with an argument is println, which defaults that argument *)
+Definition uc_nonfolded_aok_is_println :
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end)
+          (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ])) = true.
+Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
 Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
