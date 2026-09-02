@@ -277,6 +277,10 @@ Proof. repeat split; first [ obs_direct (prog [ Syntax.DeclarationStmt (Syntax.V
 Definition uc_default_policy_exhaustive :
   existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RConstNoDefault _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT ((2 ^ 63)%N)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFStmt _ (AN.SInvalid (AN.IllegalStatement _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = true.
 Proof. repeat split; first [ obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ]) | obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT ((2 ^ 63)%N)))) ]) ]) | obs_direct (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ]) ]. Qed.
+(* uc_fact_transform_exact: retained rows project to result_fact_list exactly, in retained order *)
+Definition uc_fact_transform_exact := @AN.fact_rows_rows.
+(* uc_issue_order_preserved: result_issues is exactly the diagnostics block then the boundaries block *)
+Definition uc_issue_order_preserved := @AN.result_issues_class_split.
 Definition uc_dep_ainvalid_roundtrip {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s} {bp : BN.BindingPhase s bd}
   (r : Index.NodeRef idx) (ar : Index.Refs.AppRef idx) (i : nat)
   (Hpar : Index.node_parent r = Some (Index.Refs.app_node ar)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
