@@ -10,4 +10,6 @@ import Fido.Integer
 import Fido.ModulePath
 import Fido.Names
 import Fido.Version
+import Fido.Syntax
+import Fido.Compilable.TypeResolution
 import Fido.Machine
