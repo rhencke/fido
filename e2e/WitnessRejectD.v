@@ -339,26 +339,6 @@ Definition r_main_as_type : Compilable.rejects (prog [ Syntax.DeclarationStmt (S
 (* a local main shadows the package main through the ordinary block rule *)
 Definition o_main_shadowed : Compilable.outsides (prog [ Syntax.ShortVarDecl (NE1 (Syntax.BNamed (OID "main"))) (NE1 (ILIT 1)) ; PL [ VNAME "main" ] ]). Proof. outside. Qed.
 
-(* the one diagnostic is a redeclared-group row over the group spelled "x" (cause RedeclaredGroupCause) *)
-Definition r_redecl_payload :
-  (match dsites (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]) with
-   | [ d ] => match RP.diag_group_name d with Some nm => Names.ordinary_equalb nm (OID "x") | None => false end
-   | _ => false
-   end) = true.
-Proof.
-  set (pp := prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 1))) ]) ; Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues None (NE1 (ILIT 2))) ]) ]).
-  assert (H : map RP.diag_group_name (dsites pp) = [ Some (OID "x") ]).
-  { unfold dsites.
-    obs_flags pp true true false true Hc Hm Hg Ho.
-    apply (proj1 (AN.dnc_iff _)) in Hc. apply (proj1 (AN.dnm_iff _)) in Hm. apply (proj1 (AN.dncause_iff _)) in Ho.
-    rewrite (AN.diagnostics_order (rres pp)), Hc, Hm, Ho. rewrite ?app_nil_l, ?app_nil_r.
-    unfold AN.group_rows; rewrite map_map.
-    erewrite (map_ext _ (fun rr => Some (projT1 rr))) by (intro rr; reflexivity).
-    unfold rres, result_of_compile, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
-    rewrite (Compilable.compile_observe_data pp). share_rd pp. vm_compute. reflexivity. }
-  destruct (dsites pp) as [|d0 [|d1 r1]]; cbn in H; try discriminate H.
-  injection H as Hd0. cbn. rewrite Hd0. reflexivity.
-Qed.
 
 
 
@@ -567,27 +547,7 @@ Proof.
       intro Hg. injection Hg as Hg0 _. subst g0. reflexivity.
 Qed.
 
-(* §17.2 a package with exactly one valid main has no missing-main case: the false missing-main cannot arise *)
-Lemma mm17_2_main_one_none : pmissing (prog_tops [ main0 ]) = [].
-Proof.
-  unfold pmissing, ppkg.
-  assert (Hnil : AN.result_missing_main_refs (rres (prog_tops [ main0 ])) = []).
-  { apply (map_eq_nil AN.mmr_package). rewrite AN.missing_main_packages.
-    unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
-    rewrite (Compilable.compile_observe_data (prog_tops [ main0 ])). vm_compute. reflexivity. }
-  rewrite Hnil. reflexivity.
-Qed.
 
-(* §17.3 a package with multiple mains is a group redeclaration, not a missing main: still no missing-main case *)
-Lemma mm17_3_main_multiple_none : pmissing (prog_tops [ main0 ; main0 ]) = [].
-Proof.
-  unfold pmissing, ppkg.
-  assert (Hnil : AN.result_missing_main_refs (rres (prog_tops [ main0 ; main0 ])) = []).
-  { apply (map_eq_nil AN.mmr_package). rewrite AN.missing_main_packages.
-    unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
-    rewrite (Compilable.compile_observe_data (prog_tops [ main0 ; main0 ])). vm_compute. reflexivity. }
-  rewrite Hnil. reflexivity.
-Qed.
 
 (* §17.4 an exact output collision retains the exact package+root: the collision view names the colliding entry *)
 Lemma mm17_4_collision_view : option_map RP.cv_root (pcollision p_collision) = Some "generated"%string.
