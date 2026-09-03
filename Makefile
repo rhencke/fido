@@ -36,7 +36,8 @@ pytools: builder
 	    --load -t $(PYTAG) . > /dev/null
 
 .PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
-        diet mutants ledger perf-evidence perf-attribution graph-gate dag-guard profile pytools hostpython go-probe toolchain
+        diet mutants ledger perf-evidence perf-attribution graph-gate dag-guard profile pytools hostpython go-probe toolchain \
+        lean-image lean-build lean-audit lean-bench lean-check
 .DEFAULT_GOAL := check
 
 # All Rocq and Go work runs in the pinned container through buildx; host Rocq is not supported.
@@ -272,3 +273,29 @@ toolchain: builder
 	  --target rocq-base --push -t $(TOOLCHAIN_IMAGE):$(TOOLCHAIN_TAG) .
 	@echo "fido: toolchain pushed — pin this immutable reference in Dockerfile + TOOLCHAIN.md:"
 	@echo "$(TOOLCHAIN_IMAGE)@$$(docker buildx imagetools inspect $(TOOLCHAIN_IMAGE):$(TOOLCHAIN_TAG) | awk '/^Digest:/{print $$2; exit}')"
+
+# ── The Lean 4 port, a proof of concept (lean/README.md) ─────────────────────────────────────────────
+# A separate pinned image (lean.Dockerfile: base by digest, release tarball by sha256), content-addressed
+# like the Python tooling image.  NEVER on the certified path: `make check` does not know these exist.
+# lean/ is mounted read-write because lake writes its build products into lean/.lake/ (ignored, never a
+# build input); the host runs no Lean.
+LEANTAG := fido-lean:$(shell sha256sum lean.Dockerfile | cut -c1-16)
+LEANRUN  = docker run --rm -u $(shell id -u):$(shell id -g) -e HOME=/tmp -e FIDO_AUDIT_VERBOSE \
+             -v "$(CURDIR)/lean":/work -w /work $(LEANTAG)
+lean-image: builder
+	@docker image inspect $(LEANTAG) > /dev/null 2>&1 || \
+	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) -f lean.Dockerfile --target lean-base \
+	    --load -t $(LEANTAG) .
+lean-build: lean-image
+	@$(LEANRUN) lake build
+# the POC's assumption audit: the axiom closure of every Fido.* constant; sorryAx / ofReduceBool fail it
+lean-audit: lean-build
+	@$(LEANRUN) lake env lean Audit.lean
+# one `lean` process per module in Fido.lean's import order — the analogue of one `rocq c` per file
+lean-bench: lean-build
+	@$(LEANRUN) sh bench.sh
+# compile ONE module alone into a private temp dir and audit its axioms; safe to run concurrently
+# (`make lean-check MODULE=Fido.Decimal`); dependencies come from the last `make lean-build`
+MODULE ?= Fido
+lean-check: lean-image
+	@$(LEANRUN) sh check.sh $(MODULE)

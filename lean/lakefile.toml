@@ -1,0 +1,6 @@
+# Fido Lean 4 POC — NOT part of the certified path.  See lean/README.md.
+name = "fido"
+defaultTargets = ["Fido"]
+
+[[lean_lib]]
+name = "Fido"
