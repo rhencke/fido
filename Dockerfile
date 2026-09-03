@@ -1873,6 +1873,12 @@ export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
 #     go.mod + recursive .go, NO .fido/lock/temp — what the `generated-module` layer + go-e2e VALIDATE with a
 #     fresh `go build ./...`.  The sink is exercised separately (sink_test), reached in production only via `make regenerate`. ---
 G=/workspace/generated
+# the four small independent materializations run as background workers under the canonical witness compile;
+# each worker's exit status is observed through `wait` below, so a failing worker still fails the stage
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1 & p_multi=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEmpty.v > /tmp/emit-empty.log 2>&1 & p_empty=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>&1 & p_bytes=$!
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessAlias.v > /tmp/emit-alias.log 2>&1 & p_alias=$!
 if ! rocq c -R e2e Fido -Q _build/default/. Fido -time e2e/Witness.v > /tmp/emit.log 2>&1; then cat /tmp/emit.log; fail "Fido Materialize (witness) FAILED"; fi
 cat /tmp/emit.log
 [ -f "$G/go.mod" ]  || fail "the materialized pristine has no rendered go.mod"
@@ -1886,19 +1892,19 @@ grep -qx 'module fido.local/generated' "$G/go.mod" || { cat "$G/go.mod"; fail "r
 grep -qx 'go 1.23' "$G/go.mod" || { cat "$G/go.mod"; fail "rendered go.mod go directive unexpected"; }
 
 # differential witness: TWO main packages (root + sub/) + an empty file + the rendered go.mod
-if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessMulti.v > /tmp/emit-multi.log 2>&1; then cat /tmp/emit-multi.log; fail "Fido Materialize (multi-package) FAILED"; fi
+wait "$p_multi" || { cat /tmp/emit-multi.log; fail "Fido Materialize (multi-package) FAILED"; }
 { [ -f /workspace/generated-multi/go.mod ] && [ -f /workspace/generated-multi/main.go ] && [ -f /workspace/generated-multi/extra.go ] && [ -f /workspace/generated-multi/sub/main.go ]; } || fail "multi-package pristine tree incomplete"
 echo "fido: multi-package pristine tree:"; ( cd /workspace/generated-multi && find . -type f | sort )
 
 # empty-program witness: a valid module with NO source files -> go.mod and zero .go
-if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEmpty.v > /tmp/emit-empty.log 2>&1; then cat /tmp/emit-empty.log; fail "Fido Materialize (empty program) FAILED"; fi
+wait "$p_empty" || { cat /tmp/emit-empty.log; fail "Fido Materialize (empty program) FAILED"; }
 [ -f /workspace/generated-empty/go.mod ] || fail "empty program materialized no go.mod"
 [ -z "$(find /workspace/generated-empty -name '*.go')" ] || fail "empty program materialized a .go file"
 echo "fido: empty-program pristine tree:"; ( cd /workspace/generated-empty && find . -type f | sort )
 
 # boundary-byte string witness: a println of a string with bytes 0x00/0x1f/0x7f/0x80/0xff -> a separate
 # tree the go-e2e byte-exact oracle builds, runs, and compares (od hex) against the reviewed golden.
-if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessBytes.v > /tmp/emit-bytes.log 2>&1; then cat /tmp/emit-bytes.log; fail "Fido Materialize (boundary bytes) FAILED"; fi
+wait "$p_bytes" || { cat /tmp/emit-bytes.log; fail "Fido Materialize (boundary bytes) FAILED"; }
 [ -f /workspace/generated-bytes/main.go ] || fail "boundary-byte witness materialized no main.go"
 echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && find . -type f | sort ); cat /workspace/generated-bytes/main.go
 
@@ -1906,7 +1912,7 @@ echo "fido: boundary-byte pristine tree:"; ( cd /workspace/generated-bytes && fi
 # byte(0)/byte(255)/uint8(255)/rune(-2^31)/rune(2^31-1)/int32(...) -> a DISPOSABLE tree the go-e2e builds+runs
 # to confirm the pinned toolchain ACCEPTS the alias conversions (byte IS uint8, rune IS int32).  The REJECTED
 # alias endpoints are exercised through the go-e2e `rej_conv` matrix.  Never the canonical published image.
-if ! rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessAlias.v > /tmp/emit-alias.log 2>&1; then cat /tmp/emit-alias.log; fail "Fido Materialize (byte/rune alias) FAILED"; fi
+wait "$p_alias" || { cat /tmp/emit-alias.log; fail "Fido Materialize (byte/rune alias) FAILED"; }
 [ -f /workspace/generated-alias/main.go ] || fail "byte/rune alias witness materialized no main.go"
 echo "fido: byte/rune alias pristine tree:"; ( cd /workspace/generated-alias && find . -type f | sort ); cat /workspace/generated-alias/main.go
 for spell in 'byte(0)' 'byte(255)' 'uint8(255)' 'rune(-2147483648)' 'rune(2147483647)' 'int32(-2147483648)' 'int32(2147483647)'; do
