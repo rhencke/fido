@@ -24,6 +24,17 @@ one `rocq c` per file. `Audit.lean` prints the axiom closure of every `Fido.*` c
 | `CoInductive` | greatest-fixed-point predicate (explicit invariant) | Lean 4 has no coinductives |
 | `vm_compute; reflexivity` | `decide` (kernel) | never `native_decide` |
 | `Floats.SpecFloat` | ported `SFdiv` subset (`Fido/SpecFloat.lean`) | Lean core has no IEEE-754 spec model |
+| `Forall P l` | `∀ x ∈ l, P x` | core Lean 4.33 has no `List.Forall` |
+| `last l d` | `l.getLastD d` | |
+| `FMapAVL`/`FMapPositive` + `Facts` | `Std.TreeMap`, behind the same operation and lemma names | `Fido/Collections.lean` re-exposes the surface the theory uses |
+
+Core-library findings the ports must respect (each cost a module its constructive audit before it was found):
+`Nat.div_lt_of_lt_mul` reaches `Classical.choice` (use `Nat.div_lt_iff_lt_mul`); a wildcard `_` match arm
+compiles through a `propext`-dependent helper (enumerate the arms); `Nat.gcd` is well-founded recursion, so
+anything through it carries `Quot.sound` + `propext` (unavoidable; reported); a definition by well-founded
+recursion (the `positive → Nat` encoding) is not evaluated by plain `decide` — use `decide +kernel` or `simp`
+with the unfolding equations; `exact` is a keyword (`«exact»`). `propext`/`Quot.sound` are Lean's own axioms
+and appear through core lemmas; the bar the port holds is: no `Classical.choice`, no `sorry`, no `native_decide`.
 
 `Fido/Prelude.lean` is the one module with no `.v` counterpart: it holds the Rocq-stdlib-shaped helpers
 (`Str`, and `str! "…"`, which elaborates a string literal to its char list — `String.toList` reaches
