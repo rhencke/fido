@@ -35,20 +35,22 @@ staged_all() {
   pytag="fido-python-tools:$(cat "$ctx/Dockerfile" "$ctx/tools/python-requirements.lock" | sha256sum | cut -c1-16)"
   docker image inspect "$pytag" >/dev/null 2>&1 || \
     docker buildx build --builder "$FIDO_BUILDER" --platform linux/amd64 --target python-tools --load -t "$pytag" "$ctx" >/dev/null || return $?
+  # Takes one shell-command string and runs it inside the pinned image against the staged context, so a
+  # group of independent checks shares ONE container launch instead of paying its ~0.6s startup cost each.
   fido_py() {
     docker run --rm -u "$(id -u):$(id -g)" -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
       -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
-      -w /repo -v "$ctx":/repo:ro "$pytag" python3 "$@"
+      -w /repo -v "$ctx":/repo:ro "$pytag" sh -c "$1"
   }
   # (2) staged copies of the lightweight repository-policy gates on the exported staged tree.
   sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx" || return $?
   sh "$ctx/tools/generated-output-gate.sh" "$ctx" || return $?
   sh "$ctx/tools/generated-mode-gate.sh" || return $?          # reads the repo index for exact Git mode
-  fido_py tools/gate-mutation-test.py --root /repo || return $?
-  fido_py tools/source-diet.py --root /repo --snapshot --self-test || return $?
-  fido_py tools/source-diet.py --root /repo --snapshot --check || return $?
-  fido_py tools/host-python-gate.py --root /repo --self-test || return $?
-  fido_py tools/host-python-gate.py --root /repo || return $?
+  fido_py "python3 tools/gate-mutation-test.py --root /repo && \
+    python3 tools/source-diet.py --root /repo --snapshot --self-test && \
+    python3 tools/source-diet.py --root /repo --snapshot --check && \
+    python3 tools/host-python-gate.py --root /repo --self-test && \
+    python3 tools/host-python-gate.py --root /repo" || return $?
   # (2a2) staged performance-evidence currentness: the digest of the exact STAGED INDEX, the committed HEAD
   #       digest, and whether the proposed commit changes the MEASUREMENT CONTENT (the projection owned by
   #       tools/perf-evidence-changed.sh) — all fed to the STAGED validator and engine.  Malformed evidence, an
@@ -57,15 +59,14 @@ staged_all() {
   pd=$(sh "$ctx/tools/performance-input-digest.sh") || return $?
   ph=$(sh "$ctx/tools/performance-input-digest.sh" --head) || return $?
   pec=$(sh "$ctx/tools/perf-evidence-changed.sh")
-  fido_py tools/build-graph-gate.py --self-test || return $?
-  fido_py tools/build-graph-gate.py --root /repo || return $?
-  fido_py tools/perf-work-span.py --self-test || return $?
+  fido_py "python3 tools/build-graph-gate.py --self-test && \
+    python3 tools/build-graph-gate.py --root /repo && \
+    python3 tools/perf-work-span.py --self-test" || return $?
   sh "$ctx/tools/verify-performance-bases.sh" "$ctx/.review/perf/performance-bases.tsv" || return $?
-  fido_py tools/perf-work-span.py --root /repo --check-generated \
-    --current-digest "$pd" --evidence-changed "$pec" || return $?
-  fido_py tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf || return $?
-  fido_py tools/perf-evidence-validate.py --self-test || return $?
-  fido_py tools/perf-evidence-validate.py --digest "$pd" --head-digest "$ph" --evidence-changed "$pec" || return $?
+  fido_py "python3 tools/perf-work-span.py --root /repo --check-generated --current-digest $pd --evidence-changed $pec && \
+    python3 tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf && \
+    python3 tools/perf-evidence-validate.py --self-test && \
+    python3 tools/perf-evidence-validate.py --digest $pd --head-digest $ph --evidence-changed $pec" || return $?
   # (2b) BUDGET-EDGE integrity (§7.5): one owner in check-budget.sh (no Make variable), and both make check and
   #      this hook route through it; the make check recipe times the complete path (no heavy prereq before t0).
   grep -qF 'BUDGET_SECONDS=120' "$ctx/tools/check-budget.sh" || { echo "fido: pre-commit — the one budget owner BUDGET_SECONDS=120 is missing from tools/check-budget.sh"; return 1; }
