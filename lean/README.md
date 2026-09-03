@@ -36,6 +36,15 @@ recursion (the `positive → Nat` encoding) is not evaluated by plain `decide` �
 with the unfolding equations; `exact` is a keyword (`«exact»`). `propext`/`Quot.sound` are Lean's own axioms
 and appear through core lemmas; the bar the port holds is: no `Classical.choice`, no `sorry`, no `native_decide`.
 
+One exception the bar cannot exclude, found by `Collections`: every `Std.TreeMap` OPERATION (insert, erase,
+lookup, toList, …) reaches `Classical.choice` through `Classical.propDecidable` inside core's balancing proofs,
+and core's `Char`/`Nat` `TransOrd`/`LawfulEqOrd` instances reach it through one `Classical.not_not` simp step.
+So every map-backed constant, and everything downstream that mentions a map (`Syntax`, `Index`, `Bindings`,
+`Analysis`), audits as classical for that reason alone. The port keeps `Std.TreeMap` (the constructive
+alternative is a hand-written ordered map in the Prelude — a second authority for a core fact, Rob's call) and
+holds the bar on the proofs the port itself writes: `FIDO_AUDIT_VERBOSE=1` must attribute every classical
+constant to a map operation or an order instance, never to a ported proof.
+
 `Fido/Prelude.lean` is the one module with no `.v` counterpart: it holds the Rocq-stdlib-shaped helpers
 (`Str`, and `str! "…"`, which elaborates a string literal to its char list — `String.toList` reaches
 `Classical.choice` in this toolchain, and the Rocq theory is constructive). Each module declares `namespace Fido.X` (so the audit's `Fido.*` filter sees every constant) and

@@ -2,8 +2,10 @@
 import Fido.Prelude
 import Fido.Decimal
 import Fido.FilePath
+import Fido.Collections
 import Fido.SpecFloat
 import Fido.Float
+import Fido.Complex
 import Fido.Integer
 import Fido.ModulePath
 import Fido.Names
