@@ -99,8 +99,36 @@ def shell_launchers(text: str) -> set[str]:
 
 
 def segments(command: str) -> list[list[str]]:
-    """The command split into shell segments, each tokenized, so each is judged on its own."""
-    return [seg.split() for seg in SEGMENT_RE.split(command)]
+    """The command split into shell segments, each tokenized, so each is judged on its own.
+
+    A `&&`/`||`/`;`/`|` inside a quoted string is not a host-level command separator — it is literal data
+    handed to whatever reads that argument (a container's own `sh -c '...'`), so splitting there would judge
+    one already-entered container command as an unlaunched second one.  The split runs only outside quotes;
+    a quote still closes normally afterward, so a real separator following it splits as before.
+    """
+    parts, buf, quote, i = [], '', '', 0
+    while i < len(command):
+        ch = command[i]
+        if quote:
+            buf += ch
+            quote = '' if ch == quote else quote
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            buf += ch
+            i += 1
+            continue
+        m = SEGMENT_RE.match(command, i)
+        if m:
+            parts.append(buf)
+            buf = ''
+            i = m.end()
+            continue
+        buf += ch
+        i += 1
+    parts.append(buf)
+    return [seg.split() for seg in parts]
 
 
 def invokes_host_python(command: str, launchers: set[str]) -> str | None:
@@ -412,6 +440,12 @@ def self_test(root: Path) -> int:
                 append(MAKEFILE, '\ngood: pytools\n\t@$(PYRUN) tools/source-diet.py\n'))
     must_accept('a host shell diagnostic with no Python',
                 append(MAKEFILE, '\ngood:\n\t@git status --porcelain | sort\n'))
+    must_accept('a launcher batching two calls inside one quoted shell command',
+                append(MAKEFILE, "\ngood: pytools\n\t@$(PYRUN_SH) 'python3 tools/source-diet.py --self-test "
+                                  "&& python3 tools/source-diet.py --check'\n"))
+    must_flag('an interpreter after a properly closed quote and a real &&',
+              append(MAKEFILE, "\nbad:\n\t@$(PYRUN) tools/source-diet.py --note 'ok' && python3 tools/x.py\n"),
+              "runs 'python3' on the host")
 
     # ── hooks and scripts
     must_flag('host Python in the pre-commit hook', append(HOOK, '\npython3 "$ctx/tools/source-diet.py"\n'),

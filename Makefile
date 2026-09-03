@@ -22,6 +22,10 @@ PYTAG   := fido-python-tools:$(shell cat Dockerfile tools/python-requirements.lo
 PYARGS  := --rm -u $(shell id -u):$(shell id -g) -e PYTHONDONTWRITEBYTECODE=1 -e HOME=/tmp \
            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo -w /repo
 PYRUN    = docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3
+# Same container/mount as PYRUN, but hands the tag a shell command instead of one fixed `python3 <script>`,
+# so a target can batch its self-test + check (or several checks) into ONE container launch instead of
+# paying per-launch startup cost (~0.6s measured) once per line.
+PYRUN_SH = docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) sh -c
 
 
 # Build the pinned tooling images if this exact tag is not already present.  Never a rebuild of an existing
@@ -152,8 +156,7 @@ regen-guard: builder
 # only shell, Make, Git, Docker and Buildx.  Its adversarial controls run first, so a green here is one the
 # checker can still earn.
 hostpython: pytools
-	@$(PYRUN) tools/host-python-gate.py --self-test
-	@$(PYRUN) tools/host-python-gate.py
+	@$(PYRUN_SH) 'python3 tools/host-python-gate.py --self-test && python3 tools/host-python-gate.py'
 
 fmt: pytools
 	@$(PYRUN) tools/fmt-check.py
@@ -161,39 +164,29 @@ fmt: pytools
 # The PERMANENT source-comment policy, and only that: the .v comment law and the exception relation both
 # ways.  Its adversarial controls run first, so a green here is one the checker can still earn.
 diet: pytools
-	@$(PYRUN) tools/source-diet.py --self-test
-	@$(PYRUN) tools/source-diet.py --check
+	@$(PYRUN_SH) 'python3 tools/source-diet.py --self-test && python3 tools/source-diet.py --check'
 
 # The raw structured-data gate: the .review ledgers are well-formed BEFORE any derived count or cross-ledger
 # claim.  Its adversarial controls run first, so a green here is one the checker can still earn.  It owns no
 # derived count and no semantic decision; the code and its gated theorems remain the sole authority.
 ledger: pytools
-	@$(PYRUN) tools/ledger-validate.py --self-test
-	@$(PYRUN) tools/ledger-validate.py
+	@$(PYRUN_SH) 'python3 tools/ledger-validate.py --self-test && python3 tools/ledger-validate.py'
 
 # The candidate-bound performance-evidence gate: STRUCTURAL + currentness only, never a benchmark rerun
 # (measurement is the documented non-destructive raw commands above).  The performance-input digest is a host Git
 # computation (the host boundary owns Git); the validator runs in the pinned image and receives it by argument,
 # so no interpreter runs on the host and the slim image needs no Git.
 perf-evidence: pytools
-	@$(PYRUN) tools/perf-evidence-validate.py --self-test
-	@$(PYRUN) tools/perf-work-span.py --self-test
-	@$(PYRUN) tools/witness-profile-attribution.py --self-test
+	@$(PYRUN_SH) 'python3 tools/perf-evidence-validate.py --self-test && python3 tools/perf-work-span.py --self-test && python3 tools/witness-profile-attribution.py --self-test'
 	@sh tools/verify-performance-bases.sh --self-test
 	@sh tools/verify-performance-bases.sh
 	@d=$$(sh tools/performance-input-digest.sh); h=$$(sh tools/performance-input-digest.sh --head); \
 	  c=$$(sh tools/perf-evidence-changed.sh); \
-	  docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3 \
-	    tools/perf-work-span.py --root /repo --check-generated \
-	    --current-digest $$d --evidence-changed $$c && \
-	  docker run $(PYARGS) -v "$(CURDIR)":/repo:ro $(PYTAG) python3 \
-	    tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf && \
-	  $(PYRUN) tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c
+	  $(PYRUN_SH) "python3 tools/perf-work-span.py --root /repo --check-generated --current-digest $$d --evidence-changed $$c && python3 tools/witness-profile-attribution.py --check-generated --perf-dir /repo/.review/perf && python3 tools/perf-evidence-validate.py --digest $$d --head-digest $$h --evidence-changed $$c"
 
 # The one-build verification-DAG structural gate: Dockerfile/Make/hook topology only, never a build.
 graph-gate: pytools
-	@$(PYRUN) tools/build-graph-gate.py --self-test
-	@$(PYRUN) tools/build-graph-gate.py --root /repo
+	@$(PYRUN_SH) 'python3 tools/build-graph-gate.py --self-test && python3 tools/build-graph-gate.py --root /repo'
 
 # The detailed WitnessReject timing-attribution evidence: one pinned -time profile per fixture module, then the
 # deterministic committed classifier writes the RAW sentence table and derives its generated program/population
