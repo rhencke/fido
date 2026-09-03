@@ -58,14 +58,13 @@ Definition r_redecl_usecontext :
   map RP.diag_group_name (dsites p_redecl_use) = [ Some (OID "x") ].
 Proof.
   unfold dsites.
-  assert (Hc : AN.collision_rows (rres p_redecl_use) = []) by (apply (proj1 (AN.dnc_iff _)); obs_seal p_redecl_use).
-  assert (Hm : AN.main_rows (rres p_redecl_use) = []) by (apply (proj1 (AN.dnm_iff _)); obs_seal p_redecl_use).
-  assert (Ho : AN.occ_diags (rres p_redecl_use) = []) by (apply (proj1 (AN.dncause_iff _)); obs_seal p_redecl_use).
+  obs_flags p_redecl_use true true false true Hc Hm Hg Ho.
+  apply (proj1 (AN.dnc_iff _)) in Hc. apply (proj1 (AN.dnm_iff _)) in Hm. apply (proj1 (AN.dncause_iff _)) in Ho.
   rewrite (AN.diagnostics_order (rres p_redecl_use)), Hc, Hm, Ho. rewrite ?app_nil_l, ?app_nil_r.
   unfold AN.group_rows; rewrite map_map.
   erewrite (map_ext _ (fun rr => Some (projT1 rr))) by (intro rr; reflexivity).
   unfold rres, result_of_compile, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
-  rewrite (Compilable.compile_observe_data p_redecl_use). vm_compute. reflexivity.
+  rewrite (Compilable.compile_observe_data p_redecl_use). share_rd p_redecl_use. vm_compute. reflexivity.
 Qed.
 
 

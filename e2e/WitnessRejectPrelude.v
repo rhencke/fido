@@ -126,15 +126,24 @@ Ltac occ_bound_collapse p := unfold AN.result_boundaries;
   rewrite <- (map_map AN.frr_row gb), AN.fact_rows_rows; subst gb.
 
 (* issue classes: class-split, kill package/collision/group rows via d*_iff, collapse occurrences, compute *)
+Ltac obs_flags p bc bm bg bo Hc Hm Hg Ho :=
+  let Hb := fresh "Hb" in
+  assert (Hb : (AN.data_no_collision (AN.data_of_result (rres p)),
+                AN.data_no_missing (AN.data_of_result (rres p)),
+                AN.data_no_redecl (AN.data_of_result (rres p)),
+                AN.data_no_cause (AN.data_of_result (rres p))) = (bc, bm, bg, bo))
+    by (unfold rres, result_of_compile;
+        rewrite (Compilable.compile_observe_data p); share_rd p; vm_compute; reflexivity);
+  injection Hb as Hc Hm Hg Ho.
 Ltac obs_issue_classes p :=
   rewrite AN.result_issues_class_split, map_app, !map_map; cbn [AN.issue_class];
-  assert (Hc : AN.collision_rows (rres p) = []) by (apply (proj1 (AN.dnc_iff _)); obs_seal p);
-  assert (Hm : AN.main_rows (rres p) = []) by (apply (proj1 (AN.dnm_iff _)); obs_seal p);
-  assert (Hg : AN.group_rows (rres p) = []) by (apply (proj1 (AN.dnr_iff _)); obs_seal p);
+  let Hc := fresh "Hc" in let Hm := fresh "Hm" in let Hg := fresh "Hg" in let Ho := fresh "Ho" in
+  obs_flags p true true true false Hc Hm Hg Ho;
+  apply (proj1 (AN.dnc_iff _)) in Hc; apply (proj1 (AN.dnm_iff _)) in Hm; apply (proj1 (AN.dnr_iff _)) in Hg;
   rewrite (AN.diagnostics_order (rres p)), Hc, Hm, Hg; cbn [app];
   occ_diag_collapse p; occ_bound_collapse p;
   unfold rres, result_of_compile, AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
-  rewrite (Compilable.compile_observe_data p); vm_compute; reflexivity.
+  rewrite (Compilable.compile_observe_data p); share_rd p; vm_compute; reflexivity.
 
 (* a use of the redeclared name folds into the one group row named "x"; exact contexts + soundness are §24.4 laws *)
 Definition p_redecl_use : Syntax.Program :=
