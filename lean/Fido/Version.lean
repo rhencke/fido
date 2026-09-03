@@ -12,9 +12,9 @@ open Version
 /-- The `go` directive value: no leading `v`, no patch component. -/
 def render (v : Version) : Str :=
   match v with
-  | Go1_23 => "1.23".toList
+  | Go1_23 => str! "1.23"
 
-theorem render_go1_23 : render Go1_23 = "1.23".toList := rfl
+theorem render_go1_23 : render Go1_23 = str! "1.23" := rfl
 
 def equalb (a b : Version) : Bool :=
   match a, b with

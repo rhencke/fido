@@ -26,7 +26,8 @@ one `rocq c` per file. `Audit.lean` prints the axiom closure of every `Fido.*` c
 | `Floats.SpecFloat` | ported `SFdiv` subset (`Fido/SpecFloat.lean`) | Lean core has no IEEE-754 spec model |
 
 `Fido/Prelude.lean` is the one module with no `.v` counterpart: it holds the Rocq-stdlib-shaped helpers
-(`Str`). Each module declares `namespace Fido.X` (so the audit's `Fido.*` filter sees every constant) and
+(`Str`, and `str! "…"`, which elaborates a string literal to its char list — `String.toList` reaches
+`Classical.choice` in this toolchain, and the Rocq theory is constructive). Each module declares `namespace Fido.X` (so the audit's `Fido.*` filter sees every constant) and
 importers write `open Fido` once, so Rocq's qualified style (`Version.render`, `Names.equalb`) reads the same.
 
 Every `Definition`/`Lemma`/`Theorem` keeps its name and its statement up to that mapping. Proofs are idiomatic
