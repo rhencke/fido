@@ -2,11 +2,8 @@
 import Fido.Prelude
 
 /-! divergences:
-  * `ascii` is `Char` (README): `nat_of_ascii` is `Char.toNat`, whose range is the Unicode scalars, not
-    `< 256`.  No proof here relies on the 8-bit bound — `is_lower`/`is_lower_digit` bound the code by the
-    alphabet ranges and the slash lemmas evaluate `'/'` — so no bound is added anywhere.
   * The stdlib boolean tests are the mapped types' decision procedures: `String.eqb`/`Ascii.eqb` are
-    `decide (_ = _)` on `Str`/`Char`, `Nat.leb` is `decide (_ ≤ _)`; `forallb`/`In`/`rev`/`String.length`
+    `decide (_ = _)` on `Str`/`UInt8`, `Nat.leb` is `decide (_ ≤ _)`; `forallb`/`In`/`rev`/`String.length`
     are `List.all`/`∈`/`List.reverse`/`List.length`.
   * `String.substring` and `String.concat` have no core counterpart with the same recursion (`List.intercalate`
     recurses differently, so `concat_cons_empty`/`concat_map_head` would not be `rfl`): the two stdlib
@@ -19,11 +16,11 @@ import Fido.Prelude
 
 namespace Fido.FilePath
 
-def is_lower (c : Char) : Bool :=
+def is_lower (c : UInt8) : Bool :=
   let n := c.toNat
   decide (97 ≤ n) && decide (n ≤ 122)
 
-def is_lower_digit (c : Char) : Bool :=
+def is_lower_digit (c : UInt8) : Bool :=
   let n := c.toNat
   (decide (97 ≤ n) && decide (n ≤ 122)) || (decide (48 ≤ n) && decide (n ≤ 57))
 
@@ -44,7 +41,7 @@ def dir_component_ok (s : Str) : Bool := component_ok s && !(reserved_dir s)
 def split_slash : Str → List Str
   | [] => [[]]
   | c :: s' =>
-      if c = '/' then [] :: split_slash s'
+      if c = byte! '/' then [] :: split_slash s'
       else match split_slash s' with
            | h :: t => (c :: h) :: t
            | [] => [[c]]         -- unreachable: split_slash never returns []
@@ -117,7 +114,7 @@ theorem split_slash_nonempty : ∀ s, split_slash s ≠ [] := by
   | nil => exact nofun
   | cons c s' =>
     rw [split_slash]
-    obtain E | E := Decidable.em (c = '/')
+    obtain E | E := Decidable.em (c = byte! '/')
     · rw [if_pos E]; exact nofun
     · rw [if_neg E]
       cases split_slash s' with
@@ -125,17 +122,17 @@ theorem split_slash_nonempty : ∀ s, split_slash s ≠ [] := by
       | cons h t => exact nofun
 
 theorem split_slash_app : ∀ a b,
-    split_slash (a ++ '/' :: b) = split_slash a ++ split_slash b := by
+    split_slash (a ++ byte! '/' :: b) = split_slash a ++ split_slash b := by
   intro a b
   induction a with
   | nil =>
-    show split_slash ('/' :: b) = [[]] ++ split_slash b
+    show split_slash (byte! '/' :: b) = [[]] ++ split_slash b
     rw [split_slash, if_pos rfl]
     rfl
   | cons c a' IH =>
-    show split_slash (c :: (a' ++ '/' :: b)) = split_slash (c :: a') ++ split_slash b
+    show split_slash (c :: (a' ++ byte! '/' :: b)) = split_slash (c :: a') ++ split_slash b
     rw [split_slash, split_slash, IH]
-    obtain E | E := Decidable.em (c = '/')
+    obtain E | E := Decidable.em (c = byte! '/')
     · rw [if_pos E, if_pos E]
       rfl
     · rw [if_neg E, if_neg E]
@@ -146,7 +143,7 @@ theorem split_slash_app : ∀ a b,
 theorem concat_cons_empty : ∀ (sep h : Str) (t : List Str),
     concat sep ([] :: h :: t) = sep ++ concat sep (h :: t) := fun _ _ _ => rfl
 
-theorem concat_map_head : ∀ (sep : Str) (c : Char) (h : Str) (t : List Str),
+theorem concat_map_head : ∀ (sep : Str) (c : UInt8) (h : Str) (t : List Str),
     concat sep ((c :: h) :: t) = c :: concat sep (h :: t)
   | _, _, _, [] => rfl
   | _, _, _, _ :: _ => rfl
@@ -157,7 +154,7 @@ theorem split_slash_concat : ∀ s, concat (str! "/") (split_slash s) = s := by
   | nil => rfl
   | cons c s IH =>
     rw [split_slash]
-    obtain E | E := Decidable.em (c = '/')
+    obtain E | E := Decidable.em (c = byte! '/')
     · subst E
       rw [if_pos rfl]
       cases Esp : split_slash s with
@@ -183,20 +180,20 @@ theorem split_concat_singles : ∀ comps : List Str,
     cases rest with
     | nil => exact Hs x (List.Mem.head _)
     | cons y rest =>
-      show split_slash (x ++ '/' :: concat (str! "/") (y :: rest)) = x :: y :: rest
+      show split_slash (x ++ byte! '/' :: concat (str! "/") (y :: rest)) = x :: y :: rest
       rw [split_slash_app, Hs x (List.Mem.head _),
         IH (fun z Hz => Hs z (List.Mem.tail _ Hz)) nofun]
       rfl
 
-theorem is_lower_not_slash : ∀ c, is_lower c = true → decide (c = '/') = false := by
+theorem is_lower_not_slash : ∀ c, is_lower c = true → decide (c = byte! '/') = false := by
   intro c H
-  obtain E | E := Decidable.em (c = '/')
+  obtain E | E := Decidable.em (c = byte! '/')
   · subst E; exact absurd H (by decide)
   · exact decide_eq_false E
 
-theorem is_lower_digit_not_slash : ∀ c, is_lower_digit c = true → decide (c = '/') = false := by
+theorem is_lower_digit_not_slash : ∀ c, is_lower_digit c = true → decide (c = byte! '/') = false := by
   intro c H
-  obtain E | E := Decidable.em (c = '/')
+  obtain E | E := Decidable.em (c = byte! '/')
   · subst E; exact absurd H (by decide)
   · exact decide_eq_false E
 

@@ -26,8 +26,8 @@ import Fido.FilePath
   * CORE FINDING — every constant that touches a `Std.TreeMap` reaches `Classical.choice`, operations
     included (`Std.TreeMap.insert`/`empty`/`get?`/`toList`/… carry it: `Classical.propDecidable` inside the
     `_proof_n` auxiliaries of `Std.DTreeMap.Internal.Impl.insert`/`erase`/`link`/`balance` and
-    `Classical.byContradiction` in `Impl.balance!_eq_balanceₘ`).  Core's `Char.instTransOrd`,
-    `Char.instLawfulEqOrd`, `Nat.instTransOrd` and `Nat.instLawfulEqOrd` reach it too (a `Classical.not_not`
+    `Classical.byContradiction` in `Impl.balance!_eq_balanceₘ`).  Core's `UInt8.instTransOrd`,
+    `UInt8.instLawfulEqOrd`, `Nat.instTransOrd` and `Nat.instLawfulEqOrd` reach it too (a `Classical.not_not`
     `simp` artifact in `lt_iff_not_gt_and_ne_of_antisymm_of_total_of_not_le`), so the `FilePathOrder` order
     lemmas and instances, which rest on `Str`'s lexicographic order, inherit it as well.  No proof in this
     module can avoid either.  What stays constructive is exactly what never mentions a map operation:

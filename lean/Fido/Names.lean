@@ -2,12 +2,8 @@
 import Fido.Prelude
 
 /-! divergences:
-  * `ascii` is `Char` (README): `nat_of_ascii` is `Char.toNat`, whose range is the Unicode scalars
-    (`< 0x110000`), not `< 256`.  No proof here relies on the 8-bit bound — `is_ascii_c` compares against
-    128 either way, `alpha_ascii`/`digit_ascii` bound the code by the alphabet ranges, and
-    `underscore_ascii` evaluates `'_'` — so no bound is added anywhere.
   * The stdlib boolean tests are the mapped types' decision procedures: `String.eqb`/`Ascii.eqb` are
-    `decide (_ = _)` on `Str`/`Char`, `Nat.leb`/`Nat.ltb` are `decide (_ ≤ _)`/`decide (_ < _)`,
+    `decide (_ = _)` on `Str`/`UInt8`, `Nat.leb`/`Nat.ltb` are `decide (_ ≤ _)`/`decide (_ < _)`,
     `Bool.bool_dec _ false` is `if h : _ = false`; `existsb`/`find`/`In`/`NoDup` are
     `List.any`/`List.find?`/`∈`/`List.Nodup`.
   * `{a = b} + {a <> b}` is `Decidable (a = b)`: `predeclared_eq_dec` is the `deriving DecidableEq` instance
@@ -19,16 +15,16 @@ import Fido.Prelude
 
 namespace Fido.Names
 
-def is_alpha (c : Char) : Bool :=
+def is_alpha (c : UInt8) : Bool :=
   let n := c.toNat
   (decide (65 ≤ n) && decide (n ≤ 90)) || (decide (97 ≤ n) && decide (n ≤ 122))
-def is_digit (c : Char) : Bool :=
+def is_digit (c : UInt8) : Bool :=
   let n := c.toNat
   decide (48 ≤ n) && decide (n ≤ 57)
-def is_underscore (c : Char) : Bool := decide (c = '_')
+def is_underscore (c : UInt8) : Bool := decide (c = byte! '_')
 
-def identifier_start (c : Char) : Bool := is_alpha c || is_underscore c
-def identifier_cont  (c : Char) : Bool := is_alpha c || is_digit c || is_underscore c
+def identifier_start (c : UInt8) : Bool := is_alpha c || is_underscore c
+def identifier_cont  (c : UInt8) : Bool := is_alpha c || is_digit c || is_underscore c
 
 def identifier_rest_ok : Str → Bool
   | [] => true
@@ -78,7 +74,7 @@ theorem equalb_spec : ∀ a b, equalb a b = true ↔ a = b := by
 def render_identifier (i : Identifier) : Str := spelling i
 
 
-def is_ascii_c (c : Char) : Bool := decide (c.toNat < 128)
+def is_ascii_c (c : UInt8) : Bool := decide (c.toNat < 128)
 def str_ascii : Str → Bool
   | [] => true
   | c :: s' => is_ascii_c c && str_ascii s'
@@ -87,9 +83,11 @@ def str_ascii : Str → Bool
 private theorem band_true : ∀ {a b : Bool}, (a && b) = true → a = true ∧ b = true
   | true, true, _ => ⟨rfl, rfl⟩
   | true, false, h => nomatch h
-  | false, _, h => nomatch h
+  | false, true, h => nomatch h
+  | false, false, h => nomatch h
 private theorem bor_true : ∀ {a b : Bool}, (a || b) = true → a = true ∨ b = true
-  | true, _, _ => .inl rfl
+  | true, true, _ => .inl rfl
+  | true, false, _ => .inl rfl
   | false, true, _ => .inr rfl
   | false, false, h => nomatch h
 
@@ -282,7 +280,7 @@ def classify_predeclared (s : Str) : Option PredeclaredName :=
 
 -- Rocq: `destruct n; reflexivity` / `vm_compute`.  The three 44-way evaluations below use `decide +kernel`:
 -- one kernel evaluation, where plain `decide` pre-evaluates in the elaborator and the kernel re-checks
--- (0.17 s of this module's 1.4 s).
+-- (0.15 s of this module's 1.4 s).
 theorem classify_predeclared_roundtrip : ∀ n, classify_predeclared (predeclared_spelling n) = some n := by
   intro n; cases n <;> decide +kernel
 

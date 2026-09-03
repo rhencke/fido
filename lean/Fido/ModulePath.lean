@@ -2,36 +2,35 @@
 import Fido.Prelude
 
 /-! divergences:
-  - `ascii` is `Char`, so `nat_of_ascii c` is `c.toNat` (up to 0x10FFFF, not 8-bit).  No statement here
-    needs the `< 256` bound: every range in `is_lower` / `is_lower_digit` / `is_digit` lies below 128, and
-    `path_char_lt_128` derives its bound from those ranges, so no hypothesis is added anywhere.
-  - `Ascii.eqb a b` is `a == b` (definitionally `decide (a = b)`), `String.eqb a b` is `decide (a = b)`,
-    and a Rocq `if` on a `bool` is `bif` (`cond`), so proofs still case on the boolean, never on the
-    proposition.
+  - `Ascii.eqb a b` is `decide (a = b)` on `UInt8`, `String.eqb a b` is `decide (a = b)` on `Str`, and a
+    Rocq `if` on `Ascii.eqb c x` is `if c = x then … else …` (its `Decidable` instance), so proofs case with
+    `Decidable.em`, never on excluded middle.
   - `String.concat sep l` is `List.intercalate sep l` (`(intersperse sep l).flatten`): the same function
     pointwise, and `concat_cons_empty` / `concat_map_head` still hold by `rfl`; the one visible seam is
     `concat sep [x] = x` against `intercalate sep [x] = x ++ []` (one `append_nil` in
     `split_concat_singles`).  `String.get n s` is a private structural `get` (core's `s[n]?` instance
-    carries `propext`; `List.get?` is gone in 4.33), `String.prefix p s` is `p.isPrefixOf s`, `forallb` is
-    `List.all`, `List.last l d` is `l.getLastD d`, `In x l` is `x ∈ l`.
+    carries `propext`; `List.get?` is gone in 4.33), `String.prefix p s` is `p.isPrefixOf s` (core's `BEq UInt8` is
+    `instBEqOfDecidableEq`, so its `==` is the same `decide (_ = _)`), `forallb` is `List.all`, `List.last l d` is `l.getLastD d`,
+    `In x l` is `x ∈ l`.
   - The `| _ => false` alternatives of `reserved_base` and `version_suffix_shape` are enumerated
     (`[] | [_] | …`): Lean 4.33 compiles a wildcard alternative through a `_sparseCasesOn` helper whose
     proofs depend on `propext`; the enumeration is the case tree Rocq's own pattern compiler builds.
   - `Record T := Make {…}` is `structure T where Make :: …` (with `genInjectivity` / `genSizeOfSpec` off,
     since the auto-generated lemmas would be the only `propext` users) plus `export T (Make text valid)`,
     so the projections read `text p` as in the `.v`.  `path_ok_pi` (Rocq: `UIP_dec`) is `rfl`: Lean's
-    `Eq` is definitionally proof-irrelevant. -/
+    `Eq` is definitionally proof-irrelevant.
+  - Rocq's named `Example`s are `theorem`s (a Lean `example` is anonymous). -/
 
 namespace Fido.ModulePath
 
-def is_lower (c : Char) : Bool :=
+def is_lower (c : UInt8) : Bool :=
   let n := c.toNat; decide (97 ≤ n) && decide (n ≤ 122)
 
-def is_lower_digit (c : Char) : Bool :=
+def is_lower_digit (c : UInt8) : Bool :=
   let n := c.toNat; (decide (97 ≤ n) && decide (n ≤ 122)) || (decide (48 ≤ n) && decide (n ≤ 57))
 
 /-- A segment character: a..z, 0..9, or `.`, with no hyphen. -/
-def seg_char (c : Char) : Bool := is_lower_digit c || c == '.'
+def seg_char (c : UInt8) : Bool := is_lower_digit c || decide (c = byte! '.')
 
 def all_seg_chars : Str → Bool
   | [] => true
@@ -40,33 +39,33 @@ def all_seg_chars : Str → Bool
 def no_double_dot : Str → Bool
   | a :: s0 =>
     match s0 with
-    | b :: _ => !(a == '.' && b == '.') && no_double_dot s0
+    | b :: _ => !(decide (a = byte! '.') && decide (b = byte! '.')) && no_double_dot s0
     | [] => true
   | [] => true
 
 /-- Rocq's `String.get`, structural on the string.  Core's `s[n]?` instance for lists carries `propext`
     and `List.get?` no longer exists in 4.33, so the stdlib Fixpoint is restated here. -/
-private def get : Nat → Str → Option Char
+private def get : Nat → Str → Option UInt8
   | _, [] => none
   | 0, c :: _ => some c
   | n + 1, _ :: s' => get n s'
 
-def str_last (s : Str) : Option Char := get (s.length - 1) s
+def str_last (s : Str) : Option UInt8 := get (s.length - 1) s
 
-def is_digit (c : Char) : Bool := let n := c.toNat; decide (48 ≤ n) && decide (n ≤ 57)
+def is_digit (c : UInt8) : Bool := let n := c.toNat; decide (48 ≤ n) && decide (n ≤ 57)
 
 /-- A segment's base name is the part before its first `.`, which is what Go's device-name rejection reads. -/
 def base_of : Str → Str
   | [] => []
-  | c :: s' => bif c == '.' then [] else c :: base_of s'
+  | c :: s' => if c = byte! '.' then [] else c :: base_of s'
 
 def reserved_base (s : Str) : Bool :=
   let b := base_of s
   decide (b = str! "con") || decide (b = str! "prn") || decide (b = str! "aux") || decide (b = str! "nul")
   || match b with
      | [a, b1, c, d] =>
-         ((a == 'c' && b1 == 'o' && c == 'm')
-          || (a == 'l' && b1 == 'p' && c == 't')) && is_digit d
+         ((decide (a = byte! 'c') && decide (b1 = byte! 'o') && decide (c = byte! 'm'))
+          || (decide (a = byte! 'l') && decide (b1 = byte! 'p') && decide (c = byte! 't'))) && is_digit d
      | [] | [_] | [_, _] | [_, _, _] | _ :: _ :: _ :: _ :: _ :: _ => false
 
 def segment_ok (s : Str) : Bool :=
@@ -82,7 +81,7 @@ def segment_ok (s : Str) : Bool :=
 def split_slash : Str → List Str
   | [] => [[]]
   | c :: s' =>
-      bif c == '/' then [] :: split_slash s'
+      if c = byte! '/' then [] :: split_slash s'
       else match split_slash s' with
            | h :: t => (c :: h) :: t
            | [] => [[c]]                                  -- unreachable: split_slash never returns []
@@ -101,26 +100,33 @@ theorem split_slash_nonempty : ∀ s, split_slash s ≠ [] := by
   | nil => nofun
   | cons c s' =>
     rw [split_slash]
-    cases c == '/' with
-    | true => nofun
-    | false => cases split_slash s' <;> nofun
+    obtain E | E := Decidable.em (c = byte! '/')
+    · rw [if_pos E]; exact nofun
+    · rw [if_neg E]
+      cases split_slash s' with
+      | nil => exact nofun
+      | cons h t => exact nofun
 
 theorem split_slash_app : ∀ a b,
-    split_slash (a ++ '/' :: b) = split_slash a ++ split_slash b := by
+    split_slash (a ++ byte! '/' :: b) = split_slash a ++ split_slash b := by
   intro a b
   induction a with
-  | nil => rfl
+  | nil =>
+    show split_slash (byte! '/' :: b) = [[]] ++ split_slash b
+    rw [split_slash, if_pos rfl]
+    rfl
   | cons c a' IH =>
-    show split_slash (c :: (a' ++ '/' :: b)) = split_slash (c :: a') ++ split_slash b
+    show split_slash (c :: (a' ++ byte! '/' :: b)) = split_slash (c :: a') ++ split_slash b
     rw [split_slash, split_slash, IH]
-    cases c == '/' with
-    | true => rfl
-    | false =>
+    obtain E | E := Decidable.em (c = byte! '/')
+    · rw [if_pos E, if_pos E]
+      rfl
+    · rw [if_neg E, if_neg E]
       cases Ea : split_slash a' with
       | nil => exact absurd Ea (split_slash_nonempty a')
       | cons ha ta => rfl
 
-def path_char (c : Char) : Bool := seg_char c || c == '/'
+def path_char (c : UInt8) : Bool := seg_char c || decide (c = byte! '/')
 
 def all_path_chars : Str → Bool
   | [] => true
@@ -129,14 +135,14 @@ def all_path_chars : Str → Bool
 /-- Go reads a dotless first element as standard library, so a required dot keeps paths outside it. -/
 def before_slash : Str → Str
   | [] => []
-  | c :: s' => bif c == '/' then [] else c :: before_slash s'
+  | c :: s' => if c = byte! '/' then [] else c :: before_slash s'
 
 def contains_dot : Str → Bool
   | [] => false
-  | c :: s' => c == '.' || contains_dot s'
+  | c :: s' => decide (c = byte! '.') || contains_dot s'
 
 /-- Go's whole version-suffix shape is excluded rather than split into its accept and reject halves. -/
-def is_dot_or_digit (c : Char) : Bool := is_digit c || c == '.'
+def is_dot_or_digit (c : UInt8) : Bool := is_digit c || decide (c = byte! '.')
 
 def all_dot_or_digit : Str → Bool
   | [] => true
@@ -144,7 +150,7 @@ def all_dot_or_digit : Str → Bool
 
 def version_suffix_shape (seg : Str) : Bool :=
   match seg with
-  | v :: c :: rest => v == 'v' && is_dot_or_digit c && all_dot_or_digit rest
+  | v :: c :: rest => decide (v = byte! 'v') && is_dot_or_digit c && all_dot_or_digit rest
   | [] | [_] => false
 
 def last_segment (s : Str) : Str := (split_slash s).getLastD []
@@ -170,9 +176,9 @@ theorem path_char_lt_128 : ∀ c, path_char c = true → c.toNat < 128 := by
     · obtain H | H := or_true_iff.1 H
       · exact Nat.lt_of_le_of_lt (of_decide_eq_true (and_true_iff.1 H).2) (by decide)
       · exact Nat.lt_of_le_of_lt (of_decide_eq_true (and_true_iff.1 H).2) (by decide)
-    · have hc : c = '.' := of_decide_eq_true H
+    · have hc : c = byte! '.' := of_decide_eq_true H
       subst hc; decide
-  · have hc : c = '/' := of_decide_eq_true H
+  · have hc : c = byte! '/' := of_decide_eq_true H
     subst hc; decide
 
 -- Rocq's `Record` generates no injectivity or size lemmas; Lean's auto-generated `T.Make.injEq` and
@@ -206,7 +212,7 @@ theorem concat_cons_empty : ∀ (sep h : Str) (t : List Str),
     List.intercalate sep ([] :: h :: t) = sep ++ List.intercalate sep (h :: t) := by
   intros; rfl
 
-theorem concat_map_head : ∀ (sep : Str) (c : Char) (h : Str) (t : List Str),
+theorem concat_map_head : ∀ (sep : Str) (c : UInt8) (h : Str) (t : List Str),
     List.intercalate sep ((c :: h) :: t) = c :: List.intercalate sep (h :: t) := by
   intro sep c h t
   cases t with
@@ -219,18 +225,17 @@ theorem split_slash_concat : ∀ s, List.intercalate (str! "/") (split_slash s) 
   | nil => rfl
   | cons c s IH =>
     rw [split_slash]
-    cases E : c == '/' with
-    | true =>
-      have hc : c = '/' := of_decide_eq_true E
-      subst hc
+    obtain E | E := Decidable.em (c = byte! '/')
+    · subst E
+      rw [if_pos rfl]
       cases Esp : split_slash s with
       | nil => exact absurd Esp (split_slash_nonempty s)
       | cons h t =>
         rw [Esp] at IH
-        show List.intercalate (str! "/") ([] :: h :: t) = '/' :: s
+        show List.intercalate (str! "/") ([] :: h :: t) = byte! '/' :: s
         rw [concat_cons_empty (str! "/") h t, IH]
         rfl
-    | false =>
+    · rw [if_neg E]
       cases Esp : split_slash s with
       | nil => exact absurd Esp (split_slash_nonempty s)
       | cons h t =>
@@ -258,19 +263,16 @@ theorem split_concat_singles : ∀ comps : List Str,
       rw [append_nil]
       exact Hs x (List.Mem.head _)
     | cons y rest =>
-      show split_slash (x ++ '/' :: List.intercalate (str! "/") (y :: rest)) = x :: y :: rest
+      show split_slash (x ++ byte! '/' :: List.intercalate (str! "/") (y :: rest)) = x :: y :: rest
       rw [split_slash_app, Hs x (List.Mem.head _),
         IH (fun z Hz => Hs z (List.Mem.tail _ Hz)) nofun]
       rfl
 
-theorem seg_char_not_slash : ∀ c, seg_char c = true → (c == '/') = false := by
+theorem seg_char_not_slash : ∀ c, seg_char c = true → decide (c = byte! '/') = false := by
   intro c H
-  cases E : c == '/' with
-  | false => rfl
-  | true =>
-    have hc : c = '/' := of_decide_eq_true E
-    subst hc
-    exact absurd H (by decide)
+  obtain E | E := Decidable.em (c = byte! '/')
+  · subst E; exact absurd H (by decide)
+  · exact decide_eq_false E
 
 theorem all_seg_chars_single : ∀ s, all_seg_chars s = true → split_slash s = [s] := by
   intro s
@@ -279,8 +281,7 @@ theorem all_seg_chars_single : ∀ s, all_seg_chars s = true → split_slash s =
   | cons c s IH =>
     intro H
     obtain ⟨Hc, Hs⟩ := and_true_iff.1 H
-    rw [split_slash, seg_char_not_slash c Hc, IH Hs]
-    rfl
+    rw [split_slash, if_neg (of_decide_eq_false (seg_char_not_slash c Hc)), IH Hs]
 
 theorem segment_ok_single : ∀ s, segment_ok s = true → split_slash s = [s] := by
   intro s H

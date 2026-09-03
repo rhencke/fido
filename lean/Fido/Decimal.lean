@@ -14,11 +14,10 @@ import Fido.Prelude
 
 namespace Fido.Decimal
 
-/-- `ascii_of_nat` wraps modulo 256; so does this, so `digit` is byte-exact on every input. -/
-def digit (n : Nat) : Char := Char.ofNat ((48 + n) % 256)
+def digit (n : Nat) : UInt8 := UInt8.ofNat (48 + n)
 
 def double (B : Nat) : List Nat → Nat → List Nat
-  | [], carry => match carry with | 0 => [] | _ => [carry]
+  | [], carry => match carry with | 0 => [] | c + 1 => [c + 1]
   | d :: tl, carry => (2 * d + carry) % B :: double B tl ((2 * d + carry) / B)
 
 /-- LSB-first base-`B` digits, recursing on `n / 2` (the positive's own bits), so this is total with no
@@ -167,7 +166,7 @@ theorem positive_digits_last : ∀ B n, 2 ≤ B → 0 < n → 1 ≤ (positive_di
         (positive_digits_nonnil _ _ (by omega)) (IH _ (by omega) (by omega))
 
 /-- The fold prepends, so the most significant digit ends up first — the printed order. -/
-def render (dig : Nat → Char) (ds : List Nat) (s : Str) : Str :=
+def render (dig : Nat → UInt8) (ds : List Nat) (s : Str) : Str :=
   ds.foldl (fun acc d => dig d :: acc) s
 
 def positive (n : Nat) : Str :=

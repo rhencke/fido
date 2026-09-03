@@ -298,4 +298,4 @@ lean-bench: lean-build
 # (`make lean-check MODULE=Fido.Decimal`); dependencies come from the last `make lean-build`
 MODULE ?= Fido
 lean-check: lean-image
-	@$(LEANRUN) sh check.sh $(MODULE)
+	@$(LEANRUN) sh check.sh "$(MODULE)"

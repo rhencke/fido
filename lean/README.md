@@ -17,8 +17,8 @@ one `rocq c` per file. `Audit.lean` prints the axiom closure of every `Fido.*` c
 | `nat` | `Nat` | |
 | `Z` | `Int` | |
 | `positive` | `Nat` with `0 < n` carried | bit-recursion becomes recursion on `n / 2` |
-| `string` | `List Char` (`abbrev Str`) | Rocq's `string` is a cons-list; `String.mk` only at the render boundary |
-| `ascii` | `Char` | Rocq's is 8-bit; where a proof relied on `< 256`, the bound is stated |
+| `ascii` | `UInt8` | exactly 8-bit: `ascii_of_nat` ↦ `UInt8.ofNat` (wraps mod 256), `nat_of_ascii` ↦ `UInt8.toNat` (`< 256` by type) |
+| `string` | `List UInt8` (`abbrev Str`) | Rocq's `string` is a cons-list of bytes; `str! "…"`/`byte! 'c'` are the literals |
 | `bool`/`Prop`/`list`/`option` | `Bool`/`Prop`/`List`/`Option` | |
 | `Record`/`Inductive` | `structure`/`inductive` | same field and constructor names |
 | `CoInductive` | greatest-fixed-point predicate (explicit invariant) | Lean 4 has no coinductives |
@@ -46,7 +46,7 @@ holds the bar on the proofs the port itself writes: `FIDO_AUDIT_VERBOSE=1` must 
 constant to a map operation or an order instance, never to a ported proof.
 
 `Fido/Prelude.lean` is the one module with no `.v` counterpart: it holds the Rocq-stdlib-shaped helpers
-(`Str`, and `str! "…"`, which elaborates a string literal to its char list — `String.toList` reaches
+(`Str`, and `str! "…"` / `byte! 'c'`, which elaborate a literal to its bytes — `String.toList` reaches
 `Classical.choice` in this toolchain, and the Rocq theory is constructive). Each module declares `namespace Fido.X` (so the audit's `Fido.*` filter sees every constant) and
 importers write `open Fido` once, so Rocq's qualified style (`Version.render`, `Names.equalb`) reads the same.
 
