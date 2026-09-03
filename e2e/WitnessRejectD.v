@@ -550,7 +550,7 @@ Proof.
   - destruct (AN.result_collision_ref (rres p_collision_redecl)) as [cr|] eqn:Hcr.
     2:{ exfalso. apply AN.collision_ref_none in Hcr. revert Hcr.
         unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
-        rewrite (Compilable.compile_observe_data p_collision_redecl). vm_compute. discriminate. }
+        rewrite (Compilable.compile_observe_data p_collision_redecl). discriminate. }
     apply existsb_exists. exists (AN.DOutputCollision cr). split; [ | reflexivity ].
     unfold dsites. rewrite (AN.diagnostics_order (rres p_collision_redecl)).
     apply in_or_app. left. unfold AN.collision_rows. rewrite Hcr. left. reflexivity.
@@ -603,7 +603,7 @@ Proof.
       rewrite (Compilable.compile_observe_data p_collision); vm_compute; reflexivity.
   - exfalso. apply AN.collision_ref_none in Hcr. revert Hcr.
     unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
-    rewrite (Compilable.compile_observe_data p_collision); vm_compute; discriminate.
+    rewrite (Compilable.compile_observe_data p_collision); discriminate.
 Qed.
 
 Definition dr_default_ovf : Compilable.rejects dp_default_ovf. Proof. reject. Qed.

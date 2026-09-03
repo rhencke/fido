@@ -127,7 +127,7 @@ Proof.
   destruct (AN.result_collision_ref (rres p_collision)) as [cr|] eqn:Hcr.
   2:{ exfalso. apply AN.collision_ref_none in Hcr. revert Hcr.
       unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
-      rewrite (Compilable.compile_observe_data p_collision). vm_compute. discriminate. }
+      rewrite (Compilable.compile_observe_data p_collision). discriminate. }
   assert (Hne : AN.result_missing_main_refs (rres p_collision) <> []).
   { intro Hnil. apply (f_equal (@Datatypes.length _)) in Hnil.
     rewrite <- (length_map AN.mmr_package), AN.missing_main_packages in Hnil. revert Hnil.

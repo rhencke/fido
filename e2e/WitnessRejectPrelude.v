@@ -66,11 +66,15 @@ Definition rres_observe (p : Syntax.Program) : AN.data_of_result (rres p) = AN.r
   Compilable.compile_observe_data p.
 
 (* direct data-level views: expose data_of_result through the view wrappers, cross the seal once, compute *)
-Ltac obs_direct p := try unfold pfacts; try unfold dsites; unfold rres, result_of_compile;
+Ltac share_rd pp := match goal with |- ?g =>
+    let g2 := eval pattern (AN.result_data pp) in g in
+    lazymatch g2 with ?f _ => change g with (let d := AN.result_data pp in f d) end end.
+Ltac obs_direct p := let pp := fresh "pp" in set (pp := p);
+  try unfold pfacts; try unfold dsites; unfold rres, result_of_compile;
   try unfold RP.result_cause_views; try unfold RP.result_req_views;
   try unfold RP.result_diag_families; try unfold RP.result_bound_families; try unfold RP.result_fact_views;
   unfold AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
-  rewrite (Compilable.compile_observe_data p); vm_compute; reflexivity.
+  rewrite (Compilable.compile_observe_data pp); share_rd pp; vm_compute; reflexivity.
 
 (* a disposition equality via the sole disposition bridge *)
 Ltac obs_disp := rewrite Compilable.disposition_observe_data; vm_compute; reflexivity.
@@ -83,17 +87,20 @@ Record UcObs := mk_uc_obs {
   uc_reqs : list RP.ReqView
 }.
 Definition uc_obs {p} (r : AN.Result p) : UcObs :=
-  mk_uc_obs (Compilable.disposition_of r) (RP.result_fact_views r) (RP.result_cause_views r) (RP.result_req_views r).
-(* prove one uc_obs record: cross the seal once, then compute the whole record in a single vm_compute *)
-Ltac obs_uc p := unfold uc_obs, Compilable.disposition_of, Compilable.disposition_from_data,
-  rres, result_of_compile, RP.result_fact_views, RP.result_cause_views, RP.result_req_views,
-  AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
+  let d := AN.data_of_result r in
+  let fl := proj1_sig (AN.rd_facts d) in
+  mk_uc_obs (Compilable.disposition_from_data d)
+            (List.map RP.fact_view fl)
+            (List.flat_map (fun o => match AN.occ_cause o with Some c => [RP.cause_view c] | None => [] end) fl)
+            (List.flat_map (fun o => match AN.occ_req o with Some q => [RP.req_view q] | None => [] end) fl).
+(* cbv beta delta keeps uc_obs's shared lets (unfold would zeta-inline them); one seal cross, one shared vm *)
+Ltac obs_uc p := cbv beta delta [uc_obs rres result_of_compile];
   rewrite !(Compilable.compile_observe_data p); vm_compute; reflexivity.
 
-(* a reader-vs-analyze equality: cross the seal on both sides, then reflexivity *)
+(* reader-vs-analyze: after crossing BOTH seals both sides are result_data p, so reflexivity closes it; no vm *)
 Ltac obs_eq p := try unfold pfacts; unfold rres, result_of_compile;
   try unfold AN.result_fact_list; unfold AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
-  rewrite (Compilable.compile_observe_data p), (AN.analyze_observe_data p); vm_compute; reflexivity.
+  rewrite (Compilable.compile_observe_data p), (AN.analyze_observe_data p); reflexivity.
 
 (* cross the seal on a data-level goal and compute, for the emptiness premises *)
 Ltac obs_seal p := unfold rres, result_of_compile, AN.data_no_collision, AN.data_no_missing, AN.data_no_redecl,

@@ -172,7 +172,7 @@ Proof.
   - destruct (AN.result_collision_ref (rres p_collision)) as [cr|] eqn:Hcr; [ reflexivity | ].
     exfalso. apply AN.collision_ref_none in Hcr. revert Hcr.
     unfold rres, result_of_compile, AN.result_preflight, AN.res_pkg, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index.
-    rewrite (Compilable.compile_observe_data p_collision). vm_compute. discriminate.
+    rewrite (Compilable.compile_observe_data p_collision). discriminate.
   - rewrite <- (length_map AN.mmr_package), AN.missing_main_packages.
     unfold rres, result_of_compile, AN.is_missing, AN.result_package_rule, AN.res_binds, AN.res_surface, AN.res_bind_data, AN.res_index.
     rewrite (Compilable.compile_observe_data p_collision). vm_compute. reflexivity.
