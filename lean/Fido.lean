@@ -13,5 +13,6 @@ import Fido.Version
 import Fido.Syntax
 import Fido.Compilable.TypeResolution
 import Fido.Index.Model
+import Fido.Index.Build
 import Fido.Render
 import Fido.Machine
