@@ -42,7 +42,11 @@ staged_all() {
       -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
       -w /repo -v "$ctx":/repo:ro "$pytag" sh -c "$1"
   }
-  # (2) staged copies of the lightweight repository-policy gates on the exported staged tree.
+  # (2) staged copies of the lightweight repository-policy gates on the exported staged tree.  They are one
+  #     function so (3) can run them CONCURRENTLY with the one staged solve: both read only the immutable $ctx
+  #     (and the repo index, read-only), neither consumes the other's output, and the gate log is printed once
+  #     the solve returns.  Every fallible step keeps its own `|| return $?`.
+  staged_gates() {
   sh "$ctx/tools/ocaml-origin-gate.sh"    "$ctx" || return $?
   sh "$ctx/tools/generated-output-gate.sh" "$ctx" || return $?
   sh "$ctx/tools/generated-mode-gate.sh" || return $?          # reads the repo index for exact Git mode
@@ -77,12 +81,20 @@ staged_all() {
   grep -qE 't0=\$\(date \+%s\)' "$ctx/.githooks/pre-commit" || { echo "fido: pre-commit — the staged hook no longer starts its complete-path timer"; return 1; }
   echo "fido: pre-commit — budget-edge integrity OK — one owner; make check + this hook both route through it; both time the complete path"
   sh "$ctx/tools/check-budget.sh" --self-test || return $?
+  }
   # (3) the complete staged verification: ONE verified BuildKit DAG (the staged helper against the staged
   #     context/Dockerfile) performs proof, emit, Go, and artifact production — the final target requires both
-  #     the proof-audit and fresh-build markers, so a failed branch fails this one solve.
+  #     the proof-audit and fresh-build markers, so a failed branch fails this one solve.  The staged gates (2)
+  #     run in the background meanwhile; a missing status file counts as a gate failure, and a solve failure
+  #     outranks a gate failure.
+  { g0=$(date +%s); staged_gates > "$tmp/gates.log" 2>&1; echo "$? $(( $(date +%s) - g0 ))" > "$tmp/gates.rc"; } & gates=$!
   rm -rf "$tmp/pristine"
-  sh "$ctx/tools/build-verified-artifact.sh" --builder "$FIDO_BUILDER" --platform linux/amd64 \
-    ${FIDO_PERF_COLD:+--project-cold} --context "$ctx" --output "$tmp/pristine" || return $?
+  rc=0; sh "$ctx/tools/build-verified-artifact.sh" --builder "$FIDO_BUILDER" --platform linux/amd64 \
+    ${FIDO_PERF_COLD:+--project-cold} --context "$ctx" --output "$tmp/pristine" || rc=$?
+  wait "$gates"; { read -r grc gdt < "$tmp/gates.rc"; } 2>/dev/null || { grc=1; gdt=0; }; cat "$tmp/gates.log"
+  echo "fido: pre-commit — staged policy gates ${gdt}s (run concurrently with the solve; exit $grc)"
+  [ "$rc" -ne 0 ] || rc=$grc
+  [ "$rc" -eq 0 ] || return "$rc"
   # (4) byte-compare the STAGED generated sources against the exact exported pristine artifact.
   sh "$ctx/tools/staged-generated-compare.sh" "$ctx" "$tmp/pristine" || return $?
 }

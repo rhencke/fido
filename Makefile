@@ -48,11 +48,14 @@ pytools: builder
 # `.dockerignore` hides the committed go.mod and .go from Buildx, so the pristine is independent of the
 # tracked bytes — which is what catches a header-preserving edit to a tracked `.go`.  The staged snapshot,
 # and the exact-Git-mode gate over it, are the pre-commit hook's job rather than this one's.
-# `make check` is the SOLE supported full verification.  It runs the whole DAG inline as `run_core`
-# (prove + e2e + working-tree pristine byte-compare), times a warmed successful run, and applies the budget;
-# a first pass over budget earns ONE warmed confirmation (the cold/setup allowance) and only a confirmed
-# warmed overage fails with the STOP_FOR_ROB guidance.  A producer failure in run_core is returned as itself,
-# checked before the budget.  There is no separate full-DAG target: `make check-core` is a guidance stub.
+# `make check` is the SOLE supported full verification.  It runs the whole path inline as `run_all`: the six
+# source-tree policy gates run CONCURRENTLY with the ONE BuildKit solve (the gates read the tree, the solve
+# reads the builder; neither consumes the other's output, and the gate log is printed once the solve returns),
+# then the working-tree pristine byte-compare; it times a warmed successful run and applies the budget; a
+# first pass over budget earns ONE warmed confirmation (the cold/setup allowance) and only a confirmed warmed
+# overage fails with the STOP_FOR_ROB guidance.  A producer failure in run_all is returned as itself (a solve
+# failure outranks a gate failure), checked before the budget.  There is no separate full-DAG target:
+# `make check-core` is a guidance stub.
 check:
 	@t0=$$(date +%s); \
 	  bud=$$(sh tools/check-budget.sh --budget); \
@@ -61,12 +64,15 @@ check:
 	    [ -z "$$FIDO_CHECK_TEST_SLEEP" ] || sleep "$$FIDO_CHECK_TEST_SLEEP"; \
 	    s=$$(date +%s); $(MAKE) --no-print-directory builder pytools || return $$?; \
 	    echo "fido: [check stage] builder+tools = $$(( $$(date +%s) - s ))s"; \
-	    s=$$(date +%s); $(MAKE) --no-print-directory hostpython diet mutants ledger perf-evidence graph-gate || return $$?; \
-	    echo "fido: [check stage] policy gates = $$(( $$(date +%s) - s ))s"; \
 	    s=$$(date +%s); tmp=$$(mktemp -d); \
+	    { g0=$$(date +%s); $(MAKE) -j6 -Otarget --no-print-directory hostpython diet mutants ledger perf-evidence graph-gate \
+	        > "$$tmp/gates.log" 2>&1; echo "$$? $$(( $$(date +%s) - g0 ))" > "$$tmp/gates.rc"; } & gates=$$!; \
 	    sh tools/build-verified-artifact.sh --builder $(BUILDER) --platform $(PLATFORM) \
 	      $(if $(FIDO_PERF_COLD),--project-cold,) --context . --output "$$tmp/pristine"; rc=$$?; \
 	    echo "fido: [check stage] verification-solve = $$(( $$(date +%s) - s ))s (one BuildKit DAG: theory-built -> proof-audit + emit -> go-e2e -> verified join -> artifact)"; \
+	    wait $$gates; { read -r grc gdt < "$$tmp/gates.rc"; } 2>/dev/null || { grc=1; gdt=0; }; cat "$$tmp/gates.log"; \
+	    echo "fido: [check stage] policy gates = $${gdt}s (six independent source-tree gates, run concurrently with the solve; exit $$grc)"; \
+	    [ $$rc -ne 0 ] || rc=$$grc; \
 	    if [ $$rc -eq 0 ]; then \
 	      s=$$(date +%s); tree="$$tmp/tree"; mkdir -p "$$tree"; \
 	      { $(PYRUN) tools/worktree-list.py --self-test && \
