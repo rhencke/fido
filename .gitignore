@@ -43,6 +43,3 @@ _build/
 # `make check` archives is determined by the repository alone and two clones of one commit archive the
 # same tree.
 /.claude/
-
-# Lean 4 POC build products (lean/README.md); never tracked, never a build input
-/lean/.lake/

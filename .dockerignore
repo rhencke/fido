@@ -35,6 +35,3 @@ vendor/
 *.swo
 # Append-only raw benchmark sessions are tracked review evidence, never build inputs.
 /.review/perf/runs/
-
-# Lean 4 POC build products (lean/README.md); never part of the certified build context
-/lean/.lake/
