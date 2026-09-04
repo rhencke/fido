@@ -1,0 +1,20 @@
+# class=RAW_BENCHMARK_SESSION
+# format_version=1
+# source_archive=fido-c4-causal-root.zip
+# source_archive_sha256=0017c11d18a0e54fe243e59fef08485ce11d9fe7a118fafbf301ea54e41a5cc7
+# source_archive_comment_commit=7a92b767f1b73a0aa86df234719d2ab5137709e5
+# measured_commit=040e8ab364b8affb3be401e4721841aaf52b5a81
+# measured_tree=d534389b69d2da11c7c4ce02a272cf0f62da105b
+# performance_input_digest=33fb5c84d1cde63a699583ff2cceada74c79838cb813e6e8e19a97a5c26ffafe
+# measured_dirty=no
+# session_started_at_utc=2026-09-04T19:59:12Z
+# hard_budget_seconds=120
+# opportunity_ledger=.review/PERFORMANCE_OPPORTUNITIES.tsv
+# opportunity_ledger_sha256=bef47335ef740123becf8f689421488a2946afd3830a2ab3645d31ee84f9364b
+# opportunity_reviewed_at_utc=2026-09-04T20:02:12Z
+# opportunity_disposition=UNCHANGED_ALL_STATUSES_AND_OPEN_DEBT_PRESERVED
+recorded_at_utc	scenario	cache_class	repetition	command	cache_state	exit	wall_seconds	complete_path	dominant_profile_attribution	machine_toolchain	notes
+2026-09-04T20:00:25Z	COLD_COMPLETE	project-cold	1	FIDO_PERF_COLD=1 make check	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=none	0	73	yes	verification-solve 70s (fido: [check stage] verification-solve); policy gates 18s concurrent; dominant vertices theory-built 6/7 27.1s, emit-controls 2/2 19.9s, emit 2/2 11.3s, prover 2/4 9.1s (BuildKit DONE)	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-09-04T20:00:41Z	WARM_COMPLETE	immediate-warm	1	make check	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=cold-run	0	16	yes	policy gates 15s (fido: [check stage] policy gates); verification-solve 7s, every project vertex CACHED	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-09-04T20:01:54Z	STAGED_PRE_COMMIT	project-cold	1	FIDO_PERF_COLD=1 .githooks/pre-commit	project-cold;dune-build=cold;dune-cache=off;buildkit=project-stages-invalidated;base=primed;prior=warm-run;index=HEAD	0	73	yes	complete staged path 73s (fido: pre-commit — complete staged path); staged policy gates 21s concurrent; dominant vertices theory-built 6/7 25.9s, emit-controls 2/2 20.6s, emit 2/2 13.5s, prover 2/4 13.0s (BuildKit DONE)	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
+2026-09-04T20:02:10Z	STAGED_PRE_COMMIT	immediate-warm	1	.githooks/pre-commit	immediate-warm;project=warm;dune-build=warm;buildkit=warm;base=warm;prior=staged-cold-run;index=HEAD	0	16	yes	complete staged path 16s (fido: pre-commit — complete staged path); staged policy gates 16s; every project vertex CACHED	4-core;15GB;docker-26.1.5;buildx-container;rocq-toolchain@sha256:3e43c422	none
