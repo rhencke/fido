@@ -2046,80 +2046,69 @@ if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2ea
 echo "fido: fixture inventory OK — exactly 205 names, no blanks or duplicates, all resolve, removed names absent"
 
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
-# transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The axiom/variable fixtures
-# are GENERATED TRANSIENTLY (never tracked): a DIRECT axiom, an axiom behind an opaque Qed, a DIRECT section
-# variable, and a TRANSITIVE section variable — each errors `rocq c` (no `Fail`) and we assert the reason + no target.
+# transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The five fixtures are GENERATED
+# TRANSIENTLY (never tracked): a DIRECT axiom, an axiom behind an opaque Qed, a DIRECT section variable, a
+# TRANSITIVE section variable, and axiom-dependent ADDITIONAL EVIDENCE over a CONCRETE (non-axiom) compiled root
+# (the evidence is the sole axiom, so the closure check rejects specifically the evidence's provenance).  All
+# five load the SAME certified library, so they run as ONE `rocq top` session — the sealed-controls idiom of the
+# prover stage — each in its own module with its forged materialize wrapped in `Fail`.  The session must then
+# show every fixture's image defined (loaded and typed), exactly five rejections, each for the closure reason,
+# and no target directory — the same five facts the former one-`rocq c`-per-fixture form asserted.
 mkdir -p /tmp/forge
-cat > /tmp/forge/preamble <<'EOF'
-From Fido Require Import Syntax Compilable Emit.
-EOF
-cat /tmp/forge/preamble - > /tmp/forge/Direct.v <<'EOF'
+cat > /tmp/forge/all.v <<'EOF'
+From Stdlib Require Import String.
+From Fido Require Import Version ModulePath Syntax Compilable Emit.
+Declare ML Module "fido.emit".
+Module ForgeDirect.
 Axiom p : Syntax.Program.
 Axiom cp : Compilable.Program p.
 Definition img := Emit.of_compiled cp.
-Declare ML Module "fido.emit".
-Fido Materialize img To "/workspace/e2e-forge".
-EOF
-cat /tmp/forge/preamble - > /tmp/forge/Opaque.v <<'EOF'
+Fail Fido Materialize img To "/workspace/e2e-forge".
+End ForgeDirect.
+Module ForgeOpaque.
 Axiom p : Syntax.Program.
 Axiom a : Compilable.Program p.
 Lemma cp : Compilable.Program p. Proof. exact a. Qed.
 Definition img := Emit.of_compiled cp.
-Declare ML Module "fido.emit".
-Fido Materialize img To "/workspace/e2e-forge-op".
-EOF
-cat /tmp/forge/preamble - > /tmp/forge/Var.v <<'EOF'
-Declare ML Module "fido.emit".
+Fail Fido Materialize img To "/workspace/e2e-forge-op".
+End ForgeOpaque.
+Module ForgeVar.
 Section S.
 Variable p : Syntax.Program.
 Variable cp : Compilable.Program p.
 Definition img := Emit.of_compiled cp.
-Fido Materialize img To "/workspace/e2e-forge-var".
+Fail Fido Materialize img To "/workspace/e2e-forge-var".
 End S.
-EOF
-cat /tmp/forge/preamble - > /tmp/forge/VarIndirect.v <<'EOF'
-Declare ML Module "fido.emit".
+End ForgeVar.
+Module ForgeVarIndirect.
 Section S.
 Variable p : Syntax.Program.
 Variable v : Compilable.Program p.
 Definition cp : Compilable.Program p := v.
 Definition img := Emit.of_compiled cp.
-Fido Materialize img To "/workspace/e2e-forge-vi".
+Fail Fido Materialize img To "/workspace/e2e-forge-vi".
 End S.
-EOF
-# axiom-dependent ADDITIONAL EVIDENCE over a CONCRETE (non-axiom) compiled root: the evidence is the sole
-# axiom, so the assumption audit rejects specifically the evidence's provenance before any filesystem effect.
-cat > /tmp/forge/Evidence.v <<'EOF'
-From Stdlib Require Import String.
-From Fido Require Import Version ModulePath Syntax Compilable Emit.
+End ForgeVarIndirect.
+Module ForgeEvidence.
 Definition p : Syntax.Program := empty_program (Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23).
 Definition cp : Compilable.Program p := Compilable.compiled_program p (ltac:(rewrite Compilable.disposition_observe_data; vm_compute; reflexivity)).
 Definition Ev (c : Compilable.Program p) : Prop := Compilable.diagnostics (Compilable.program_compilation c) = nil.
 Axiom bogus_ev : Ev cp.
 Definition img := @Emit.of_evidence p cp Ev bogus_ev.
-Declare ML Module "fido.emit".
-Fido Materialize img To "/workspace/e2e-forge-ev".
+Fail Fido Materialize img To "/workspace/e2e-forge-ev".
+End ForgeEvidence.
 EOF
-# each forged materialize is independent, so launch them concurrently (each to its own log), then check every
-# one: rocq must FAIL, by the assumption-closure reason, with NO target directory created.
-forge_launch() { rocq c -Q _build/default/. Fido "$1" > "$2" 2>&1; echo $? > "$2.rc"; }
-forge_launch /tmp/forge/Direct.v      /tmp/forge/Direct.log      &
-forge_launch /tmp/forge/Opaque.v      /tmp/forge/Opaque.log      &
-forge_launch /tmp/forge/Var.v         /tmp/forge/Var.log         &
-forge_launch /tmp/forge/VarIndirect.v /tmp/forge/VarIndirect.log &
-forge_launch /tmp/forge/Evidence.v    /tmp/forge/Evidence.log    &
-wait
-forge_reject() {   # <logfile> <target-dir> <label>
-  [ "$(cat "$1.rc")" != 0 ] || { cat "$1"; fail "$3: a forged image was NOT rejected"; }
-  grep -q 'provenance depends on an axiom' "$1" || { cat "$1"; fail "$3: rejected, but NOT by the assumption-closure check (wrong reason)"; }
-  [ ! -e "$2" ] || fail "$3: a rejected forged materialize still created its target directory"
-  echo "fido: provenance enforced — $3 rejected before any effect"
-}
-forge_reject /tmp/forge/Direct.log      /workspace/e2e-forge     "direct axiom"
-forge_reject /tmp/forge/Opaque.log      /workspace/e2e-forge-op  "axiom behind an opaque Qed proof"
-forge_reject /tmp/forge/Var.log         /workspace/e2e-forge-var "direct section variable"
-forge_reject /tmp/forge/VarIndirect.log /workspace/e2e-forge-vi  "transitive section variable"
-forge_reject /tmp/forge/Evidence.log    /workspace/e2e-forge-ev  "axiom-dependent additional evidence"
+rocq top -q -Q _build/default/. Fido < /tmp/forge/all.v > /tmp/forge/all.log 2>&1 || true
+forge_defined=$(grep -c 'img is defined' /tmp/forge/all.log || true)
+[ "$forge_defined" = 5 ] || { cat /tmp/forge/all.log; fail "forged images: expected every one of the 5 fixtures to define its image, observed $forge_defined — a fixture did not load"; }
+forge_got=$(grep -c 'The command has indeed failed' /tmp/forge/all.log || true)
+[ "$forge_got" = 5 ] || { cat /tmp/forge/all.log; fail "forged images: expected 5 rejected materializations, observed $forge_got — a forged image was NOT rejected"; }
+forge_bad=$(awk 'BEGIN{RS="The command has indeed failed"} NR>1 && $0 !~ /provenance depends on an axiom/ {c++} END{print c+0}' /tmp/forge/all.log)
+[ "$forge_bad" = 0 ] || { cat /tmp/forge/all.log; fail "forged images: $forge_bad rejection(s) NOT by the assumption-closure check (wrong reason)"; }
+for d in e2e-forge e2e-forge-op e2e-forge-var e2e-forge-vi e2e-forge-ev; do
+  [ ! -e "/workspace/$d" ] || fail "forged images: a rejected forged materialize still created /workspace/$d"
+done
+echo "fido: provenance enforced — direct axiom, axiom behind an opaque Qed proof, direct section variable, transitive section variable, and axiom-dependent additional evidence each rejected before any effect (one library load, five Fail-wrapped materializations)"
 
 # The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
 # duplicated here); this stage keeps only the emit-time provenance guard above and the sink exercise below.
