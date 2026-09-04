@@ -132,8 +132,9 @@ make check        the full gate: policy + pinned-Rocq proof + pinned-Go e2e + ge
 make prove        dune build + module coverage + layer-dependency gate + whole-theory assumption audit + self-tests
 make emit         theory and plugin, then Fido Materialize writes each witness's pristine tree
 make e2e          emit + pinned go build ./... + differentials + witness vs goldens
+make emit-controls  emit + the WitnessReject proof matrix + e2e assumption audit + forged-image adversaries + sink exercise
 make regenerate   republish the canonical module through the sink, after the validated go build (cache-valid)
-make regen-guard  proves `sync` is unbuildable when go-e2e validation fails
+make regen-guard  proves `sync` is unbuildable when go-e2e validation or emit-controls fails
 make diet         the permanent .v comment law
 make hostpython   the permanent no-host-Python boundary
 make fmt          the .editorconfig whitespace report (reports, never rewrites)

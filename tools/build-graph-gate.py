@@ -3,11 +3,12 @@
 
 Proves, over the retained Dockerfile/Makefile/hook text, that the single-solve verification graph holds:
 exactly one production `dune build @install @all` and it lives in the shared theory-built stage; the
-proof/audit, emit, and profile stages descend from theory-built (never re-rooted at rocq-base); the final
-artifact routes through the verified join that requires BOTH branch markers; the exported artifact copies
-only the generated module; theory-built snapshots the cache-assisted build into an ordinary layer; and each
-complete path (make check, the staged hook) issues exactly one project-verification solve through the one
-canonical helper, never a separate prover/go-e2e/generated-artifact solve.
+proof/audit, emit, and profile stages descend from theory-built (never re-rooted at rocq-base) and the
+emit-controls branch descends from emit; the final artifact routes through the verified join that requires
+ALL THREE branch markers (proof-audit, fresh-build, emit-controls); the exported artifact copies only the
+generated module; theory-built snapshots the cache-assisted build into an ordinary layer; and each complete
+path (make check, the staged hook) issues exactly one project-verification solve through the one canonical
+helper, never a separate prover/emit/emit-controls/go-e2e/generated-artifact solve.
 
 `--self-test` mutates a clean synthetic topology one condition at a time (a second Dune build in emit, a
 re-rooted branch, a dropped marker edge, an extra solve, an impure artifact, a cache-only _build) and
@@ -72,6 +73,10 @@ def check_graph(dockerfile, makefile, hook, findings, helper=''):
         parent = st.get(branch, (None, ''))[0]
         if parent != 'theory-built':
             findings.append(f'shared-ancestry: stage {branch} must descend from theory-built, not {parent!r}')
+    controls_parent = st.get('emit-controls', (None, ''))[0]
+    if controls_parent != 'emit':
+        findings.append(f'shared-ancestry: stage emit-controls must descend from emit (its inputs are the materialized '
+                        f'trees and the wave-1 .vo), not {controls_parent!r}')
     if 'generated-module' not in st.get('go-e2e', ('', ''))[1]:
         findings.append('shared-ancestry: go-e2e must consume the generated-module layer')
     join = st.get('verified-join', (None, ''))[1]
@@ -79,6 +84,9 @@ def check_graph(dockerfile, makefile, hook, findings, helper=''):
         findings.append('join: verified-join must require the proof-audit marker (--from=prover /workspace/proof-ok)')
     if '--from=go-e2e /fresh-build-ok' not in join:
         findings.append('join: verified-join must require the fresh-build marker (--from=go-e2e /fresh-build-ok)')
+    if '--from=emit-controls /workspace/emit-controls-ok' not in join:
+        findings.append('join: verified-join must require the emit-controls marker '
+                        '(--from=emit-controls /workspace/emit-controls-ok)')
 
     # 17.4 artifact purity: the final export stage copies exactly the generated module from the join
     art = st.get('generated-artifact', (None, ''))
@@ -97,13 +105,14 @@ def check_graph(dockerfile, makefile, hook, findings, helper=''):
         findings.append('snapshot: theory-built must restore the snapshot as an ordinary layer _build')
 
     # 11.1 the architecture policy is proof-branch-only input: theory-built must not copy it (a prose edit
-    # must never rebuild the shared theory or emit), the prover must, and emit/go-e2e must not consume it
+    # must never rebuild the shared theory or emit), the prover must, and emit/emit-controls/go-e2e must not
+    # consume it
     if 'ARCHITECTURE.md' in st.get('theory-built', (None, ''))[1]:
         findings.append('policy-locality: theory-built copies ARCHITECTURE.md — a policy edit would rebuild '
                         'the shared theory and every branch')
     if 'ARCHITECTURE.md' not in st.get('prover', (None, ''))[1]:
         findings.append('policy-locality: the prover branch must copy ARCHITECTURE.md for the layer gate')
-    for other in ('emit', 'go-e2e'):
+    for other in ('emit', 'emit-controls', 'go-e2e'):
         if 'ARCHITECTURE.md' in st.get(other, (None, ''))[1]:
             findings.append(f'policy-locality: {other} must not consume the architecture policy input')
 
@@ -139,7 +148,8 @@ def check_graph(dockerfile, makefile, hook, findings, helper=''):
         n = text.count('build-verified-artifact.sh')
         if n != 1:
             findings.append(f'one-solve: {label} must call the canonical helper exactly once, found {n}')
-        for tgt in ('--target prover', '--target go-e2e', '--target generated-artifact'):
+        for tgt in ('--target prover', '--target emit-controls', '--target emit ', '--target go-e2e',
+                    '--target generated-artifact'):   # 'emit ' keeps the space so it cannot shadow emit-controls
             if tgt in text:
                 findings.append(f'one-solve: {label} still issues a separate project solve ({tgt})')
 
@@ -155,6 +165,8 @@ FROM theory-built AS profile
 RUN profile
 FROM theory-built AS emit
 RUN emitwork
+FROM emit AS emit-controls
+RUN controls && touch /workspace/emit-controls-ok
 FROM scratch AS generated-module
 COPY --from=emit /workspace/generated/ /generated/
 FROM go AS go-e2e
@@ -163,6 +175,7 @@ RUN gocheck && : > /fresh-build-ok
 FROM scratch AS verified-join
 COPY --from=prover /workspace/proof-ok /proof-ok
 COPY --from=go-e2e /fresh-build-ok /fresh-build-ok
+COPY --from=emit-controls /workspace/emit-controls-ok /emit-controls-ok
 COPY --from=generated-module /generated/ /generated/
 FROM scratch AS generated-artifact
 COPY --from=verified-join /generated/ /
@@ -196,6 +209,12 @@ def self_test():
          dict(d=CLEAN_DOCKER.replace('COPY --from=prover /workspace/proof-ok /proof-ok\n', ''))),
         ('fresh-build marker dependency removed from the join', 'join',
          dict(d=CLEAN_DOCKER.replace('COPY --from=go-e2e /fresh-build-ok /fresh-build-ok\n', ''))),
+        ('emit-controls marker dependency removed from the join', 'join',
+         dict(d=CLEAN_DOCKER.replace('COPY --from=emit-controls /workspace/emit-controls-ok /emit-controls-ok\n', ''))),
+        ('emit-controls re-rooted at theory-built (the materialized trees it audits would be absent)', 'shared-ancestry',
+         dict(d=CLEAN_DOCKER.replace('FROM emit AS emit-controls', 'FROM theory-built AS emit-controls'))),
+        ('emit-controls consumes the architecture policy', 'policy-locality',
+         dict(d=CLEAN_DOCKER.replace('RUN controls &&', 'COPY ARCHITECTURE.md ./\nRUN controls &&'))),
         ('make check adds a separate prover solve', 'one-solve',
          dict(m=CLEAN_MAKE + '\tdocker buildx build --target prover .\n')),
         ('hook adds a separate go-e2e solve', 'one-solve',
@@ -252,9 +271,9 @@ def main():
             print('build-graph-gate: ' + f, file=sys.stderr)
         raise SystemExit(f'fido: BUILD-GRAPH GATE FAILED — {len(findings)} violation(s)')
     print('fido: build-graph gate OK — one dune builder in the shared theory stage; proof/emit/profile descend '
-          'from it; the final artifact requires both branch markers through the verified join and exports only '
-          'the generated module; make check and the staged hook each issue one project-verification solve '
-          'through the canonical helper, whose own body constructs exactly one project solve')
+          'from it and emit-controls from emit; the final artifact requires all three branch markers through the '
+          'verified join and exports only the generated module; make check and the staged hook each issue one '
+          'project-verification solve through the canonical helper, whose own body constructs exactly one project solve')
 
 
 if __name__ == '__main__':

@@ -3,10 +3,12 @@ BUILDER := fido-builder
 override PLATFORM := linux/amd64
 # FIDO_PERF_COLD is the §9.3 project-cold scenario switch (measurement-only): set, the one-solve `check`
 # path passes --project-cold to the canonical helper (invalidating exactly the project-derived stages while
-# base/toolchain layers stay primed), and the targeted `prove`/`e2e` commands force their own roots cold.
-# Unset, every recipe is exactly the one that always runs — cold for the project, never an empty machine.
+# base/toolchain layers stay primed), and the targeted `prove`/`emit`/`e2e`/`emit-controls` commands force their
+# own roots cold.  Unset, every recipe is exactly the one that always runs — cold for the project, never an empty
+# machine.
 PERF_PROVER_NC := $(if $(FIDO_PERF_COLD),--no-cache-filter theory-built --no-cache-filter prover,)
 PERF_EMIT_NC   := $(if $(FIDO_PERF_COLD),--no-cache-filter theory-built --no-cache-filter emit,)
+PERF_CONTROLS_NC := $(if $(FIDO_PERF_COLD),$(PERF_EMIT_NC) --no-cache-filter emit-controls,)
 
 # ── The Python boundary ───────────────────────────────────────────────────────
 # Project Python never runs on the host.  This block is the whole boundary: every Python-consuming recipe
@@ -35,7 +37,7 @@ pytools: builder
 	  docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target python-tools \
 	    --load -t $(PYTAG) . > /dev/null
 
-.PHONY: check check-core prove emit e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
+.PHONY: check check-core prove emit emit-controls e2e regenerate regen-guard builder install-hooks prover-log prove-errors fmt \
         diet mutants ledger perf-evidence perf-attribution graph-gate dag-guard profile pytools hostpython go-probe toolchain
 .DEFAULT_GOAL := check
 
@@ -69,7 +71,7 @@ check:
 	        > "$$tmp/gates.log" 2>&1; echo "$$? $$(( $$(date +%s) - g0 ))" > "$$tmp/gates.rc"; } & gates=$$!; \
 	    sh tools/build-verified-artifact.sh --builder $(BUILDER) --platform $(PLATFORM) \
 	      $(if $(FIDO_PERF_COLD),--project-cold,) --context . --output "$$tmp/pristine"; rc=$$?; \
-	    echo "fido: [check stage] verification-solve = $$(( $$(date +%s) - s ))s (one BuildKit DAG: theory-built -> proof-audit + emit -> go-e2e -> verified join -> artifact)"; \
+	    echo "fido: [check stage] verification-solve = $$(( $$(date +%s) - s ))s (one BuildKit DAG: theory-built -> proof-audit + emit -> go-e2e beside emit-controls -> verified join -> artifact)"; \
 	    wait $$gates; { read -r grc gdt < "$$tmp/gates.rc"; } 2>/dev/null || { grc=1; gdt=0; }; cat "$$tmp/gates.log"; \
 	    echo "fido: [check stage] policy gates = $${gdt}s (six independent source-tree gates, run concurrently with the solve; exit $$grc)"; \
 	    [ $$rc -ne 0 ] || rc=$$grc; \
@@ -86,7 +88,7 @@ check:
 	      echo "fido: [check stage] artifact-compare = $$(( $$(date +%s) - s ))s"; \
 	    fi; \
 	    rm -rf "$$tmp"; \
-	    if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — ONE verified BuildKit DAG proved the core axiom-free (coverage + layer gate + whole-theory audit + controls in the proof branch) AND materialized the pristine generated-module + validated it through go build ./... vs goldens, the final artifact requiring BOTH branch markers; the working-tree generated go.mod + recursive .go byte-match the exported artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
+	    if [ $$rc -eq 0 ]; then echo "fido: check OK (working tree) — ONE verified BuildKit DAG proved the core axiom-free (coverage + layer gate + whole-theory audit + controls in the proof branch) AND materialized the pristine generated-module + validated it through go build ./... vs goldens while emit-controls ran the fixture matrix, e2e audit, forged-image adversaries and sink exercise beside it, the final artifact requiring ALL THREE branch markers; the working-tree generated go.mod + recursive .go byte-match the exported artifact (exact path set + bytes); transport-only OCaml, tracked Go is Fido-headed generated output ✓"; fi; \
 	    return $$rc; \
 	  }; \
 	  run_all; rc=$$?; dt=$$(( $$(date +%s) - t0 )); \
@@ -126,9 +128,10 @@ profile: pytools builder
 	  rc=$$?; cat "$$out/ranked.txt" 2>/dev/null; \
 	  echo "fido: raw -time log kept at $$out/time.log, ranked report at $$out/ranked.txt"; exit $$rc
 
-# The emit stage alone: theory and plugin, then each witness materializes its pristine image through an
-# explicit `rocq c`, not a .vo side effect.  The internal sink is exercised separately, against dirty and
-# adversarial trees.  The fresh-build validation that gates real publication is in `e2e`.
+# The emit stage alone: over the one theory-built layer, each witness materializes its pristine image through
+# an explicit `rocq c`, not a .vo side effect, and the differential oracle trees are exported.  The fresh-build
+# validation that gates real publication is in `e2e`; the proof matrix, audits, adversaries and the internal
+# sink exercise are `emit-controls`.
 emit: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_EMIT_NC) --progress=plain --target emit .
 
@@ -136,19 +139,26 @@ emit: builder
 e2e: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_EMIT_NC) --progress=plain --target go-e2e .
 
+# The emit-side controls alone: emit, then the WitnessReject proof matrix, the e2e assumption audit and fixture
+# inventory, the forged-image adversaries and the sink exercise against dirty and adversarial trees.
+emit-controls: builder
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) $(PERF_CONTROLS_NC) --progress=plain --target emit-controls .
+
 # Regenerate the tracked module through the one validate-before-publish workflow.  Building `sync` requires
-# the pinned `go build ./...` through the Docker DAG (`sync` COPYs go-e2e's success marker), so a failed
-# validation makes `sync` unbuildable and no sink effect occurs — a cache hit on a passing go-e2e is equally
-# valid.  It publishes the original pristine bytes, never a post-build one.
+# the pinned `go build ./...` AND the emit-side controls through the Docker DAG (`sync` COPYs go-e2e's and
+# emit-controls' success markers), so a failed validation makes `sync` unbuildable and no sink effect occurs —
+# a cache hit on a passing branch is equally valid.  It publishes the original pristine bytes, never a
+# post-build one.
 regenerate: builder
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORM) --target sync --load -t fido-sync .
 	docker run --rm -u $$(id -u):$$(id -g) -v "$(CURDIR)":/dest fido-sync
-	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
+	@echo "fido: regenerate OK — building 'sync' forced the pinned go build ./... and the emit-side controls (Docker DAG), then the SAME pristine bytes were synced into the repo root via Sink."
 	@echo "      Stage + commit:  git add -A -- go.mod ':(top,glob)**/*.go' && git commit"
 
-# With go-e2e forced to FAIL on a temp Dockerfile copy, `--target sync` must be unbuildable, and on the
-# unmodified tree it must build — so `make regenerate` cannot publish without a passing go-e2e validation.
-# The one-DAG join guard: proof-fail / Go-fail / missing-marker each make the final artifact unbuildable.
+# With go-e2e, then emit-controls, forced to FAIL on a temp Dockerfile copy, `--target sync` must be unbuildable,
+# and on the unmodified tree it must build — so `make regenerate` cannot publish without both passing.
+# The one-DAG join guard: proof-fail / Go-fail / emit-controls-fail / missing-marker each make the final
+# artifact unbuildable.
 dag-guard: builder
 	BUILDER=$(BUILDER) PLATFORM=$(PLATFORM) sh tools/dag-guard-test.sh
 

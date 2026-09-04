@@ -3,17 +3,19 @@
 #
 # It builds the final `generated-artifact` target, whose BuildKit graph IS the complete verification DAG:
 # one shared theory-built parent (the single `dune build @install @all`), the proof/audit branch (whole-theory
-# audit + every control, ending in /workspace/proof-ok), the emit branch (materialization + fixtures + e2e
-# audit + sink controls) feeding go-e2e (pinned `go build ./...` + goldens + differentials, ending in
-# /fresh-build-ok), and the verified join that requires BOTH markers and carries the exact pristine generated
-# module.  The export contains exactly go.mod + the recursive generated .go — nothing else.
+# audit + every control, ending in /workspace/proof-ok), the emit branch (materialization + the differential
+# oracle export) feeding BOTH go-e2e (pinned `go build ./...` + goldens + differentials, ending in
+# /fresh-build-ok) and emit-controls (the proof-fixture matrix + e2e audit + forged-image adversaries + sink
+# controls, ending in /workspace/emit-controls-ok), and the verified join that requires ALL THREE markers and
+# carries the exact pristine generated module.  The export contains exactly go.mod + the recursive generated
+# .go — nothing else.
 #
 # Both `make check` and the staged pre-commit hook call THIS script (the hook calls the staged copy against
 # the staged context), so the complete path issues exactly one project solve; the Buildx exit status is
 # propagated exactly, and a failed branch fails the solve — no sibling can mask it.
 #
-# --project-cold invalidates every project-derived stage (theory-built, prover, emit, go-e2e, verified-join,
-# generated-artifact) via --no-cache-filter while base/toolchain layers stay primed.  The Dune `_build` cache
+# --project-cold invalidates every project-derived stage (theory-built, prover, emit, emit-controls, go-e2e,
+# verified-join, generated-artifact) via --no-cache-filter while base/toolchain layers stay primed.  The Dune `_build` cache
 # mount may still warm the theory build's internal cost; the scenario evidence records cache state exactly.
 set -eu
 BUILDER=fido-builder PLATFORM=linux/amd64 CONTEXT=. OUTPUT= COLD= PLAIN=
@@ -32,7 +34,7 @@ done
 set -- docker buildx build --builder "$BUILDER" --platform "$PLATFORM" \
   --target generated-artifact --output "type=local,dest=$OUTPUT"
 if [ -n "$COLD" ]; then
-  for st in theory-built prover emit go-e2e verified-join generated-artifact; do
+  for st in theory-built prover emit emit-controls go-e2e verified-join generated-artifact; do
     set -- "$@" --no-cache-filter "$st"
   done
 fi

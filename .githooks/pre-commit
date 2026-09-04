@@ -83,8 +83,9 @@ staged_all() {
   sh "$ctx/tools/check-budget.sh" --self-test || return $?
   }
   # (3) the complete staged verification: ONE verified BuildKit DAG (the staged helper against the staged
-  #     context/Dockerfile) performs proof, emit, Go, and artifact production — the final target requires both
-  #     the proof-audit and fresh-build markers, so a failed branch fails this one solve.  The staged gates (2)
+  #     context/Dockerfile) performs proof, emit, Go, emit-side controls, and artifact production — the final
+  #     target requires all three markers (proof-audit, fresh-build, emit-controls), so a failed branch fails
+  #     this one solve.  The staged gates (2)
   #     run in the background meanwhile; a missing status file counts as a gate failure, and a solve failure
   #     outranks a gate failure.
   { g0=$(date +%s); staged_gates > "$tmp/gates.log" 2>&1; echo "$? $(( $(date +%s) - g0 ))" > "$tmp/gates.rc"; } & gates=$!

@@ -1,11 +1,15 @@
 # syntax=docker/dockerfile:1
 
 # The build stages, in the order the DAG forces:
-#   prover:  dune-compiles the theory; the certified-module coverage check and whole-theory audit establish
-#            zero project axioms.
-#   emit:    compiles theory and plugin, materializes each witness image, and exercises the sink separately.
-#   go-e2e:  the pinned Go toolchain validates the pristine image with `go build ./...` and the goldens.
-#   sync:    only after that validation marker may `make regenerate` publish the same validated bytes.
+#   theory-built:  the ONE dune build of the certified theory and plugin, snapshotted as an ordinary layer.
+#   prover:        the certified-module coverage check and whole-theory audit establish zero project axioms.
+#   emit:          Fido Materialize writes each witness's pristine image; Fido OracleExport writes the pinned-Go
+#                  differential oracle trees.
+#   go-e2e:        the pinned Go toolchain validates the pristine image with `go build ./...` and the goldens —
+#                  beside it, emit-controls runs the proof-fixture matrix, the e2e audit, the forged-image
+#                  adversaries and the sink exercise, each branch ending in its own marker.
+#   verified-join: exists only with all three markers; generated-artifact exports the module bytes alone.
+#   sync:          only after the go-e2e and emit-controls markers may `make regenerate` publish the same bytes.
 
 # ── Python tooling runtime ────────────────────────────────────────────────────
 # Project Python never runs on the host; every gate, writer and profiler runs here.
@@ -1847,25 +1851,23 @@ COPY --from=profile /workspace/profile/ /
 
 # ── Stage 4: emit — descends from the one theory-built parent (no second Dune build; the ordinary inherited
 #    _build is the certified library).  In EXPLICIT always-run steps (never .vo side effects): `Fido
-#    Materialize` writes each witness's authoritative pristine image DIRECTLY (witness, multi, EMPTY), and the
-#    emit-time assumption-closure guard rejects TRANSIENTLY-generated forged images.  A standalone driver
-#    (sink_test) exercises the dirty-directory sink separately (foreign/nested-.fido rejection, sibling-temp
-#    two-phase recovery, crash/cleanup/EXDEV/ownership).
+#    Materialize` writes each witness's authoritative pristine image DIRECTLY (witness, multi, EMPTY,
+#    boundary-byte, byte/rune alias, the five evidence images), a forged raw transport is rejected before any
+#    effect, the §25 provenance fixtures are constructed, and `Fido OracleExport` writes the pinned-Go
+#    differential oracle trees.  Everything go-e2e and `sync` consume is produced HERE; the proof matrix,
+#    audits, forged-image adversaries and sink exercise are the sibling `emit-controls` branch below, so
+#    go-e2e starts as soon as these trees exist.
 FROM theory-built AS emit
-ARG TARGETARCH
 COPY --chown=opam:opam e2e/ e2e/
-# pre-create the cross-mount test root as the emit (opam) user, so it stays opam-owned when the RUN below
-# mounts a distinct-device (opam-owned) cache at its nested `sub/` parent — the real cross-mount gate.
-RUN mkdir -p /workspace/adv-mount
-RUN --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
+RUN <<'SH'
 set -eu
 fail() { echo "fido: emit FAILED — $*"; exit 1; }
 echo "fido-stage: emit start mono=$(cut -d' ' -f1 /proc/uptime)"
 [ -f /workspace/theory-built-ok ] || fail "the shared theory-built parent marker is missing — this branch would silently rebuild"
-rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-forge* /workspace/e2e-neg /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test /workspace/generated /workspace/generated-multi /workspace/generated-empty /workspace/generated-bytes /workspace/generated-alias 2>/dev/null || true
+rm -rf /workspace/e2e-out /workspace/e2e-multi /workspace/e2e-empty /workspace/e2e-bytes /workspace/e2e-neg /workspace/generated /workspace/generated-multi /workspace/generated-empty /workspace/generated-bytes /workspace/generated-alias 2>/dev/null || true
 # the pre-split occurrence-topology names must be absent from the fixture files too (the certified files are
 # checked in the proof branch, which carries no e2e sources)
-if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' e2e/WitnessReject*.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
+if grep -nE '\bocc_family\b|\bUnresolvedName\b|\bDepUnboundName\b|\bDepRedeclaredName\b' e2e/WitnessReject*.v e2e/WitnessOracle.v e2e/WitnessProvenance.v e2e/WitnessNeg.v; then
   fail "occurrence-topology absence control — a deleted payload name or classifier is referenced by an e2e fixture"
 fi
 export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
@@ -1931,22 +1933,14 @@ check_pristine /workspace/generated-bytes
 check_pristine /workspace/generated-alias
 echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 
-# The heavy Rocq proof fixtures compile in ONE bounded four-slot worker schedule (the builder has four cores;
-# no other heavy fixture workers run beside these waves).  Wave 1 is the WitnessReject prelude plus the three
-# short independent fixtures; wave 2 is the four cost-balanced WitnessReject chunks (each Requires the prelude
-# .vo); the aggregate then loads every chunk.  Every worker writes its own log and is waited on individually so
-# a producer failure is reported as itself; each timeline row makes the §4.4 critical path machine-readable.
+# The heavy Rocq proof fixtures compile in bounded four-slot worker waves (the builder has four cores; no
+# other heavy fixture workers run beside a wave).  Wave 1, here, is the WitnessReject prelude plus the three
+# short independent fixtures; wave 2 (the four cost-balanced WitnessReject chunks, each Requiring the prelude
+# .vo) and the aggregate run in `emit-controls`.  Every worker writes its own log and is waited on individually
+# so a producer failure is reported as itself; each timeline row makes the §4.4 critical path machine-readable.
 rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
 T0=$(date +%s)
 tl() { echo "fido-timeline: $1 t=$(( $(date +%s) - T0 ))s"; }
-# direct monotonic millisecond clock from /proc/uptime (10ms native): the first field is seconds with two
-# decimals; stripping one leading zero from the centisecond field keeps dash's arithmetic base-10 so 08/09
-# do not read as octal.  The chunk workers use this so their subsecond intervals are truthful
-# (PROC_UPTIME_10MS), never a whole-second guess; scheduling, worker count, commands, proof contents and
-# failure propagation are unchanged.
-upms() { u=$(cut -d' ' -f1 /proc/uptime); s=${u%.*}; f=${u#*.}; f=${f#0}; echo $(( s * 1000 + ${f:-0} * 10 )); }
-T0MS=$(upms)
-tlms() { echo "fido-timeline-ms: $1 t=$(( $(upms) - T0MS ))ms"; }
 tl "wave1-start prelude+evidence+neg+provenance"
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectPrelude.v > /tmp/emit-rejpre.log 2>&1 & p_pre=$!
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessEvidence.v   > /tmp/emit-ev.log     2>&1 & p_ev=$!
@@ -1957,9 +1951,66 @@ wait "$p_ev"   || { cat /tmp/emit-ev.log;     fail "Fido Materialize (evidence D
 wait "$p_neg"  || { cat /tmp/emit-neg.log;    fail "a forged raw transport was NOT rejected"; }
 wait "$p_prov" || { cat /tmp/emit-prov.log;   fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; }
 tl "wave1-done"
+# the pinned-Go differential oracle: WitnessOracle.v exports one rendered tree per one-source case (reject /
+# compiled) from the SAME shared-prelude program (`dp_*`) whose disposition the WitnessReject chunks A-D prove
+# in emit-controls; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope is a Fido
+# implementation boundary, not a Go-validity claim, so it carries no Go verdict and is not exported.
+rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessOracle.v > /tmp/emit-oracle.log 2>&1 \
+  || { cat /tmp/emit-oracle.log; fail "the differential oracle export (WitnessOracle) FAILED"; }
+tl "oracle-done"
+# evidence DAG: five images over ONE compiled root all materialize byte-identically (transport is evidence-independent)
+check_pristine /workspace/ev-base
+for d in ev-a ev-b ev-agg ev-der; do
+  check_pristine "/workspace/$d"
+  diff -r /workspace/ev-base "/workspace/$d" > /tmp/ev-diff.log 2>&1 || { cat /tmp/ev-diff.log; fail "evidence image $d did not materialize byte-identically to the base compiled image"; }
+done
+echo "fido: evidence DAG OK — base + A + B + aggregate + derived all materialize byte-identically through Fido Materialize"
+# a forged raw transport (not a Emit.Image) is rejected BEFORE any effect (Fail fixtures)
+[ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
+echo "fido: §25 positive provenance OK — unbound/type-as-value/not-callable/invalid-id/main-arity causes, source-bound requirement, redeclared + unbound dependencies, short-duplicate decision, exact use context, and Report group projection all reachable with exact refs"
+# every one-source differential tree was exported: go-e2e runs pinned Go on each and compares the verdicts
+for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main reject/short_dup reject/short_count reject/short_nonew reject/short_allblank reject/short_nonvar compiled/ok; do
+  [ -f "/workspace/diff/$b/go.mod" ] || { ls -R /workspace/diff 2>/dev/null; fail "differential oracle: /workspace/diff/$b/go.mod was not exported"; }
+done
+echo "fido: differential oracle export OK — 15 one-source trees written for the pinned-Go formal-vs-Go differential"
+echo "fido-stage: emit done mono=$(cut -d' ' -f1 /proc/uptime)"
+echo "fido: emit OK — Fido Materialize wrote the witness / multi / EMPTY / boundary-byte / byte-rune-alias pristine trees (rendered go.mod) and five byte-identical evidence images; a forged raw transport was rejected before any effect; the §25 provenance fixtures constructed; 15 differential oracle trees exported for go-e2e"
+SH
+
+# ── Stage 4a: emit-controls — descends from emit (the materialized trees and the wave-1 .vo are its inputs) and
+#    runs the heavy controls nothing downstream consumes, so it runs BESIDE go-e2e instead of ahead of it:
+#    the WitnessReject proof matrix (chunks A-D + the aggregate), the e2e proof-assumption audit and fixture
+#    inventory, the emit-time assumption-closure guard over TRANSIENTLY-generated forged images, and the
+#    standalone sink exercise (sink_test: foreign/nested-.fido rejection, sibling-temp two-phase recovery,
+#    crash/cleanup/EXDEV/ownership).  Its marker /workspace/emit-controls-ok is required by the verified join
+#    and by `sync`, so nothing exports or publishes without it.
+FROM emit AS emit-controls
+ARG TARGETARCH
+# pre-create the cross-mount test root as the emit (opam) user, so it stays opam-owned when the RUN below
+# mounts a distinct-device (opam-owned) cache at its nested `sub/` parent — the real cross-mount gate.
+RUN mkdir -p /workspace/adv-mount
+RUN --mount=type=cache,id=fido-crossmnt-${TARGETARCH},uid=1000,gid=1000,sharing=private,target=/workspace/adv-mount/sub <<'SH'
+set -eu
+fail() { echo "fido: emit-controls FAILED — $*"; exit 1; }
+echo "fido-stage: emit-controls start mono=$(cut -d' ' -f1 /proc/uptime)"
+{ [ -f /workspace/generated/go.mod ] && [ -f e2e/WitnessRejectPrelude.vo ]; } || fail "the emit parent's materialized pristine or wave-1 prelude is missing — this branch would silently rebuild"
+rm -rf /workspace/e2e-forge* /workspace/adv-* /workspace/sreal /workspace/slink /workspace/sink_test 2>/dev/null || true
+export OCAMLPATH=/workspace/_build/install/default/lib:${OCAMLPATH:-}
+G=/workspace/generated
+T0=$(date +%s)
+tl() { echo "fido-timeline: $1 t=$(( $(date +%s) - T0 ))s"; }
+# direct monotonic millisecond clock from /proc/uptime (10ms native): the first field is seconds with two
+# decimals; stripping one leading zero from the centisecond field keeps dash's arithmetic base-10 so 08/09
+# do not read as octal.  The chunk workers use this so their subsecond intervals are truthful
+# (PROC_UPTIME_10MS), never a whole-second guess; scheduling, worker count, commands, proof contents and
+# failure propagation are unchanged.
+upms() { u=$(cut -d' ' -f1 /proc/uptime); s=${u%.*}; f=${u#*.}; f=${f#0}; echo $(( s * 1000 + ${f:-0} * 10 )); }
+T0MS=$(upms)
+tlms() { echo "fido-timeline-ms: $1 t=$(( $(upms) - T0MS ))ms"; }
 tl "wave2-start chunks A-D"
-# per-worker interval events: the reachability model consumes each chunk worker's measured start/done,
-# so no universal load or overhead constant ever substitutes for a measurement
+# per-worker interval events: the next evidence freeze's registered topology (an emit-controls leaf parenting
+# these workers) consumes each chunk worker's measured start/done, so no universal load or overhead constant
+# ever substitutes for a measurement
 { tlms "worker chunk-A start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectA.v > /tmp/emit-rej-a.log 2>&1; rc=$?; tlms "worker chunk-A done rc=$rc"; exit $rc; } & p_ca=$!
 { tlms "worker chunk-B start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectB.v > /tmp/emit-rej-b.log 2>&1; rc=$?; tlms "worker chunk-B done rc=$rc"; exit $rc; } & p_cb=$!
 { tlms "worker chunk-C start"; rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessRejectC.v > /tmp/emit-rej-c.log 2>&1; rc=$?; tlms "worker chunk-C done rc=$rc"; exit $rc; } & p_cc=$!
@@ -1978,33 +2029,16 @@ echo "fido: worker-failure adversary OK — a failing worker's exit status is ob
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessReject.v > /tmp/emit-reject.log 2>&1 \
   || { cat /tmp/emit-reject.log; fail "the WitnessReject aggregate re-export FAILED"; }
 tl "aggregate-done"
-# evidence DAG: five images over ONE compiled root all materialize byte-identically (transport is evidence-independent)
-check_pristine /workspace/ev-base
-for d in ev-a ev-b ev-agg ev-der; do
-  check_pristine "/workspace/$d"
-  diff -r /workspace/ev-base "/workspace/$d" > /tmp/ev-diff.log 2>&1 || { cat /tmp/ev-diff.log; fail "evidence image $d did not materialize byte-identically to the base compiled image"; }
-done
-echo "fido: evidence DAG OK — base + A + B + aggregate + derived all materialize byte-identically through Fido Materialize"
-# a forged raw transport (not a Emit.Image) is rejected BEFORE any effect (Fail fixtures)
-[ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
 # static soundness: compile returns Rejected for every representable pinned-Go-invalid shape and Compiled for the
-# paired positives, proved through compile itself; the same file exported each differential case into diff/*
+# paired positives, proved through compile itself; the emit stage's WitnessOracle.v exported each case into diff/*
 echo "fido: static rejection controls OK — the invalid-program matrix lands in Rejected through compile; positive unary cases Compiled"
-echo "fido: §25 positive provenance OK — unbound/type-as-value/not-callable/invalid-id/main-arity causes, source-bound requirement, redeclared + unbound dependencies, short-duplicate decision, exact use context, and Report group projection all reachable with exact refs"
-# the one-source differential cases were exported: one rendered tree per case (reject / compiled), each keyed
-# to the SAME Syntax.Program proven above; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope
-# is a Fido implementation boundary, not a Go-validity claim, so it carries no Go verdict and is not exported here.
-for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main reject/short_dup reject/short_count reject/short_nonew reject/short_allblank reject/short_nonvar compiled/ok; do
-  [ -f "/workspace/diff/$b/go.mod" ] || { ls -R /workspace/diff 2>/dev/null; fail "differential oracle: /workspace/diff/$b/go.mod was not exported"; }
-done
-echo "fido: differential oracle export OK — 15 one-source trees written for the pinned-Go formal-vs-Go differential"
 
-# R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They were compiled ABOVE under
-# the Fido path (-R e2e Fido), so their .vo already carry the audited proofs in the Fido modpath; REQUIRING them
-# replays no Fido Materialize (a compiled vernacular command is not re-run on Require, so the materializer never
-# sees its occupied destination), and the audit loads them directly instead of recompiling each a SECOND time —
-# the redundant recompile of the whole proof matrix was the emit stage's co-dominant cost.  An axiom or admit in
-# ANY fixture proof is rejected exactly as in the whole-theory audit.
+# R6: extend the whole-theory assumption audit to the proof-bearing e2e fixtures.  They were compiled in the emit
+# parent and in the waves above, under the Fido path (-R e2e Fido), so their .vo already carry the audited proofs
+# in the Fido modpath; REQUIRING them replays no Fido Materialize (a compiled vernacular command is not re-run on
+# Require, so the materializer never sees its occupied destination), and the audit loads them directly instead
+# of recompiling each a SECOND time — that redundant recompile of the whole proof matrix had been this branch's
+# co-dominant cost.  An axiom or admit in ANY fixture proof is rejected exactly as in the whole-theory audit.
 mkdir -p /tmp/e2eaudit
 # the audit root set is DERIVED from the on-disk WitnessReject chunk file set, so a chunk cannot be silently
 # omitted: every e2e/WitnessReject*.v must appear in the Require line, and the adversary below proves the
@@ -2111,7 +2145,7 @@ done
 echo "fido: provenance enforced — direct axiom, axiom behind an opaque Qed proof, direct section variable, transitive section variable, and axiom-dependent additional evidence each rejected before any effect (one library load, five Fail-wrapped materializations)"
 
 # The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
-# duplicated here); this stage keeps only the emit-time provenance guard above and the sink exercise below.
+# duplicated here); this branch carries the e2e fixture audit and provenance guard above and the sink exercise below.
 
 # --- exercise the dirty-directory sink directly (sibling `.fido-tmp-v1` staging + two-phase recovery + foreign rejection) ---
 cp plugin/sink.ml e2e/sink_test.ml /tmp/
@@ -2461,8 +2495,11 @@ echo "$out" | grep -q 'Permission denied' || { echo "$out"; fail "umask: the INI
 [ ! -e adv-umask/.fido ] || fail "umask: the partial mode-000 .fido was not rolled back"
 ./sink_test adv-umask || fail "umask: a normal rerun did not converge after rollback"
 
-echo "fido-stage: emit done mono=$(cut -d' ' -f1 /proc/uptime)"
-echo "fido: emit OK — Fido Materialize wrote the witness / multi / EMPTY / boundary-byte pristine trees (rendered go.mod); forged/raw images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery, complete-image staging, crash points, handled/cleanup-failure aggregation, EXDEV no-copy, ownership rechecks, first-time rollback, and REAL cross-mount staging"
+# the EMIT-CONTROLS-OK DAG edge — written ONLY after every proof-matrix, audit, adversary and sink check above
+# passed; the verified join and `sync` COPY it, so a failure here leaves the artifact and publication unbuildable.
+touch /workspace/emit-controls-ok
+echo "fido-stage: emit-controls done mono=$(cut -d' ' -f1 /proc/uptime)"
+echo "fido: emit-controls OK — the WitnessReject matrix compiled and its aggregate re-exported; every proof-bearing fixture audited axiom-free; the fixture inventory resolves; forged images rejected before any effect; the INTERNAL sink (sink_test) passed foreign-Go/module + nested-.fido rejection, sibling-temp two-phase recovery, complete-image staging, crash points, handled/cleanup-failure aggregation, EXDEV no-copy, ownership rechecks, first-time rollback, and REAL cross-mount staging"
 SH
 
 # ── Stage 4b: generated-module — ONE content-addressed layer holding EXACTLY the pristine canonical generated
@@ -2651,7 +2688,8 @@ rm -rf "$MFRESH"
 
 # ── THE ONE-SOURCE formal-vs-Go differential.  Every tree under /e2e/diff/ was produced by pure source
 #    generation from a SINGLE Syntax.Program whose exact Compilable disposition is PROVEN in e2e/WitnessReject.v
-#    (the formal side, executed through compile).  Here the pinned Go toolchain judges that EXACT rendered
+#    (the formal side, executed through compile, compiled in the sibling emit-controls branch that the verified
+#    join and `sync` require).  Here the pinned Go toolchain judges that EXACT rendered
 #    source through the ONE fresh-build runner, and the two verdicts must AGREE: a reject-bucket tree MUST fail
 #    `go build ./...`, an accept-bucket tree (a Compiled or OutsideScope program — valid Go) MUST build.  A
 #    disagreement is a hard red (a real Fido-vs-Go model disagreement); an infra failure stays fail-closed.
@@ -2910,13 +2948,15 @@ echo "fido e2e OK — pinned Go built the whole tree in a fresh copy (go build .
 echo "fido-stage: go-e2e done mono=$(cut -d' ' -f1 /proc/uptime)"
 SH
 
-# ── The verified-artifact JOIN: one stage whose construction REQUIRES both branch markers and carries the
-#    exact pristine generated module.  A missing marker (a failed proof/audit branch or a failed Go branch)
-#    makes this stage — and therefore the final artifact — unbuildable.  Markers are BuildKit dependency edges
-#    only: they prove no theorem, mint no capability, and never enter the exported artifact.
+# ── The verified-artifact JOIN: one stage whose construction REQUIRES all three branch markers and carries the
+#    exact pristine generated module.  A missing marker (a failed proof/audit branch, a failed Go branch, or a
+#    failed emit-controls branch) makes this stage — and therefore the final artifact — unbuildable.  Markers
+#    are BuildKit dependency edges only: they prove no theorem, mint no capability, and never enter the
+#    exported artifact.
 FROM scratch AS verified-join
 COPY --from=prover /workspace/proof-ok /proof-ok
 COPY --from=go-e2e /fresh-build-ok /fresh-build-ok
+COPY --from=emit-controls /workspace/emit-controls-ok /emit-controls-ok
 COPY --from=generated-module /generated/ /generated/
 
 # ── generated-artifact: the ONE public full-verification export — exactly the pristine module (go.mod +
@@ -2927,11 +2967,13 @@ COPY --from=verified-join /generated/ /
 # ── Stage 4d (defined last): sync — the `make regenerate` image.  It compiles the tiny internal filesystem
 #    adapter (linking Sink) and bakes in the pristine `generated-module` layer; run with the repo root
 #    bind-mounted at /dest, its ENTRYPOINT synchronizes /generated into /dest through the sink.  It never
-#    re-generates or renders.  VALIDATE-BEFORE-PUBLISH: it COPYs the go-e2e /fresh-build-ok DAG edge, so building
-#    `sync` FORCES go-e2e (the pinned `go build ./...`) to succeed first — a failing validation makes this stage
-#    unbuildable — and it publishes the ORIGINAL generated-module layer, never a go-e2e build directory.
+#    re-generates or renders.  VALIDATE-BEFORE-PUBLISH: it COPYs the go-e2e /fresh-build-ok DAG edge and the
+#    emit-controls marker, so building `sync` FORCES go-e2e (the pinned `go build ./...`) and every emit-side
+#    control to succeed first — a failing validation makes this stage unbuildable — and it publishes the
+#    ORIGINAL generated-module layer, never a go-e2e build directory.
 FROM emit AS sync
 COPY --from=go-e2e /fresh-build-ok /fresh-build-ok
+COPY --from=emit-controls /workspace/emit-controls-ok /emit-controls-ok
 RUN cp /workspace/plugin/sink.ml /workspace/e2e/apply.ml /tmp/ \
     && ( cd /tmp && ocamlfind ocamlopt -package unix -linkpkg sink.ml apply.ml -o /workspace/fido-apply ) \
     && chmod 0755 /workspace/fido-apply

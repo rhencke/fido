@@ -1,6 +1,6 @@
 #!/bin/sh
 # Structural regression for the ONE-BUILD VERIFICATION DAG — the final `generated-artifact` target must be
-# UNBUILDABLE when either verification branch fails or either marker dependency is broken, and buildable on
+# UNBUILDABLE when any verification branch fails or any marker dependency is broken, and buildable on
 # the unmodified passing tree.  Each mutation is a valid Dockerfile whose graph fails for the intended
 # invariant (never a syntax typo):
 #
@@ -8,6 +8,9 @@
 #         -> `--target generated-artifact` MUST fail (the join requires the proof marker).
 #   (2) go-e2e FORCED TO FAIL (exit where /fresh-build-ok would be written)
 #         -> `--target generated-artifact` MUST fail (the join requires the fresh-build marker).
+#   (2b) emit-controls FORCED TO FAIL (exit where /workspace/emit-controls-ok would be written)
+#         -> `--target generated-artifact` MUST fail (the join requires the emit-controls marker; go-e2e
+#            alone, which consumes only the materialization, cannot satisfy it).
 #   (3) the proof marker write REMOVED (branch succeeds, marker absent)
 #         -> the join's COPY --from=prover /workspace/proof-ok MUST fail: a green-but-markerless branch
 #            cannot satisfy the join, even with every generated-module layer cached.
@@ -26,6 +29,8 @@ grep -q '^touch /workspace/proof-ok$' Dockerfile \
   || { echo "dag-guard: the proof marker line 'touch /workspace/proof-ok' was not found — the DAG changed; update this test"; exit 2; }
 grep -q '^: > /fresh-build-ok$' Dockerfile \
   || { echo "dag-guard: the go-e2e marker line ': > /fresh-build-ok' was not found — the DAG changed; update this test"; exit 2; }
+grep -q '^touch /workspace/emit-controls-ok$' Dockerfile \
+  || { echo "dag-guard: the emit-controls marker line 'touch /workspace/emit-controls-ok' was not found — the DAG changed; update this test"; exit 2; }
 
 tmp=$(mktemp "${TMPDIR:-/tmp}/Dockerfile.dag-guard.XXXXXX")
 trap 'rm -f "$tmp"' EXIT INT TERM
@@ -48,6 +53,14 @@ if build "$tmp"; then
 fi
 echo "dag-guard: (2) OK — a failing Go branch makes the final artifact unbuildable"
 
+echo "dag-guard: (2b) emit-controls FORCED TO FAIL (must NOT build the final artifact)..."
+sed 's|^touch /workspace/emit-controls-ok$|exit 1  # dag-guard: forced emit-controls failure|' Dockerfile > "$tmp"
+grep -q 'forced emit-controls failure' "$tmp" || { echo "dag-guard: injection (2b) failed"; exit 2; }
+if build "$tmp"; then
+  echo "dag-guard FAIL: the final artifact BUILT despite a failing emit-controls branch"; exit 1
+fi
+echo "dag-guard: (2b) OK — a failing emit-controls branch makes the final artifact unbuildable"
+
 echo "dag-guard: (3) proof marker OMITTED from a green branch (must NOT build the final artifact)..."
 sed 's|^touch /workspace/proof-ok$|true  # dag-guard: marker write removed, branch still green|' Dockerfile > "$tmp"
 grep -q 'marker write removed' "$tmp" || { echo "dag-guard: injection (3) failed"; exit 2; }
@@ -60,6 +73,6 @@ echo "dag-guard: (4) the unmodified Dockerfile (must build)..."
 if ! build Dockerfile; then
   echo "dag-guard FAIL: the final artifact did not build on the passing tree"; exit 1
 fi
-echo "dag-guard: (4) OK — the final artifact builds when both branches pass"
+echo "dag-guard: (4) OK — the final artifact builds when every branch passes"
 
-echo "dag-guard OK — the verified join is load-bearing (proof fail / Go fail / missing marker => final artifact unbuildable; passing tree => buildable)"
+echo "dag-guard OK — the verified join is load-bearing (proof fail / Go fail / emit-controls fail / missing marker => final artifact unbuildable; passing tree => buildable)"

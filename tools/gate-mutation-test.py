@@ -150,6 +150,11 @@ MUTANTS = (
      "    if False:",
      ('proof marker dependency removed from the join',)),
 
+    (GRAPH, 'the emit-controls join edge, so the artifact cannot stop requiring the emit-side controls',
+     "    if '--from=emit-controls /workspace/emit-controls-ok' not in join:",
+     "    if False:",
+     ('emit-controls marker dependency removed from the join',)),
+
     (PERFEV, 'the incomplete-path rejection, so complete=no cannot satisfy required coverage',
      "        if row['complete'] == 'no' and row['relation'] in RELATIONS:",
      "        if False:",

@@ -697,10 +697,11 @@ reintroduce a handwritten backend, lowering, renderer or semantic decoder, or a 
 but the final transport type.** If the transport boundary cannot be met correctly, delete the e2e — a false
 transport foundation is worse than no integration.
 
-That both provenance guards stay live is a mutation-sensitive regression gate, not a proof: the emit stage
-executes forged inputs — a raw transport and transiently generated axiom- and variable-backed images — and if
-either guard were removed the corresponding command would succeed and create a target, failing the e2e. A
-source grep would be spoofable; this is not.
+That both provenance guards stay live is a mutation-sensitive regression gate, not a proof: the emit branch
+executes forged inputs — a raw transport in the `emit` stage, transiently generated axiom- and variable-backed
+images in `emit-controls` — and if either guard were removed the corresponding command would succeed and
+create a target, failing that stage and with it the verified join. A source grep would be spoofable; this is
+not.
 
 ### Publication
 
@@ -733,9 +734,10 @@ and does *not* model unmount or backing-store replacement between runs. This OCa
 `openat`/`O_NOFOLLOW`.
 
 **Validate before publish** is the Docker DAG, not a checksum: building the `sync` image copies the e2e's
-fresh-build marker, so a failed pinned `go build ./...` makes `sync` unbuildable and prevents publication. A
-checksum cannot prove a build succeeded. This is accidental-publication protection for a cooperating
-developer; the project does not attempt to resist a deliberate local bypass, by design.
+fresh-build marker and the emit-controls marker, so a failed pinned `go build ./...` or a failed emit-side
+control makes `sync` unbuildable and prevents publication. A checksum cannot prove a build succeeded. This is
+accidental-publication protection for a cooperating developer; the project does not attempt to resist a
+deliberate local bypass, by design.
 
 ### The tracked generated artifact
 
@@ -756,13 +758,18 @@ verifier. Local verifier tamper-resistance is explicitly out of scope.
 **One verification DAG.** The complete validation is one BuildKit graph: a `theory-built` parent owns the one
 Docker copy of the certified source closure and the single `dune build @install @all`, snapshotting the exact
 `_build` into an ordinary immutable layer (caches change only cost, never correctness); the proof/audit
-branch and the emit branch descend from that parent, the pinned-Go stage consumes the emit branch's exact
-generated module, and the final artifact requires both fail-closed branch markers through a verified join
-that exports only the module bytes. `make check` and the staged hook each issue exactly one project solve
-through `tools/build-verified-artifact.sh`; the structural gate (`tools/build-graph-gate.py`) pins the whole
-topology including the helper's own one-solve grammar. `ARCHITECTURE.md` itself is proof-branch-only build
-input: the layer-dependency gate reads it in the prover, so a policy-prose edit rebuilds the proof branch and
-nothing else. Performance evidence separates aggregate task elapsed (work) from wall span (latency) — the
+branch and the emit branch descend from that parent; the `emit` stage materializes every tree the rest of the
+graph consumes (the pristine module, the small witness trees, the differential oracle trees), and two
+branches descend from it side by side — the pinned-Go stage, which consumes the exact generated module, and
+`emit-controls`, which runs the proof-fixture matrix, the e2e assumption audit, the forged-image adversaries
+and the sink exercise; the Go build therefore starts as soon as the trees exist, not after those controls,
+and the final artifact requires all three fail-closed branch markers (proof-audit, fresh-build,
+emit-controls) through a verified join that exports only the module bytes. `make check` and the staged hook
+each issue exactly one project solve through `tools/build-verified-artifact.sh`; the structural gate
+(`tools/build-graph-gate.py`) pins the whole topology including the helper's own one-solve grammar.
+`ARCHITECTURE.md` itself is proof-branch-only build input: the layer-dependency gate reads it in the prover,
+so a policy-prose edit rebuilds the proof branch and nothing else. Performance evidence separates aggregate
+task elapsed (work) from wall span (latency) — the
 two are never conflated, neither is called CPU time, and the one work/span/reachability arithmetic authority
 is `tools/perf-work-span.py` over the committed normalized event table. Raw evidence is separated from
 generated views everywhere: the event and sentence tables are RAW_MEASUREMENT, the work-span, reachability,
