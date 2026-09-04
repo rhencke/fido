@@ -107,11 +107,11 @@ Definition uc_case_20 : uc_obs (rres uc20_prog) = mk_uc_obs Compilable.Rejected 
 Proof. obs_uc uc20_prog. Qed.
 Definition uc_case_21 : uc_obs (rres uc21_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow ] [ RP.CvDefaultOverflow ] [].
 Proof. obs_uc uc21_prog. Qed.
-Definition uc_case_22 : uc_obs (rres uc22_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvConversionArity; RP.FvNonconst AN.FamValue; RP.FvNonconst AN.FamValue; RP.FvNonconst AN.FamValue ] [ RP.CvConversionArity ] [].
+Definition uc_case_22 : uc_obs (rres uc22_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvConversionArity; RP.FvNonconst AN.FamValue ] [ RP.CvConversionArity ] [].
 Proof. obs_uc uc22_prog. Qed.
 Definition uc_case_23 : uc_obs (rres uc23_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvConversionArity; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil); RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ RP.CvConversionArity; RP.CvInvalidIdentity Names.PNil; RP.CvInvalidIdentity Names.PNil ] [].
 Proof. obs_uc uc23_prog. Qed.
-Definition uc_case_24 : uc_obs (rres uc24_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvNonconst AN.FamValue ] [ RP.CvIllegalStatement ] [].
+Definition uc_case_24 : uc_obs (rres uc24_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement ] [ RP.CvIllegalStatement ] [].
 Proof. obs_uc uc24_prog. Qed.
 Definition uc_case_25 : uc_obs (rres uc25_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue RP.DvHeadInvalid ] [ RP.CvNotCallableExpr ] [].
 Proof. obs_uc uc25_prog. Qed.
@@ -139,9 +139,9 @@ Definition uc_case_28 : uc_obs (rres uc28_prog) = mk_uc_obs Compilable.OutsideSc
 Proof. obs_uc uc28_prog. Qed.
 Definition uc_case_29 : uc_obs (rres uc29_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamApplication RP.RvApplication; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgUnmet 0) ] [] [ RP.RvApplication ].
 Proof. obs_uc uc29_prog. Qed.
-Definition uc_case_30 : uc_obs (rres uc30_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvOK AN.FamValue; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallable ] [ RP.RvConstDecl ].
+Definition uc_case_30 : uc_obs (rres uc30_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallable ] [ RP.RvConstDecl; RP.RvConstNoDefault ].
 Proof. obs_uc uc30_prog. Qed.
-Definition uc_case_31 : uc_obs (rres uc31_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvOK AN.FamValue; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvNotCallable ] [ RP.RvConstDecl ].
+Definition uc_case_31 : uc_obs (rres uc31_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallable; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvNotCallable ] [ RP.RvConstDecl; RP.RvConstNoDefault ].
 Proof. obs_uc uc31_prog. Qed.
 Definition uc_case_32 : uc_obs (rres uc32_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvUnmet AN.FamValue RP.RvMainUse; RP.FvDependent AN.FamStatement RP.DvChild; RP.FvUnmet AN.FamApplication RP.RvSourceValueApp; RP.FvNonconst AN.FamValue ] [] [ RP.RvDeclMeaningV; RP.RvMainUse; RP.RvSourceValueApp ].
 Proof. obs_uc uc32_prog. Qed.
@@ -182,7 +182,7 @@ Definition uc_case_45 : uc_obs (rres uc45_prog) = mk_uc_obs Compilable.Rejected 
 Proof. obs_uc uc45_prog. Qed.
 Definition uc_case_46 : uc_obs (rres uc46_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvUnresolvedName; RP.FvDependent AN.FamValue RP.DvUnboundName; RP.FvDependent AN.FamValue (RP.DvArgInvalid 0) ] [ RP.CvUnresolvedName ] [].
 Proof. obs_uc uc46_prog. Qed.
-Definition uc_case_47 : uc_obs (rres uc47_prog) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue ] [] [].
+Definition uc_case_47 : uc_obs (rres uc47_prog) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue ] [] [].
 Proof. obs_uc uc47_prog. Qed.
 Definition uc_case_48 : uc_obs (rres uc48_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PIota) ] [ RP.CvIllegalStatement; (RP.CvInvalidIdentity Names.PIota) ] [].
 Proof. obs_uc uc48_prog. Qed.
@@ -190,20 +190,20 @@ Definition uc_case_49 : uc_obs (rres uc49_prog) = mk_uc_obs Compilable.Rejected 
 Proof. obs_uc uc49_prog. Qed.
 Definition uc_case_50 : uc_obs (rres uc50_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ (RP.CvInvalidIdentity Names.PNil) ] [].
 Proof. obs_uc uc50_prog. Qed.
-Definition uc_case_53 : uc_obs (rres uc53_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow; RP.FvNonconst AN.FamValue ] [ RP.CvDefaultOverflow ] [].
+Definition uc_case_53 : uc_obs (rres uc53_prog) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow ] [ RP.CvDefaultOverflow ] [].
 Proof. obs_uc uc53_prog. Qed.
-Definition uc_case_54 : uc_obs (rres uc54_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvNonconst AN.FamValue; RP.FvNonconst AN.FamValue ] [ RP.CvIllegalStatement ] [].
+Definition uc_case_54 : uc_obs (rres uc54_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement ] [ RP.CvIllegalStatement ] [].
 Proof. obs_uc uc54_prog. Qed.
-Definition uc_case_55 : uc_obs (rres uc55_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue RP.DvHeadInvalid; RP.FvNonconst AN.FamValue ] [ RP.CvNotCallableExpr ] [].
+Definition uc_case_55 : uc_obs (rres uc55_prog) = mk_uc_obs Compilable.Rejected [ RP.FvDependent AN.FamStatement RP.DvChild; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvDependent AN.FamValue RP.DvHeadInvalid ] [ RP.CvNotCallableExpr ] [].
 Proof. obs_uc uc55_prog. Qed.
 Definition uc42_prog : Syntax.Program := prog_tops [ Syntax.TopDeclaration (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PAny))) (NE1 (APP (Names.predeclared_ordinary Names.PPrintln) [ Syntax.Name (Names.predeclared_ordinary Names.PNil) ]))) ]) ; main0 ].
 Definition uc51_prog : Syntax.Program := prog_tops [ Syntax.TopDeclaration (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PInt))) (NE1 (NEG (ILIT ((2 ^ 63 + 1)%N))))) ]) ; main0 ].
 Definition uc52_prog : Syntax.Program := prog_tops [ Syntax.TopDeclaration (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (NEG (ILIT ((2 ^ 63 + 1)%N))))) ]) ; main0 ].
 Definition uc_case_42 : uc_obs (rres uc42_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvUnmet AN.FamTypeUse RP.RvTypeMeaning; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvNoValueUsed; RP.FvInvalid AN.FamValue (RP.CvInvalidIdentity Names.PNil) ] [ RP.CvNoValueUsed; (RP.CvInvalidIdentity Names.PNil) ] [ RP.RvDeclMeaningV; RP.RvTypeMeaning ].
 Proof. obs_uc uc42_prog. Qed.
-Definition uc_case_51 : uc_obs (rres uc51_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvOK AN.FamTypeUse; RP.FvUnmet AN.FamValue RP.RvTypedTargetConstant; RP.FvNonconst AN.FamValue ] [] [ RP.RvDeclMeaningV; RP.RvTypedTargetConstant ].
+Definition uc_case_51 : uc_obs (rres uc51_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvDeclMeaningV; RP.FvOK AN.FamTypeUse; RP.FvUnmet AN.FamValue RP.RvTypedTargetConstant ] [] [ RP.RvDeclMeaningV; RP.RvTypedTargetConstant ].
 Proof. obs_uc uc51_prog. Qed.
-Definition uc_case_52 : uc_obs (rres uc52_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault; RP.FvNonconst AN.FamValue ] [] [ RP.RvConstDecl; RP.RvConstNoDefault ].
+Definition uc_case_52 : uc_obs (rres uc52_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault ] [] [ RP.RvConstDecl; RP.RvConstNoDefault ].
 Proof. obs_uc uc52_prog. Qed.
 
 (* uc_path_total: every expression node has its exact use-path — use_path is total *)
@@ -216,8 +216,88 @@ Definition uc_path_edge_roundtrip := @Index.Edges.up_iat.
 Definition uc_path_canonical_query := @Index.Edges.up_role_ok.
 (* uc_path_root_exhaustive: a path's family is exactly the syntactic reading of its parent, over the eight families *)
 Definition uc_path_root_exhaustive := @Index.Edges.up_family_ok.
-(* uc_path_arbitrary_depth: the vm-safe root walk equals the path's root kind through any depth of fold links *)
-Definition uc_path_arbitrary_depth := @Index.Edges.root_const_var_b_path.
+(* uc_path_arbitrary_depth: initializer ancestry survives any finite chain of unary, argument and head links *)
+Definition uc_path_arbitrary_depth := @AN.path_const_root_complete.
+(* uc_root_witness_sound: a computed initializer root is the exact ancestry of the path it was read from *)
+Definition uc_root_witness_sound := @AN.path_const_root_sound.
+(* uc_outside_no_witness: a path whose terminal is not a const value edge manufactures no initializer witness *)
+Definition uc_outside_no_witness := @AN.path_const_root_outside.
+(* uc_judgment_from_path: every live expression node's verdict is the judgment of its one canonical use path *)
+Definition uc_judgment_from_path := @AN.judgment_from_path.
+(* uc_links_order: the link sequence is the path's exact constructor order, the subject's own link first *)
+Definition uc_links_order := @AN.path_links_order.
+(* uc_arg_head_distinct: an argument link and a head link are never the same link *)
+Definition uc_arg_head_distinct := @AN.link_arg_not_head.
+(* uc_iota_inside / uc_iota_outside: iota is the exact retained ancestry inside, the invalid identity outside *)
+Definition uc_iota_inside := @AN.iota_verdict_inside.
+Definition uc_iota_outside := @AN.iota_verdict_outside.
+(* uc_iota_name_verdict: a name resolving to iota is judged by exactly the path's iota verdict *)
+Definition uc_iota_name_verdict := @AN.res_body_iota.
+(* uc_formation_*: formation never defaults or types a literal or a name; folds consume the exact untyped child *)
+Definition uc_formation_literal_untyped := @AN.node_intrinsic_lit.
+Definition uc_formation_name_untyped := @AN.node_intrinsic_name.
+Definition uc_unary_consumes_exact := @AN.unary_intrinsic_untyped.
+Definition uc_conversion_consumes_exact := @AN.conversion_intrinsic_untyped.
+(* uc_typed_flag_retained: a typed cell keeps its explicit form beside its exact value until the use *)
+Definition uc_typed_flag_retained := @AN.cell_info_typed.
+(* uc_negation_involutive: nested unary forms fold back to the one exact intrinsic *)
+Definition uc_negation_involutive := @AN.unary_intrinsic_twice.
+(* uc_use_action_exclusive: one action per path; an untyped constant defaults only under UADefault *)
+Definition uc_use_action_exclusive := @AN.untyped_verdict_by_action.
+Definition uc_arg_action_cases := @AN.arg_use_action_cases.
+(* uc_typed_never_defaults: a typed constant is never defaulted or re-converted by its use *)
+Definition uc_typed_never_defaults := @AN.typed_verdict_exact.
+(* uc_default_*: a failed mandatory default is exactly its DefaultOverflow, never VNonconst, never absent *)
+Definition uc_default_failure_exact := @AN.default_verdict_failure.
+Definition uc_default_never_nonconst := @AN.default_verdict_never_nonconst.
+Definition uc_default_failure_row := @AN.untyped_default_failure.
+(* uc_conversion_*: the conversion categories project exactly, and a failed conversion's row is its retained cell *)
+Definition uc_conversion_projection_exact := @AN.conversion_failure_exact.
+Definition uc_conversion_failure_row := @AN.conversion_failure_row.
+(* uc_row_is_verdict: every retained value row is the exact retained verdict, never the neutral projection *)
+Definition uc_row_is_verdict := @AN.fact_row_is_own.
+(* uc_operand_only_no_row: an operand-only site retains no value row *)
+Definition uc_operand_only_no_row := @AN.va_value_row_operand.
+(* uc_convert_*: every conversion category retains its exact source, the absent-rule category has no producer *)
+Definition uc_convert_total_exact := @TR.convert_total_exact.
+Definition uc_convert_never_unmet := @TR.convert_never_unmet.
+Definition uc_convert_no_value_form := @TR.convert_no_value_form.
+Definition uc_int_to_string_exact := @TR.convert_int_to_string.
+Definition uc_string_identity_law := @TR.convert_string_identity.
+(* uc_utf8_*: the encoder meets the semantic UTF-8 relation on every scalar, replaces every non-scalar, decodes back *)
+Definition uc_utf8_scalar_spec := @TR.utf8_bytes_scalar_spec.
+Definition uc_utf8_non_scalar := @TR.utf8_bytes_non_scalar.
+Definition uc_utf8_decode_encode := @TR.utf8_decode_encode.
+Definition uc_utf8_decode_sound := @TR.utf8_decode_sound.
+Definition uc_utf8_decode_complete := @TR.utf8_decode_complete.
+Definition uc_utf8_replacement_decodes := @TR.utf8_replacement_decodes.
+Definition uc_utf8_injective := @TR.utf8_bytes_injective.
+
+(* O5 iota below a conversion argument keeps its initializer identity through the argument link *)
+Definition uc_iota_arg_ancestry : uc_obs (rres (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (CONV Names.PInt IOTA))) ]) ])) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamValue (RP.RvInitializerIdentity Names.PIota) ] [] [ RP.RvConstDecl; RP.RvInitializerIdentity Names.PIota ].
+Proof. obs_uc (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (CONV Names.PInt IOTA))) ]) ]). Qed.
+
+(* O6 iota as the application head: the exact application identity cause, never a lost-ancestry value invalidity *)
+Definition uc_iota_head_ancestry : uc_obs (rres (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (APP (Names.predeclared_ordinary Names.PIota) []))) ]) ])) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvInvalid AN.FamApplication (RP.CvInvalidAppIdentity Names.PIota); RP.FvNonconst AN.FamValue ] [ RP.CvInvalidAppIdentity Names.PIota ] [ RP.RvConstDecl ].
+Proof. obs_uc (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (APP (Names.predeclared_ordinary Names.PIota) []))) ]) ]). Qed.
+
+(* C1 a mixed unary, head and argument chain: iota under (-iota)() under int(...) still roots at the const *)
+Definition ucmixed_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (CONV Names.PInt (Syntax.Application (NEG IOTA) [])))) ]) ].
+Definition uc_iota_mixed_chain : uc_obs (rres ucmixed_prog) = mk_uc_obs Compilable.Rejected [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamApplication RP.CvNotCallableExpr; RP.FvNonconst AN.FamValue; RP.FvNonconst AN.FamValue; RP.FvUnmet AN.FamValue (RP.RvInitializerIdentity Names.PIota) ] [ RP.CvNotCallableExpr ] [ RP.RvConstDecl; RP.RvInitializerIdentity Names.PIota ].
+Proof. obs_uc ucmixed_prog. Qed.
+
+(* W2 two specs, two values in one: each iota retains its own spec node and value index, the first spec no root *)
+Definition uctwo_prog : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "a"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ; Syntax.MakeConstSpec (Collections.MakeNonEmpty (Syntax.BNamed (OID "b")) [Syntax.BNamed (OID "c")]) (Syntax.ExplicitConstInit None (Collections.MakeNonEmpty IOTA [IOTA])) ]) ].
+Definition initializer_roots (p : Syntax.Program) : list (option (nat * nat)) :=
+  map (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RInitializerIdentity _ _ _ _ sp j _ _)) => Some (Index.nr_pos (Index.Refs.sp_node sp), j) | _ => None end) (pfacts p).
+Definition uc_two_specs_distinct_roots :
+  uc_obs (rres uctwo_prog) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault; RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue (RP.RvInitializerIdentity Names.PIota); RP.FvUnmet AN.FamValue (RP.RvInitializerIdentity Names.PIota) ] [] [ RP.RvConstDecl; RP.RvConstNoDefault; RP.RvConstDecl; RP.RvInitializerIdentity Names.PIota; RP.RvInitializerIdentity Names.PIota ]
+  /\ (match initializer_roots uctwo_prog with [ None; None; None; Some (a, 0%nat); Some (b, 1%nat) ] => Nat.eqb a b | _ => false end) = true.
+Proof. split; [ obs_uc uctwo_prog | unfold initializer_roots; obs_direct uctwo_prog ]. Qed.
+
+(* O10 a representable no-type const initializer keeps its untyped constant: the declaration makes no default *)
+Definition uc_const_no_default_in_range : uc_obs (rres (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ])) = mk_uc_obs Compilable.OutsideScope [ RP.FvUnmet AN.FamDeclaration RP.RvConstDecl; RP.FvUnmet AN.FamValue RP.RvConstNoDefault ] [] [ RP.RvConstDecl; RP.RvConstNoDefault ].
+Proof. obs_uc (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ]). Qed.
 (* uc_head_name_no_value: a name on the application-head edge contributes no occurrence fact, its value row deleted *)
 Definition uc_head_name_no_value := @AN.occ_facts_va_name_head.
 (* uc_nonname_head_value: a non-name application head retains its exact value fact *)
@@ -227,7 +307,7 @@ Definition uc_application_row_retained := @AN.app_fact_retained.
 (* uc_dep_ainvalid_roundtrip: a deferred argument's DepArgInvalid is recovered exactly by occ_dep *)
 Definition ucdeep_prog : Syntax.Program := prog [ Syntax.ExprStmt (NEG (APP (Names.predeclared_ordinary Names.PInt) [ NEG (APP (Names.predeclared_ordinary Names.PInt) [ ILIT 1 ]) ])) ].
 (* uc_deep_path_exact: a deep alternating unary/application program retains every intermediate fact *)
-Definition uc_deep_path_exact : uc_obs (rres ucdeep_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue ] [ RP.CvIllegalStatement ] [].
+Definition uc_deep_path_exact : uc_obs (rres ucdeep_prog) = mk_uc_obs Compilable.Rejected [ RP.FvInvalid AN.FamStatement RP.CvIllegalStatement; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue; RP.FvOK AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue ] [ RP.CvIllegalStatement ] [].
 Proof. obs_uc ucdeep_prog. Qed.
 (* uc_source_origin_exhaustive: every source-object declaration origin is a binder, a function, or a short new *)
 Lemma uc_source_origin_exhaustive p (idx : Index.ProgramIndex p) (o : BN.DeclOrigin idx) :
@@ -253,8 +333,8 @@ Definition uc_nonname_application_roundtrip :
   existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.NotCallableExpr _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ])) = true.
 Proof. obs_direct (prog [ Syntax.ExprStmt (Syntax.Application (ILIT ((2 ^ 63)%N)) []) ]). Qed.
-(* uc_head_folds_priority: a true fold keeps its iota argument InvalidIdentity, never a deferred DepArg *)
-Definition uc_head_folds_priority :
+(* uc_fold_keeps_iota_invalid: a folding head keeps its iota argument InvalidIdentity, never a deferred DepArg *)
+Definition uc_fold_keeps_iota_invalid :
   existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PInt) [ Syntax.Name (Names.predeclared_ordinary Names.PIota) ]) ])) = true
   /\ existsb (fun f => match f with AN.OFValue _ (AN.VDependent (AN.DepArgInvalid _ _ _ _ _)) => true | _ => false end)
@@ -267,15 +347,15 @@ Definition uc_nonfolded_aok_is_println :
 Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ]). Qed.
 (* uc_iota_policy_exhaustive: iota per context: init identity, standalone invalid, head invalid-app-id *)
 Definition uc_iota_policy_exhaustive :
-  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RInitializerIdentity _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Name (Names.predeclared_ordinary Names.PIota)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (Syntax.Name (Names.predeclared_ordinary Names.PIota)) ])) = true /\ existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.InvalidApplicationIdentity _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
+  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RInitializerIdentity _ _ _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Name (Names.predeclared_ordinary Names.PIota)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (Syntax.Name (Names.predeclared_ordinary Names.PIota)) ])) = true /\ existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.InvalidApplicationIdentity _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ])) = true.
 Proof. repeat split; first [ obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Name (Names.predeclared_ordinary Names.PIota)))) ]) ]) | obs_direct (prog [ Syntax.ExprStmt (Syntax.Name (Names.predeclared_ordinary Names.PIota)) ]) | obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PIota) []) ]) ]. Qed.
 (* uc_nil_policy_exhaustive: nil per context: typed-target identity, standalone invalid, head invalid-app-id *)
 Definition uc_nil_policy_exhaustive :
-  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RTypedTargetIdentity _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PAny))) (NE1 (Syntax.Name (Names.predeclared_ordinary Names.PNil)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (Syntax.Name (Names.predeclared_ordinary Names.PNil)) ])) = true /\ existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.InvalidApplicationIdentity _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PNil) []) ])) = true.
+  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RTypedTargetIdentity _ _ _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PAny))) (NE1 (Syntax.Name (Names.predeclared_ordinary Names.PNil)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.InvalidIdentity _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (Syntax.Name (Names.predeclared_ordinary Names.PNil)) ])) = true /\ existsb (fun f => match f with AN.OFApp _ (AN.AInvalid (AN.InvalidApplicationIdentity _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PNil) []) ])) = true.
 Proof. repeat split; first [ obs_direct (prog [ Syntax.DeclarationStmt (Syntax.VarDecl [ Syntax.MakeVarSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.VarValues (Some (Syntax.NamedType (Names.predeclared_ordinary Names.PAny))) (NE1 (Syntax.Name (Names.predeclared_ordinary Names.PNil)))) ]) ]) | obs_direct (prog [ Syntax.ExprStmt (Syntax.Name (Names.predeclared_ordinary Names.PNil)) ]) | obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PNil) []) ]) ]. Qed.
 (* uc_default_policy_exhaustive: default per context: println overflow, const no-default, discarded illegal *)
 Definition uc_default_policy_exhaustive :
-  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RConstNoDefault _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT ((2 ^ 63)%N)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFStmt _ (AN.SInvalid (AN.IllegalStatement _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = true.
+  existsb (fun f => match f with AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ])) = true /\ existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RConstNoDefault _ _ _ _ _ _)) => true | _ => false end) (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT ((2 ^ 63)%N)))) ]) ])) = true /\ existsb (fun f => match f with AN.OFStmt _ (AN.SInvalid (AN.IllegalStatement _)) => true | _ => false end) (pfacts (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ])) = true.
 Proof. repeat split; first [ obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names.PPrintln) [ ILIT ((2 ^ 63)%N) ]) ]) | obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT ((2 ^ 63)%N)))) ]) ]) | obs_direct (prog [ Syntax.ExprStmt (ILIT ((2 ^ 63)%N)) ]) ]. Qed.
 (* uc_fact_transform_exact: retained rows project to result_fact_list exactly, in retained order *)
 Definition uc_fact_transform_exact := @AN.fact_rows_rows.
@@ -413,7 +493,7 @@ Proof. obs_direct (prog [ Syntax.ExprStmt (APP (OID "undefined") [ Syntax.Name (
 
 (* §11 arbitrary depth: iota under three unary links still roots at the const, an exact initializer-identity *)
 Definition r_deep_unary_iota :
-  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RInitializerIdentity _ _ _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RInitializerIdentity _ _ _ _ _ _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Name (Names.predeclared_ordinary Names.PIota))))))) ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Unary Syntax.UnaryMinus (Syntax.Name (Names.predeclared_ordinary Names.PIota))))))) ]) ]). Qed.
 
@@ -466,7 +546,7 @@ Proof. obs_direct (prog [ Syntax.ExprStmt (APP (Names.predeclared_ordinary Names
 
 (* §250 a negative-unary overflow at a no-type const is a const-no-default requirement through the unary link *)
 Definition r_neg_unary_const :
-  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RConstNoDefault _ _)) => true | _ => false end)
+  existsb (fun f => match f with AN.OFValue _ (AN.VUnmet (AN.RConstNoDefault _ _ _ _ _ _)) => true | _ => false end)
           (pfacts (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N))))) ]) ])) = true.
 Proof. obs_direct (prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (Syntax.Unary Syntax.UnaryMinus (ILIT ((2 ^ 63 + 1)%N))))) ]) ]). Qed.
 

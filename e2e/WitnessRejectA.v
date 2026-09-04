@@ -84,3 +84,41 @@ Proof.
   destruct (dsites pp) as [|d0 [|d1 r1]]; cbn in H; try discriminate H.
   injection H as Hd0. cbn. rewrite Hd0. reflexivity.
 Qed.
+
+(* the integer-to-string differential programs compile; go-e2e runs each and compares Go's bytes with the literal *)
+Definition dc_str_0      : Compilable.compiles dp_str_0.      Proof. compileok. Qed.
+
+Definition dc_str_7f     : Compilable.compiles dp_str_7f.     Proof. compileok. Qed.
+
+Definition dc_str_80     : Compilable.compiles dp_str_80.     Proof. compileok. Qed.
+
+Definition dc_str_7ff    : Compilable.compiles dp_str_7ff.    Proof. compileok. Qed.
+
+Definition dc_str_800    : Compilable.compiles dp_str_800.    Proof. compileok. Qed.
+
+Definition dc_str_d7ff   : Compilable.compiles dp_str_d7ff.   Proof. compileok. Qed.
+
+Definition dc_str_e000   : Compilable.compiles dp_str_e000.   Proof. compileok. Qed.
+
+Definition dc_str_ffff   : Compilable.compiles dp_str_ffff.   Proof. compileok. Qed.
+
+Definition dc_str_10000  : Compilable.compiles dp_str_10000.  Proof. compileok. Qed.
+
+Definition dc_str_10ffff : Compilable.compiles dp_str_10ffff. Proof. compileok. Qed.
+
+Definition dc_str_neg1   : Compilable.compiles dp_str_neg1.   Proof. compileok. Qed.
+
+Definition dc_str_d800   : Compilable.compiles dp_str_d800.   Proof. compileok. Qed.
+
+Definition dc_str_dfff   : Compilable.compiles dp_str_dfff.   Proof. compileok. Qed.
+
+Definition dc_str_110000 : Compilable.compiles dp_str_110000. Proof. compileok. Qed.
+
+Definition dc_str_ident  : Compilable.compiles dp_str_ident.  Proof. compileok. Qed.
+
+(* the invalid conversion forms are definite invalidities, never boundaries; pinned Go rejects the same trees *)
+Definition dr_str_bool   : Compilable.rejects dp_str_bool.    Proof. reject. Qed.
+
+Definition dr_int_str    : Compilable.rejects dp_int_str.     Proof. reject. Qed.
+
+Definition dr_int_bool   : Compilable.rejects dp_int_bool.    Proof. reject. Qed.

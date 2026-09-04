@@ -575,46 +575,66 @@ Proof.
   exfalso. apply parentless_view_file in E. unfold is_expr_node in Hr. rewrite E in Hr. discriminate Hr.
 Qed.
 
-(* a value-position ordinal on a spec is exactly value_ordinal j for some in-range value index j *)
-Lemma spec_value_index {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (o : nat) :
+(* the value index of an expression-kind spec ordinal: the ordinal past the names and the optional type child *)
+Definition spec_value_index_of {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (o : nat) : nat :=
+  o - (shape_names fl (sp_shape sp) + (if shape_has_type fl (sp_shape sp) then 1 else 0)).
+
+(* an expression-kind ordinal under a spec is a value ordinal: its index is in range and rebuilds the ordinal *)
+Lemma spec_value_index_ok {p} {idx : ProgramIndex p} {fl : SpecFlavor} (sp : SpecRef idx fl) (o : nat) :
   layout_kind (spec_view_of fl (sp_shape sp)) o = ExprKind ->
   o < length (node_children (sp_node sp)) ->
-  { j : nat | j < shape_values fl (sp_shape sp) /\ value_ordinal fl (sp_shape sp) j = o }.
+  spec_value_index_of sp o < shape_values fl (sp_shape sp)
+  /\ value_ordinal fl (sp_shape sp) (spec_value_index_of sp o) = o.
 Proof.
-  intros Hk Ho. rewrite (spec_children_len sp) in Ho.
+  intros Hk Ho. rewrite (spec_children_len sp) in Ho. unfold spec_value_index_of, value_ordinal.
   destruct fl;
     [ destruct (sp_shape sp) as [ht nn nv | nn]
     | destruct (sp_shape sp) as [nn | ht nn nv]
     | destruct (sp_shape sp) as [ | ] ];
-    cbn [spec_view_of shape_names shape_has_type shape_values value_ordinal layout_kind] in Hk, Ho |- *.
+    cbn [spec_view_of shape_names shape_has_type shape_values layout_kind] in Hk, Ho |- *.
   - destruct (o <? nn) eqn:E1; [ discriminate Hk |]. apply Nat.ltb_ge in E1.
     destruct ht.
-    + destruct (o =? nn) eqn:E2; cbn [andb] in Hk; [ discriminate Hk |]. apply Nat.eqb_neq in E2.
-      exists (o - (nn + 1)). split; cbn; lia.
-    + cbn [andb] in Hk. exists (o - (nn + 0)). split; cbn; lia.
+    + destruct (o =? nn) eqn:E2; cbn [andb] in Hk; [ discriminate Hk |]. apply Nat.eqb_neq in E2. split; lia.
+    + cbn [andb] in Hk. split; lia.
   - discriminate Hk.
   - destruct (o <? nn); discriminate Hk.
   - destruct (o <? nn) eqn:E1; [ discriminate Hk |]. apply Nat.ltb_ge in E1.
     destruct ht.
-    + destruct (o =? nn) eqn:E2; cbn [andb] in Hk; [ discriminate Hk |]. apply Nat.eqb_neq in E2.
-      exists (o - (nn + 1)). split; cbn; lia.
-    + cbn [andb] in Hk. exists (o - (nn + 0)). split; cbn; lia.
+    + destruct (o =? nn) eqn:E2; cbn [andb] in Hk; [ discriminate Hk |]. apply Nat.eqb_neq in E2. split; lia.
+    + cbn [andb] in Hk. split; lia.
   - destruct o; discriminate Hk.
   - destruct o; discriminate Hk.
 Qed.
 
-(* a value-position ordinal on a short declaration is exactly sh_names + j for some in-range RHS index j *)
-Lemma short_value_index {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (o : nat) :
+(* a value-position ordinal on a short declaration is sh_names + j for the in-range RHS index j = o - sh_names *)
+Lemma short_value_index_ok {p} {idx : ProgramIndex p} (st : ShortStmtRef idx) (o : nat) :
   layout_kind (node_view (sh_node st)) o = ExprKind ->
   o < length (node_children (sh_node st)) ->
-  { j : nat | j < sh_values st /\ sh_names st + j = o }.
+  o - sh_names st < sh_values st /\ sh_names st + (o - sh_names st) = o.
 Proof.
   intros Hk Ho. rewrite (sh_ok st) in Hk. cbn [layout_kind] in Hk.
   destruct (o <? sh_names st) eqn:E1; [ discriminate Hk |]. apply Nat.ltb_ge in E1.
   assert (Hlen : length (node_children (sh_node st)) = sh_names st + sh_values st).
   { apply node_children_count. rewrite (sh_ok st). reflexivity. }
-  rewrite Hlen in Ho. exists (o - sh_names st). split; lia.
+  rewrite Hlen in Ho. split; lia.
 Qed.
+
+(* index transport decided on the ordinals themselves, so a concrete equal pair reduces without touching the proof *)
+Definition ca_cast_dec {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
+  (E : i = j) (e : ChildAt parent i) : ChildAt parent j :=
+  match Nat.eq_dec i j with
+  | left E' => ca_cast E' e
+  | right N => False_rect _ (N E)
+  end.
+
+(* the decided cast keeps the exact child, and this equation itself reduces to eq_refl once the decision is left *)
+Definition ca_cast_dec_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
+  (E : i = j) (e : ChildAt parent i) : ca_child (ca_cast_dec E e) = ca_child e :=
+  match Nat.eq_dec i j as d
+        return ca_child (match d with left E' => ca_cast E' e | right N => False_rect _ (N E) end) = ca_child e with
+  | left E' => match E' as E0 in _ = j0 return ca_child (ca_cast E0 e) = ca_child e with eq_refl => eq_refl end
+  | right N => False_ind _ (N E)
+  end.
 
 (* recasting a canonical edge along a proven ordinal equality preserves its exact child *)
 Lemma ca_cast_child {p} {idx : ProgramIndex p} {parent : NodeRef idx} {i j : nat}
@@ -659,69 +679,85 @@ Proof.
   refine (well_founded_induction_type (well_founded_ltof _ (fun x : NodeRef idx => nr_pos x))
             (fun r => is_expr_node r = true -> ExprUsePath r) _).
   intros r rec Hr. unfold ltof in rec.
-  destruct (node_parent r) as [par|] eqn:Hpar;
-    [ | exfalso; apply parentless_view_file in Hpar;
-        unfold is_expr_node in Hr; rewrite Hpar in Hr; discriminate Hr ].
-  destruct (self_edge_of r par Hpar) as [pp o eat echeq].
-  assert (Hlt : nr_pos pp < nr_pos r) by (rewrite <- echeq; exact (child_pos_gt_parent eat)).
-  assert (Hnth : nth_error (node_children pp) o = Some r) by (rewrite <- echeq; exact (ca_at eat)).
-  pose proof (node_child_kind pp r o Hnth) as Hkind.
+  refine (match node_parent r as o return node_parent r = o -> ExprUsePath r with
+          | Some par => fun Hpar => _
+          | None => fun Hpar => False_rect _ _
+          end eq_refl).
+  2:{ apply parentless_view_file in Hpar. unfold is_expr_node in Hr. rewrite Hpar in Hr. discriminate Hr. }
+  (* the self edge: parent par at the stored slot, child r definitionally — every proof below stays in Prop *)
+  pose (eat := mkChildAt (parent := par) (ordinal := c_slot (occ_at r)) r (node_slot_child r par Hpar)).
+  assert (Hlt : nr_pos par < nr_pos r) by exact (child_pos_gt_parent eat).
+  assert (Hnth : nth_error (node_children par) (c_slot (occ_at r)) = Some r) by exact (ca_at eat).
+  pose proof (node_child_kind par r _ Hnth) as Hkind.
   assert (Hek : kind_of_view (node_view r) = ExprKind)
     by (unfold is_expr_node in Hr; destruct (node_view r); try discriminate Hr; reflexivity).
   rewrite Hek in Hkind. symmetry in Hkind.
   pose proof (layout_kind_expr_admits _ _ Hkind) as Hadm.
-  rewrite <- echeq.
-  destruct (node_view pp) as [n0|l0|op| |te|bn|cs|vs|tsh|dfl|s| |tsh0| ] eqn:Hv;
-    try (cbn [admits_expr_child] in Hadm; discriminate Hadm).
-  - (* VUnary op *)
-    assert (Ho0 : o = 0).
-    { pose proof (ca_ordinal_lt eat) as Hol.
-      assert (Hc : length (node_children pp) = 1) by (apply (node_children_count pp 1); rewrite Hv; reflexivity).
-      rewrite Hc in Hol; lia. }
-    subst o.
-    assert (Hpp : is_expr_node pp = true) by (unfold is_expr_node; rewrite Hv; reflexivity).
-    pose (u := mkUnaryRef pp op Hv).
-    exact (EUPUnary u (mkUnOperand (u := u) eat) (rec pp Hlt Hpp)).
+  refine (match node_view par as v return node_view par = v -> ExprUsePath r with
+          | VUnary op => fun Hv => _
+          | VApplication => fun Hv => _
+          | VConstSpec cs => fun Hv => _
+          | VVarSpec vs => fun Hv => _
+          | VStmt SSExpr => fun Hv => _
+          | VStmt (SSShort nn nv) => fun Hv => _
+          | _ => fun Hv => False_rect _ _
+          end eq_refl);
+    try (abstract (rewrite Hv in Hadm; cbn [admits_expr_child] in Hadm; discriminate Hadm)).
+  - (* VUnary op: the operand is the single child, ordinal 0 *)
+    assert (Hpp : is_expr_node par = true) by (unfold is_expr_node; rewrite Hv; reflexivity).
+    pose (u := mkUnaryRef par op Hv).
+    refine ((match c_slot (occ_at r) as o return forall e : ChildAt par o, ca_child e = r -> ExprUsePath r with
+            | 0 => fun eat0 Heq =>
+                eq_rect _ (fun x => ExprUsePath x) (EUPUnary u (mkUnOperand (u := u) eat0) (rec par Hlt Hpp)) r Heq
+            | S _ => fun eat' _ => False_rect _ _
+            end) eat eq_refl).
+    abstract (pose proof (ca_ordinal_lt eat') as Hol;
+              assert (Hc : length (node_children par) = 1) by (apply (node_children_count par 1); rewrite Hv; reflexivity);
+              rewrite Hc in Hol; lia).
   - (* application parent: ordinal 0 is the head link, every later ordinal an argument link *)
-    assert (Hpp : is_expr_node pp = true) by (unfold is_expr_node; rewrite Hv; reflexivity).
-    pose (a := mkAppRef pp Hv).
-    destruct o as [|i].
-    + exact (EUPHead a (mkAppHead (a := a) eat) (rec pp Hlt Hpp)).
-    + exact (EUPArg a i (mkAppArg (a := a) eat) (rec pp Hlt Hpp)).
+    assert (Hpp : is_expr_node par = true) by (unfold is_expr_node; rewrite Hv; reflexivity).
+    pose (a := mkAppRef par Hv).
+    refine ((match c_slot (occ_at r) as o return forall e : ChildAt par o, ca_child e = r -> ExprUsePath r with
+            | 0 => fun eat0 Heq =>
+                eq_rect _ (fun x => ExprUsePath x) (EUPHead a (mkAppHead (a := a) eat0) (rec par Hlt Hpp)) r Heq
+            | S i => fun eati Heq =>
+                eq_rect _ (fun x => ExprUsePath x) (EUPArg a i (mkAppArg (a := a) eati) (rec par Hlt Hpp)) r Heq
+            end) eat eq_refl).
   - (* VConstSpec cs *)
-    pose (sp := mkSpecRef (fl:=ConstSpecF) pp cs Hv).
-    destruct (spec_value_index sp o Hkind (ca_ordinal_lt eat)) as [j [Hj1 Hj2]].
-    assert (Hce : ca_child (ca_cast (eq_sym Hj2) eat) = ca_child eat) by (apply ca_cast_child).
-    rewrite <- Hce.
-    exact (EUPConst sp j (mkSpecValue (sp := sp) (ca_cast (eq_sym Hj2) eat) Hj1)).
+    pose (sp := mkSpecRef (fl := ConstSpecF) par cs Hv).
+    assert (Hk' : layout_kind (spec_view_of ConstSpecF (sp_shape sp)) (c_slot (occ_at r)) = ExprKind)
+      by (change (layout_kind (VConstSpec cs) (c_slot (occ_at r)) = ExprKind); rewrite <- Hv; exact Hkind).
+    pose proof (spec_value_index_ok sp _ Hk' (ca_ordinal_lt eat)) as Hj; pose (Hj1 := proj1 Hj); pose (Hj2 := proj2 Hj).
+    exact (eq_rect _ (fun x => ExprUsePath x)
+             (EUPConst sp _ (mkSpecValue (sp := sp) (ca_cast_dec (eq_sym Hj2) eat) Hj1))
+             r (ca_cast_dec_child (eq_sym Hj2) eat)).
   - (* VVarSpec vs *)
-    pose (sp := mkSpecRef (fl:=VarSpecF) pp vs Hv).
-    destruct (spec_value_index sp o Hkind (ca_ordinal_lt eat)) as [j [Hj1 Hj2]].
-    assert (Hce : ca_child (ca_cast (eq_sym Hj2) eat) = ca_child eat) by (apply ca_cast_child).
-    rewrite <- Hce.
-    destruct (shape_has_type VarSpecF (sp_shape sp)) eqn:Hht.
-    + exact (EUPVarExplicit sp j (mkSpecValue (sp := sp) (ca_cast (eq_sym Hj2) eat) Hj1) Hht).
-    + exact (EUPVarImplicit sp j (mkSpecValue (sp := sp) (ca_cast (eq_sym Hj2) eat) Hj1) Hht).
-  - (* VStmt s *)
-    destruct s as [ | | nn nv ].
-    + (* expression-statement parent: its one child is the enclosed statement expression *)
-      assert (Ho0 : o = 0).
-      { pose proof (ca_ordinal_lt eat) as Hol.
-        assert (Hc : length (node_children pp) = 1) by (apply (node_children_count pp 1); rewrite Hv; reflexivity).
-        rewrite Hc in Hol; lia. }
-      subst o.
-      pose (s0 := mkExprStmtRef pp Hv).
-      exact (EUPExprStmt s0 (mkExprStmtE (s := s0) eat)).
-    + (* declaration-statement parent admits no expression child, so this ordinal is impossible *)
-      cbn [admits_expr_child] in Hadm; discriminate Hadm.
-    + (* SSShort nn nv *)
-      pose (st := mkShortStmtRef pp nn nv Hv).
-      assert (Hsl : layout_kind (node_view (sh_node st)) o = ExprKind)
-        by (unfold st; cbn [sh_node]; rewrite Hv; exact Hkind).
-      destruct (short_value_index st o Hsl (ca_ordinal_lt eat)) as [j [Hj1 Hj2]].
-      assert (Hce : ca_child (ca_cast (eq_sym Hj2) eat) = ca_child eat) by (apply ca_cast_child).
-      rewrite <- Hce.
-      exact (EUPShort st j (mkShortRhs (st := st) (ca_cast (eq_sym Hj2) eat) Hj1)).
+    pose (sp := mkSpecRef (fl := VarSpecF) par vs Hv).
+    assert (Hk' : layout_kind (spec_view_of VarSpecF (sp_shape sp)) (c_slot (occ_at r)) = ExprKind)
+      by (change (layout_kind (VVarSpec vs) (c_slot (occ_at r)) = ExprKind); rewrite <- Hv; exact Hkind).
+    pose proof (spec_value_index_ok sp _ Hk' (ca_ordinal_lt eat)) as Hj; pose (Hj1 := proj1 Hj); pose (Hj2 := proj2 Hj).
+    refine (eq_rect _ (fun x => ExprUsePath x) _ r (ca_cast_dec_child (eq_sym Hj2) eat)).
+    refine (match shape_has_type VarSpecF (sp_shape sp) as b return shape_has_type VarSpecF (sp_shape sp) = b -> ExprUsePath _ with
+            | true => fun Hht => EUPVarExplicit sp _ (mkSpecValue (sp := sp) (ca_cast_dec (eq_sym Hj2) eat) Hj1) Hht
+            | false => fun Hht => EUPVarImplicit sp _ (mkSpecValue (sp := sp) (ca_cast_dec (eq_sym Hj2) eat) Hj1) Hht
+            end eq_refl).
+  - (* expression-statement parent: its one child is the enclosed statement expression *)
+    pose (s0 := mkExprStmtRef par Hv).
+    refine ((match c_slot (occ_at r) as o return forall e : ChildAt par o, ca_child e = r -> ExprUsePath r with
+            | 0 => fun eat0 Heq => eq_rect _ (fun x => ExprUsePath x) (EUPExprStmt s0 (mkExprStmtE (s := s0) eat0)) r Heq
+            | S _ => fun eat' _ => False_rect _ _
+            end) eat eq_refl).
+    abstract (pose proof (ca_ordinal_lt eat') as Hol;
+              assert (Hc : length (node_children par) = 1) by (apply (node_children_count par 1); rewrite Hv; reflexivity);
+              rewrite Hc in Hol; lia).
+  - (* SSShort nn nv *)
+    pose (st := mkShortStmtRef par nn nv Hv).
+    assert (Hsl : layout_kind (node_view (sh_node st)) (c_slot (occ_at r)) = ExprKind)
+      by (change (layout_kind (node_view par) (c_slot (occ_at r)) = ExprKind); exact Hkind).
+    pose proof (short_value_index_ok st _ Hsl (ca_ordinal_lt eat)) as Hj; pose (Hj1 := proj1 Hj); pose (Hj2 := proj2 Hj).
+    exact (eq_rect _ (fun x => ExprUsePath x)
+             (EUPShort st _ (mkShortRhs (st := st) (ca_cast_dec (eq_sym Hj2) eat) Hj1))
+             r (ca_cast_dec_child (eq_sym Hj2) eat)).
 Defined.
 
 (* root-family exhaustiveness: every path bottoms out at exactly one value or statement root *)
@@ -847,18 +883,6 @@ Proof.
   - rewrite (app_ok a); reflexivity.
 Qed.
 
-(* the iota boundary test: the path bottoms at a const initializer value, through any depth of unary fold links *)
-Fixpoint up_const_rooted {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
-  match path with
-  | EUPConst _ _ _ => true
-  | EUPUnary _ _ sub => up_const_rooted sub
-  | _ => false
-  end.
-
-(* the nil boundary test: the immediate top is an explicit-type var value, never through any other edge *)
-Definition up_var_explicit_top {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
-  match path with EUPVarExplicit _ _ _ _ => true | _ => false end.
-
 (* the top-constructor family — the immediate use-context kind, finer than the role since it splits const/var/short *)
 Inductive UseFamily : Type :=
 | UFExprStmt | UFConst | UFVarExplicit | UFVarImplicit | UFShort | UFUnary | UFArg | UFHead.
@@ -902,23 +926,6 @@ Lemma is_expr_node_unary {p} {idx : ProgramIndex p} {r : NodeRef idx} (u : Synta
   node_view r = VUnary u -> is_expr_node r = true.
 Proof. intro H. unfold is_expr_node. rewrite H. reflexivity. Qed.
 
-(* §250 the const-no-default literal boundary: path roots at a no-type const value, through unary fold links *)
-Fixpoint up_const_no_type_rooted {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
-  match path with
-  | EUPConst sp _ _ => negb (shape_has_type ConstSpecF (sp_shape sp))
-  | EUPUnary _ _ sub => up_const_no_type_rooted sub
-  | _ => false
-  end.
-
-(* §250 the typed-target-constant boundary: path roots at an explicit-type const or var value, through unary links *)
-Fixpoint up_explicit_target {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : bool :=
-  match path with
-  | EUPConst sp _ _ => shape_has_type ConstSpecF (sp_shape sp)
-  | EUPVarExplicit _ _ _ _ => true
-  | EUPUnary _ _ sub => up_explicit_target sub
-  | _ => false
-  end.
-
 (* the family round trip: a path's top family is the syntactic reading of its parent view and ordinal *)
 Lemma up_family_ok {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
   up_family path = family_of (node_view (up_iparent path)) (up_iord path).
@@ -955,271 +962,3 @@ Proof.
     by (rewrite (up_family_ok a), (up_family_ok b), Hpar, Hord; reflexivity).
   rewrite Hpar, Hord, Hrole, Hfam. reflexivity.
 Qed.
-
-(* the defaulting root kind reached through unary fold links — a vm-safe node_parent walk, never use_path *)
-Inductive RootKind : Type := RKConstNoType | RKConstWithType | RKVarExplicit | RKOther.
-
-(* iota roots at any const value; a no-type const literal defaults nowhere; an explicit target pins the constant *)
-Definition rk_const_rooted (k : RootKind) : bool :=
-  match k with RKConstNoType | RKConstWithType => true | _ => false end.
-Definition rk_const_no_type (k : RootKind) : bool :=
-  match k with RKConstNoType => true | _ => false end.
-Definition rk_explicit_target (k : RootKind) : bool :=
-  match k with RKConstWithType | RKVarExplicit => true | _ => false end.
-
-(* one walk step: through a unary operand keep climbing, at a const/var spec value stop with the pinned kind *)
-Definition root_step {p} {idx : ProgramIndex p} (x : NodeRef idx)
-  (rec : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) : RootKind :=
-  match node_parent x as o return node_parent x = o -> RootKind with
-  | Some par => fun Hpar =>
-      match node_view par with
-      | VUnary _ => rec par (node_parent_pos_lt x par Hpar)
-      | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
-      | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
-      | _ => RKOther
-      end
-  | None => fun _ => RKOther
-  end eq_refl.
-
-Definition root_const_var_b {p} {idx : ProgramIndex p} (r : NodeRef idx) : RootKind :=
-  Fix (well_founded_ltof _ (fun x : NodeRef idx => nr_pos x)) (fun _ => RootKind) (@root_step p idx) r.
-
-(* a dependent match on the reflexivity proof collapses a convoy scrutinee to any equal value *)
-Lemma convoy_shift {A} {T : Type} (a b : A) (F : forall y, a = y -> T) (H : a = b) :
-  F a eq_refl = F b H.
-Proof. destruct H. reflexivity. Qed.
-
-(* the node_parent convoy computes to the Some branch once the parent equation is in hand *)
-Lemma node_parent_convoy {p} {idx : ProgramIndex p} {T : Type} (x : NodeRef idx)
-  (fSome : forall par, node_parent x = Some par -> T) (fNone : node_parent x = None -> T)
-  par (H : node_parent x = Some par) :
-  match node_parent x as o return node_parent x = o -> T with
-  | Some p0 => fSome p0 | None => fNone end eq_refl = fSome par H.
-Proof.
-  exact (convoy_shift (node_parent x) (Some par)
-           (fun o (H0 : node_parent x = o) =>
-              match o as o' return node_parent x = o' -> T with
-              | Some p0 => fSome p0 | None => fNone end H0) H).
-Qed.
-
-Lemma node_parent_convoy_none {p} {idx : ProgramIndex p} {T : Type} (x : NodeRef idx)
-  (fSome : forall par, node_parent x = Some par -> T) (fNone : node_parent x = None -> T)
-  (H : node_parent x = None) :
-  match node_parent x as o return node_parent x = o -> T with
-  | Some p0 => fSome p0 | None => fNone end eq_refl = fNone H.
-Proof.
-  exact (convoy_shift (node_parent x) None
-           (fun o (H0 : node_parent x = o) =>
-              match o as o' return node_parent x = o' -> T with
-              | Some p0 => fSome p0 | None => fNone end H0) H).
-Qed.
-
-(* root_step at a real parent reduces to the view dispatch, the discarded proof carried by conversion *)
-Lemma root_step_some {p} {idx : ProgramIndex p} (x : NodeRef idx)
-  (rec : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) par (Hpar : node_parent x = Some par) :
-  root_step x rec =
-    match node_view par with
-    | VUnary _ => rec par (node_parent_pos_lt x par Hpar)
-    | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
-    | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
-    | _ => RKOther
-    end.
-Proof.
-  unfold root_step.
-  exact (node_parent_convoy x
-           (fun p0 (Hp0 : node_parent x = Some p0) =>
-              match node_view p0 with
-              | VUnary _ => rec p0 (node_parent_pos_lt x p0 Hp0)
-              | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
-              | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
-              | _ => RKOther end)
-           (fun _ => RKOther) par Hpar).
-Qed.
-
-Lemma root_step_none {p} {idx : ProgramIndex p} (x : NodeRef idx)
-  (rec : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) (H : node_parent x = None) :
-  root_step x rec = RKOther.
-Proof.
-  unfold root_step.
-  exact (node_parent_convoy_none x
-           (fun p0 (Hp0 : node_parent x = Some p0) =>
-              match node_view p0 with
-              | VUnary _ => rec p0 (node_parent_pos_lt x p0 Hp0)
-              | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
-              | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
-              | _ => RKOther end)
-           (fun _ => RKOther) H).
-Qed.
-
-(* root_step consults its recursor only at the parent, so it respects extensional equality — Fix_eq's premise *)
-Lemma root_step_ext {p} {idx : ProgramIndex p} (x : NodeRef idx)
-  (f g : forall y : NodeRef idx, nr_pos y < nr_pos x -> RootKind) :
-  (forall y (pf : nr_pos y < nr_pos x), f y pf = g y pf) -> root_step x f = root_step x g.
-Proof.
-  intro H. destruct (node_parent x) as [par|] eqn:E.
-  - rewrite (root_step_some x f par E), (root_step_some x g par E).
-    destruct (node_view par); try reflexivity. apply H.
-  - rewrite (root_step_none x f E), (root_step_none x g E). reflexivity.
-Qed.
-
-(* the Fix unfolding: the walk equals one root_step over the recursive self-application *)
-Lemma root_const_var_b_unfold {p} {idx : ProgramIndex p} (r : NodeRef idx) :
-  root_const_var_b r = root_step r (fun y (_ : nr_pos y < nr_pos r) => root_const_var_b y).
-Proof.
-  unfold root_const_var_b. rewrite Fix_eq.
-  - reflexivity.
-  - intros x f g Hfg. apply root_step_ext. exact Hfg.
-Qed.
-
-(* one climbed step at a real parent — the handle every bridge law rewrites with *)
-Lemma rcvb_some {p} {idx : ProgramIndex p} (x : NodeRef idx) par (Hpar : node_parent x = Some par) :
-  root_const_var_b x =
-    match node_view par with
-    | VUnary _ => root_const_var_b par
-    | VConstSpec cs => if shape_has_type ConstSpecF cs then RKConstWithType else RKConstNoType
-    | VVarSpec vs => if shape_has_type VarSpecF vs then RKVarExplicit else RKOther
-    | _ => RKOther
-    end.
-Proof.
-  rewrite root_const_var_b_unfold. rewrite (root_step_some x _ par Hpar).
-  destruct (node_view par); reflexivity.
-Qed.
-
-Lemma rcvb_none {p} {idx : ProgramIndex p} (x : NodeRef idx) (H : node_parent x = None) :
-  root_const_var_b x = RKOther.
-Proof. rewrite root_const_var_b_unfold. exact (root_step_none x _ H). Qed.
-
-(* r is the direct value of an explicit-type var — the vm-safe nil boundary test, one node_parent hop *)
-Definition is_var_explicit_value {p} {idx : ProgramIndex p} (r : NodeRef idx) : bool :=
-  match node_role r with
-  | RPlain => match node_parent r with
-              | Some par => match node_view par with VVarSpec sh => shape_has_type VarSpecF sh | _ => false end
-              | None => false
-              end
-  | _ => false
-  end.
-
-(* the through-unary root kind a path pins — the vm-safe walk agrees with it, so root_const_var_b is certified *)
-Fixpoint path_root_kind {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) : RootKind :=
-  match path with
-  | EUPConst sp _ _ => if shape_has_type ConstSpecF (sp_shape sp) then RKConstWithType else RKConstNoType
-  | EUPVarExplicit _ _ _ _ => RKVarExplicit
-  | EUPVarImplicit _ _ _ _ => RKOther
-  | EUPUnary _ _ sub => path_root_kind sub
-  | _ => RKOther
-  end.
-
-(* the vm-safe parent walk computes exactly the path's pinned root kind — the single-authority bridge *)
-Lemma root_const_var_b_path {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  root_const_var_b r = path_root_kind path.
-Proof.
-  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh].
-  - pose proof (up_iparent_ok (EUPExprStmt s e)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (exs_ok s). reflexivity.
-  - pose proof (up_iparent_ok (EUPConst sp j e)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (sp_ok sp). cbn [spec_view_of path_root_kind]. reflexivity.
-  - pose proof (up_iparent_ok (EUPVarExplicit sp j e Ht)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (sp_ok sp). cbn [spec_view_of path_root_kind]. rewrite Ht. reflexivity.
-  - pose proof (up_iparent_ok (EUPVarImplicit sp j e Ht)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (sp_ok sp). cbn [spec_view_of path_root_kind]. rewrite Ht. reflexivity.
-  - pose proof (up_iparent_ok (EUPShort st j e)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (sh_ok st). reflexivity.
-  - pose proof (up_iparent_ok (EUPUnary u e sub)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (un_ok u). cbn [path_root_kind]. exact IH.
-  - pose proof (up_iparent_ok (EUPArg a i e sub)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (app_ok a). reflexivity.
-  - pose proof (up_iparent_ok (EUPHead a e sub)) as Hp; cbn [up_iparent] in Hp.
-    rewrite (rcvb_some _ _ Hp), (app_ok a). reflexivity.
-Qed.
-
-(* §262 iota: the vm-safe context is exactly the canonical path's const-rooted reading *)
-Lemma up_const_rooted_prk {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_const_rooted path = rk_const_rooted (path_root_kind path).
-Proof.
-  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh];
-    cbn [up_const_rooted path_root_kind rk_const_rooted]; try reflexivity.
-  - destruct (shape_has_type ConstSpecF (sp_shape sp)); reflexivity.
-  - exact IH.
-Qed.
-Lemma up_const_rooted_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_const_rooted path = rk_const_rooted (root_const_var_b r).
-Proof. rewrite (root_const_var_b_path path). apply up_const_rooted_prk. Qed.
-
-(* §250 no-type const literal: the vm-safe context is exactly the canonical path's const-no-type reading *)
-Lemma up_const_no_type_rooted_prk {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_const_no_type_rooted path = rk_const_no_type (path_root_kind path).
-Proof.
-  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh];
-    cbn [up_const_no_type_rooted path_root_kind rk_const_no_type]; try reflexivity.
-  - destruct (shape_has_type ConstSpecF (sp_shape sp)); reflexivity.
-  - exact IH.
-Qed.
-Lemma up_const_no_type_rooted_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_const_no_type_rooted path = rk_const_no_type (root_const_var_b r).
-Proof. rewrite (root_const_var_b_path path). apply up_const_no_type_rooted_prk. Qed.
-
-(* §250 explicit-type target: the vm-safe context is exactly the canonical path's explicit-target reading *)
-Lemma up_explicit_target_prk {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_explicit_target path = rk_explicit_target (path_root_kind path).
-Proof.
-  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IHa | a e sub IHh];
-    cbn [up_explicit_target path_root_kind rk_explicit_target]; try reflexivity.
-  - destruct (shape_has_type ConstSpecF (sp_shape sp)); reflexivity.
-  - exact IH.
-Qed.
-Lemma up_explicit_target_root {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_explicit_target path = rk_explicit_target (root_const_var_b r).
-Proof. rewrite (root_const_var_b_path path). apply up_explicit_target_prk. Qed.
-
-(* §264 nil: the immediate vm-safe test is exactly the canonical path's explicit-var-top reading *)
-Lemma up_var_explicit_top_value {p} {idx : ProgramIndex p} {r : NodeRef idx} (path : ExprUsePath r) :
-  up_var_explicit_top path = is_var_explicit_value r.
-Proof.
-  unfold is_var_explicit_value.
-  destruct path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
-    cbn [up_var_explicit_top].
-  - rewrite (up_role_ok (EUPExprStmt s e)); cbn [up_role]; reflexivity.
-  - rewrite (up_role_ok (EUPConst sp j e)), (up_iparent_ok (EUPConst sp j e));
-      cbn [up_role up_iparent]; rewrite (sp_ok sp); cbn [spec_view_of]; reflexivity.
-  - rewrite (up_role_ok (EUPVarExplicit sp j e Ht)), (up_iparent_ok (EUPVarExplicit sp j e Ht));
-      cbn [up_role up_iparent]; rewrite (sp_ok sp); cbn [spec_view_of]; rewrite Ht; reflexivity.
-  - rewrite (up_role_ok (EUPVarImplicit sp j e Ht)), (up_iparent_ok (EUPVarImplicit sp j e Ht));
-      cbn [up_role up_iparent]; rewrite (sp_ok sp); cbn [spec_view_of]; rewrite Ht; reflexivity.
-  - rewrite (up_role_ok (EUPShort st j e)), (up_iparent_ok (EUPShort st j e));
-      cbn [up_role up_iparent]; rewrite (sh_ok st); reflexivity.
-  - rewrite (up_role_ok (EUPUnary u e sub)); cbn [up_role]; reflexivity.
-  - rewrite (up_role_ok (EUPArg a i e sub)); cbn [up_role]; reflexivity.
-  - rewrite (up_role_ok (EUPHead a e sub)); cbn [up_role]; reflexivity.
-Qed.
-
-(* §300 iota exact path: a name node's vm-safe const-rooted context is exactly its canonical path's reading *)
-Lemma name_const_rooted_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
-  (n : Names.OrdinaryIdentifier) (Hv : node_view r = VName n) :
-  rk_const_rooted (root_const_var_b r) = up_const_rooted (use_path r (is_expr_node_name n Hv)).
-Proof. symmetry. apply up_const_rooted_root. Qed.
-
-(* §300 nil exact path: a name node's vm-safe explicit-var context is exactly its canonical path's reading *)
-Lemma name_var_explicit_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
-  (n : Names.OrdinaryIdentifier) (Hv : node_view r = VName n) :
-  is_var_explicit_value r = up_var_explicit_top (use_path r (is_expr_node_name n Hv)).
-Proof. symmetry. apply up_var_explicit_top_value. Qed.
-
-(* §300 literal target exact path: a literal node's vm-safe target contexts are its canonical path's readings *)
-Lemma lit_const_no_type_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
-  (l : Syntax.Literal) (Hv : node_view r = VLiteral l) :
-  rk_const_no_type (root_const_var_b r) = up_const_no_type_rooted (use_path r (is_expr_node_lit l Hv)).
-Proof. symmetry. apply up_const_no_type_rooted_root. Qed.
-Lemma lit_explicit_target_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
-  (l : Syntax.Literal) (Hv : node_view r = VLiteral l) :
-  rk_explicit_target (root_const_var_b r) = up_explicit_target (use_path r (is_expr_node_lit l Hv)).
-Proof. symmetry. apply up_explicit_target_root. Qed.
-
-(* §300 unary target exact path: a unary node's vm-safe target contexts are its canonical path's readings *)
-Lemma unary_const_no_type_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
-  (u : Syntax.UnaryOp) (Hv : node_view r = VUnary u) :
-  rk_const_no_type (root_const_var_b r) = up_const_no_type_rooted (use_path r (is_expr_node_unary u Hv)).
-Proof. symmetry. apply up_const_no_type_rooted_root. Qed.
-Lemma unary_explicit_target_exact {p} {idx : ProgramIndex p} {r : NodeRef idx}
-  (u : Syntax.UnaryOp) (Hv : node_view r = VUnary u) :
-  rk_explicit_target (root_const_var_b r) = up_explicit_target (use_path r (is_expr_node_unary u Hv)).
-Proof. symmetry. apply up_explicit_target_root. Qed.

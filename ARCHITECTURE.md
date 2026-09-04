@@ -439,7 +439,8 @@ A conversion is one `Application` whose head resolves through the retained bindi
 its semantic target is the compiler-owned resolution of that name. The index-free typing spec is parameterized
 by that resolver, so `Compilable.TypeResolution` owns no source-name → semantic-type table.
 
-`Compilable.TypeResolution.resolve_constant_info` is use-context resolution. An untyped constant **defaults** (int →
+`Compilable.Analysis.own_verdict`, the judgment over a node's exact `use_path`, is use-context resolution; it applies
+`default_constant` at most once, only at a genuine defaulting use. An untyped constant **defaults** (int →
 `IntegerType Int`, float → `FloatType F64`, complex → `ComplexType C128`); a typed constant **packs
 unchanged**, because its validity is intrinsic — not re-defaulted, not re-checked.
 

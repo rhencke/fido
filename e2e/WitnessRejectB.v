@@ -1,6 +1,6 @@
 (* WitnessReject chunk B: one cost-balanced slice of the fixture matrix over the shared prelude *)
 
-From Stdlib Require Import List NArith ZArith String.
+From Stdlib Require Import List NArith ZArith String Ascii.
 From Fido Require Import Integer Float Collections FilePath ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
 From Fido Require Import WitnessRejectPrelude.
 Import ListNotations.
@@ -185,3 +185,63 @@ Definition dr_short_dup      : Compilable.rejects dp_short_dup.      Proof. reje
 Definition dr_short_nonew    : Compilable.rejects dp_short_nonew.    Proof. reject. Qed.
 
 Definition dr_short_allblank : Compilable.rejects dp_short_allblank. Proof. reject. Qed.
+
+(* the exact bytes every retained string constant carries, as the byte list of its typed StringForm value *)
+Definition string_bytes (p : Syntax.Program) : list (option (list nat)) :=
+  map (fun f => match f with
+                | AN.OFValue _ (AN.VOK rc) =>
+                    match TR.resolved_constant_exact rc with TR.CString s => Some (map nat_of_ascii (list_ascii_of_string s)) | _ => None end
+                | _ => None end) (pfacts p).
+Definition sb_prog (e : Syntax.Expr) : Syntax.Program := prog [ PL [ CONV Names.PString e ] ].
+
+(* integer-to-string: the exact UTF-8 branch per scalar range, the replacement for every non-scalar, string identity *)
+Definition uc_string_of_int_a : string_bytes (sb_prog (ILIT 65)) = [None; None; None; None; Some [65%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 65)). Qed.
+
+Definition uc_string_zero : string_bytes (sb_prog (ILIT 0)) = [None; None; None; None; Some [0%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 0)). Qed.
+
+Definition uc_string_two_byte : string_bytes (sb_prog (ILIT 128)) = [None; None; None; None; Some [194%nat; 128%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 128)). Qed.
+
+Definition uc_string_three_byte : string_bytes (sb_prog (ILIT 2048)) = [None; None; None; None; Some [224%nat; 160%nat; 128%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 2048)). Qed.
+
+Definition uc_string_four_byte : string_bytes (sb_prog (ILIT 65536)) = [None; None; None; None; Some [240%nat; 144%nat; 128%nat; 128%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 65536)). Qed.
+
+Definition uc_string_max_scalar : string_bytes (sb_prog (ILIT 1114111)) = [None; None; None; None; Some [244%nat; 143%nat; 191%nat; 191%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 1114111)). Qed.
+
+Definition uc_string_replacement_negative : string_bytes (sb_prog (NEG (ILIT 1))) = [None; None; None; None; Some [239%nat; 191%nat; 189%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (NEG (ILIT 1))). Qed.
+
+Definition uc_string_replacement_surrogate : string_bytes (sb_prog (ILIT 55296)) = [None; None; None; None; Some [239%nat; 191%nat; 189%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 55296)). Qed.
+
+Definition uc_string_replacement_beyond : string_bytes (sb_prog (ILIT 1114112)) = [None; None; None; None; Some [239%nat; 191%nat; 189%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (ILIT 1114112)). Qed.
+
+Definition uc_string_identity : string_bytes (sb_prog (SLIT "x")) = [None; None; None; None; Some [120%nat]].
+Proof. unfold string_bytes. obs_direct (sb_prog (SLIT "x")). Qed.
+
+(* a converted string is one exact typed row, its integer argument an operand with no row of its own *)
+Definition uc_string_of_int_row : uc_obs (rres (sb_prog (ILIT 65))) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue ] [] [].
+Proof. obs_uc (sb_prog (ILIT 65)). Qed.
+
+(* the invalid source forms: bool to string, string to int, bool to int are exact conversion invalidities, Rejected *)
+Definition uc_conv_bool_to_string_invalid : uc_obs (rres (sb_prog TT)) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvConversionNotRepresentable ] [ RP.CvConversionNotRepresentable ] [].
+Proof. obs_uc (sb_prog TT). Qed.
+
+Definition uc_conv_string_to_int_invalid : uc_obs (rres dp_int_str) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvConversionNotRepresentable ] [ RP.CvConversionNotRepresentable ] [].
+Proof. obs_uc dp_int_str. Qed.
+
+Definition uc_conv_bool_to_int_invalid : uc_obs (rres dp_int_bool) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvConversionNotRepresentable ] [ RP.CvConversionNotRepresentable ] [].
+Proof. obs_uc dp_int_bool. Qed.
+
+(* O11 an explicit uint64 target consumes the exact integer once: the typed success, or the exact conversion overflow *)
+Definition uc_uint64_target_exact : uc_obs (rres (prog [ PL [ CONV Names.PUint64 (ILIT ((2 ^ 63)%N)) ] ])) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue ] [] [].
+Proof. obs_uc (prog [ PL [ CONV Names.PUint64 (ILIT ((2 ^ 63)%N)) ] ]). Qed.
+
+Definition uc_uint64_target_overflow : uc_obs (rres (prog [ PL [ CONV Names.PUint64 (ILIT ((2 ^ 64)%N)) ] ])) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvConversionOverflow ] [ RP.CvConversionOverflow ] [].
+Proof. obs_uc (prog [ PL [ CONV Names.PUint64 (ILIT ((2 ^ 64)%N)) ] ]). Qed.

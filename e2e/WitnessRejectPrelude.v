@@ -2,9 +2,11 @@
 
 From Stdlib Require Import List NArith ZArith String.
 
-From Fido Require Import Integer Float Collections FilePath ModulePath Version Names Syntax Index Compilable Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
+From Fido Require Import Integer Float Collections FilePath ModulePath Version Names Syntax Index Compilable Compilable.TypeResolution Compilable.PackageIdentity Compilable.Bindings Compilable.Analysis Compilable.Report Render Emit.
 
 Import ListNotations.
+
+Module TR := Compilable.TypeResolution.
 
 Module PI := Compilable.PackageIdentity.
 
@@ -23,6 +25,8 @@ Notation CPLX re im := (Syntax.Application (Syntax.Name (Names.predeclared_ordin
 Notation APP h args := (Syntax.Application (Syntax.Name h) args).
 Notation TT := (Syntax.Name (Names.predeclared_ordinary Names.PTrue)).
 Notation FF := (Syntax.Name (Names.predeclared_ordinary Names.PFalse)).
+Notation FLIT d := (Syntax.LiteralExpr (Syntax.FloatLiteral d)).
+Notation IOTA := (Syntax.Name (Names.predeclared_ordinary Names.PIota)).
 
 Definition rmod : ModuleSpec := Syntax.MakeModuleSpec (ModulePath.Make "fido.local/generated" eq_refl) Go1_23.
 
@@ -232,3 +236,47 @@ Definition dp_short_nonew    : Syntax.Program := prog [ Syntax.ShortVarDecl (NE1
 Definition dp_short_allblank : Syntax.Program := prog [ Syntax.ShortVarDecl (Collections.MakeNonEmpty Syntax.BBlank [Syntax.BBlank]) (Collections.MakeNonEmpty (ILIT 1) [ILIT 2]) ].
 
 Definition dp_short_nonvar   : Syntax.Program := prog [ Syntax.DeclarationStmt (Syntax.ConstDecl [ Syntax.MakeConstSpec (NE1 (Syntax.BNamed (OID "x"))) (Syntax.ExplicitConstInit None (NE1 (ILIT 1))) ]) ; Syntax.ShortVarDecl (Collections.MakeNonEmpty (Syntax.BNamed (OID "x")) [Syntax.BNamed (OID "y")]) (Collections.MakeNonEmpty (ILIT 2) [ILIT 3]) ].
+
+(* the integer-to-string differential: Go prints string(z), then the Rocq-encoded literal; the two lines must agree *)
+Definition dp_str (z : Z) (e : Syntax.Expr) : Syntax.Program :=
+  prog [ PL [ CONV Names.PString e ] ; PL [ SLIT (TR.utf8_string_of_Z z) ] ].
+
+Definition dp_str_0      : Syntax.Program := dp_str 0 (ILIT 0).
+
+Definition dp_str_7f     : Syntax.Program := dp_str 127 (ILIT 127).
+
+Definition dp_str_80     : Syntax.Program := dp_str 128 (ILIT 128).
+
+Definition dp_str_7ff    : Syntax.Program := dp_str 2047 (ILIT 2047).
+
+Definition dp_str_800    : Syntax.Program := dp_str 2048 (ILIT 2048).
+
+Definition dp_str_d7ff   : Syntax.Program := dp_str 55295 (ILIT 55295).
+
+Definition dp_str_e000   : Syntax.Program := dp_str 57344 (ILIT 57344).
+
+Definition dp_str_ffff   : Syntax.Program := dp_str 65535 (ILIT 65535).
+
+Definition dp_str_10000  : Syntax.Program := dp_str 65536 (ILIT 65536).
+
+Definition dp_str_10ffff : Syntax.Program := dp_str 1114111 (ILIT 1114111).
+
+Definition dp_str_neg1   : Syntax.Program := dp_str (-1) (NEG (ILIT 1)).
+
+Definition dp_str_d800   : Syntax.Program := dp_str 55296 (ILIT 55296).
+
+Definition dp_str_dfff   : Syntax.Program := dp_str 57343 (ILIT 57343).
+
+Definition dp_str_110000 : Syntax.Program := dp_str 1114112 (ILIT 1114112).
+
+Definition dp_str_ident  : Syntax.Program := prog [ PL [ CONV Names.PString (SLIT "x") ] ; PL [ SLIT "x" ] ].
+
+(* the invalid conversion forms: a bool to a string, a string or a bool to an integer, each rejected by pinned Go too *)
+Definition dp_str_bool   : Syntax.Program := prog [ PL [ CONV Names.PString TT ] ].
+
+Definition dp_int_str    : Syntax.Program := prog [ PL [ CONV Names.PInt (SLIT "x") ] ].
+
+Definition dp_int_bool   : Syntax.Program := prog [ PL [ CONV Names.PInt TT ] ].
+
+(* the one float literal past every float64: complex(1e309, 0) survives folding, then its mandatory default fails *)
+Definition dec1e309 : Float.NonNegativeDecimal := Float.MakeNonNegDecimal (Float.MakeDecimal 1 309 eq_refl) eq_refl.

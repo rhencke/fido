@@ -1938,7 +1938,7 @@ echo "fido: pristine multi/empty/bytes/alias exports assembled (no .fido)"
 # short independent fixtures; wave 2 (the four cost-balanced WitnessReject chunks, each Requiring the prelude
 # .vo) and the aggregate run in `emit-controls`.  Every worker writes its own log and is waited on individually
 # so a producer failure is reported as itself; each timeline row makes the §4.4 critical path machine-readable.
-rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled
+rm -rf /workspace/diff && mkdir -p /workspace/diff/reject /workspace/diff/compiled /workspace/diff/run
 T0=$(date +%s)
 tl() { echo "fido-timeline: $1 t=$(( $(date +%s) - T0 ))s"; }
 tl "wave1-start prelude+evidence+neg+provenance"
@@ -1952,9 +1952,10 @@ wait "$p_neg"  || { cat /tmp/emit-neg.log;    fail "a forged raw transport was N
 wait "$p_prov" || { cat /tmp/emit-prov.log;   fail "a §25 positive provenance fixture could NOT be constructed with its exact refs"; }
 tl "wave1-done"
 # the pinned-Go differential oracle: WitnessOracle.v exports one rendered tree per one-source case (reject /
-# compiled) from the SAME shared-prelude program (`dp_*`) whose disposition the WitnessReject chunks A-D prove
-# in emit-controls; go-e2e runs pinned Go on each and compares the verdicts.  OutsideScope is a Fido
-# implementation boundary, not a Go-validity claim, so it carries no Go verdict and is not exported.
+# compiled / run) from the SAME shared-prelude program (`dp_*`) whose disposition the WitnessReject chunks A-D
+# prove in emit-controls; go-e2e runs pinned Go on each and compares the verdicts, and RUNS each `run/` tree
+# comparing Go's own string(z) bytes with the Rocq-encoded literal.  OutsideScope is a Fido implementation
+# boundary, not a Go-validity claim, so it carries no Go verdict and is not exported.
 rocq c -R e2e Fido -Q _build/default/. Fido e2e/WitnessOracle.v > /tmp/emit-oracle.log 2>&1 \
   || { cat /tmp/emit-oracle.log; fail "the differential oracle export (WitnessOracle) FAILED"; }
 tl "oracle-done"
@@ -1969,12 +1970,14 @@ echo "fido: evidence DAG OK — base + A + B + aggregate + derived all materiali
 [ ! -e /workspace/e2e-neg ] || fail "a rejected Fido Materialize still created its target directory"
 echo "fido: §25 positive provenance OK — unbound/type-as-value/not-callable/invalid-id/main-arity causes, source-bound requirement, redeclared + unbound dependencies, short-duplicate decision, exact use context, and Report group projection all reachable with exact refs"
 # every one-source differential tree was exported: go-e2e runs pinned Go on each and compares the verdicts
-for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main reject/short_dup reject/short_count reject/short_nonew reject/short_allblank reject/short_nonvar compiled/ok; do
+for b in reject/neg_string reject/conv0 reject/conv2 reject/uint8_neg reject/type_value reject/stmt_lit reject/default_ovf reject/no_main reject/multi_main reject/short_dup reject/short_count reject/short_nonew reject/short_allblank reject/short_nonvar compiled/ok \
+         run/str_0 run/str_7f run/str_80 run/str_7ff run/str_800 run/str_d7ff run/str_e000 run/str_ffff run/str_10000 run/str_10ffff run/str_neg1 run/str_d800 run/str_dfff run/str_110000 run/str_ident \
+         reject/str_bool reject/int_str reject/int_bool; do
   [ -f "/workspace/diff/$b/go.mod" ] || { ls -R /workspace/diff 2>/dev/null; fail "differential oracle: /workspace/diff/$b/go.mod was not exported"; }
 done
-echo "fido: differential oracle export OK — 15 one-source trees written for the pinned-Go formal-vs-Go differential"
+echo "fido: differential oracle export OK — 33 one-source trees written for the pinned-Go formal-vs-Go differential"
 echo "fido-stage: emit done mono=$(cut -d' ' -f1 /proc/uptime)"
-echo "fido: emit OK — Fido Materialize wrote the witness / multi / EMPTY / boundary-byte / byte-rune-alias pristine trees (rendered go.mod) and five byte-identical evidence images; a forged raw transport was rejected before any effect; the §25 provenance fixtures constructed; 15 differential oracle trees exported for go-e2e"
+echo "fido: emit OK — Fido Materialize wrote the witness / multi / EMPTY / boundary-byte / byte-rune-alias pristine trees (rendered go.mod) and five byte-identical evidence images; a forged raw transport was rejected before any effect; the §25 provenance fixtures constructed; 33 differential oracle trees exported for go-e2e"
 SH
 
 # ── Stage 4a: emit-controls — descends from emit (the materialized trees and the wave-1 .vo are its inputs) and
@@ -2061,7 +2064,7 @@ echo "fido: e2e audit chunk coverage OK — the audit root set is the on-disk ch
 if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Check.v > /tmp/e2eaudit/check.log 2>&1; then cat /tmp/e2eaudit/check.log; fail "e2e proof-assumption audit FAILED"; fi
 grep -q 'assumption audit OK' /tmp/e2eaudit/check.log || { cat /tmp/e2eaudit/check.log; fail "e2e audit did not confirm zero assumptions in the proof-bearing fixtures"; }
 echo "fido: e2e proof-assumption audit OK — every proof-bearing witness fixture is axiom-free (accept/reject/outside matrix, branch payloads, materialization lemmas)"
-# fixture-inventory control: the tracked manifest is EXACTLY 205 entry names — no blank lines, no duplicates,
+# fixture-inventory control: the tracked manifest is EXACTLY 289 entry names — no blank lines, no duplicates,
 # none of the removed category-error/superseded names — and every one resolves through the aggregate exactly
 # once (Fido.WitnessReject re-exports the chunk surface). A lost, renamed, stranded, or forbidden name fails here.
 inv_names=$(grep -vE '^#' e2e/WitnessRejectInventory.txt)
@@ -2074,10 +2077,10 @@ n=0
 printf 'From Fido Require Import WitnessReject.\n' > /tmp/e2eaudit/Inventory.v
 for nm in $inv_names; do
   printf 'Definition __probe_%d := %s.\n' "$n" "$nm" >> /tmp/e2eaudit/Inventory.v; n=$((n+1)); done
-[ "$n" -eq 205 ] || fail "fixture inventory: $n entry fixture names in the manifest (expected exactly 205)"
+[ "$n" -eq 289 ] || fail "fixture inventory: $n entry fixture names in the manifest (expected exactly 289)"
 if ! rocq c -R e2e Fido -R /tmp/e2eaudit Fido -Q _build/default/. Fido /tmp/e2eaudit/Inventory.v > /tmp/e2eaudit/inventory.log 2>&1; then
   cat /tmp/e2eaudit/inventory.log; fail "fixture inventory: an entry fixture name no longer resolves through the WitnessReject aggregate"; fi
-echo "fido: fixture inventory OK — exactly 205 names, no blanks or duplicates, all resolve, removed names absent"
+echo "fido: fixture inventory OK — exactly 289 names, no blanks or duplicates, all resolve, removed names absent"
 
 # provenance (2): a FORGED image — the right TYPE but a non-empty assumption closure — is rejected by the
 # transport-time closure check (the shared `decode_guarded`) BEFORE any effect.  The five fixtures are GENERATED
@@ -2143,6 +2146,22 @@ for d in e2e-forge e2e-forge-op e2e-forge-var e2e-forge-vi e2e-forge-ev; do
   [ ! -e "/workspace/$d" ] || fail "forged images: a rejected forged materialize still created /workspace/$d"
 done
 echo "fido: provenance enforced — direct axiom, axiom behind an opaque Qed proof, direct section variable, transitive section variable, and axiom-dependent additional evidence each rejected before any effect (one library load, five Fail-wrapped materializations)"
+
+# hostile mutations of the use judgment (tracked e2e/WitnessMutants.v, ONE `rocq top` library load — `rocq c`
+# would swallow the failure reasons): every mutant defines (its `is defined` line is the load control), every
+# Fail-wrapped law fails BY PROOF FAILURE, never by parsing or typing, and the positive controls prove the
+# canonical objects with the very same scripts.  The file compiles nothing certified, so it is not an audit root.
+rocq top -q -Q _build/default/. Fido < e2e/WitnessMutants.v > /tmp/mutants.log 2>&1 || true
+for s in positive_ancestry positive_links_order positive_default positive_round_trip positive_replacement; do
+  grep -q "$s is defined" /tmp/mutants.log || { cat /tmp/mutants.log; fail "mutation controls: positive control $s did not prove — the library did not load, or the shared script is inadequate"; }
+done
+mut_defined=$(grep -cE '(mutant_root|mutant_links|mutant_default|mutant_failure|mutant_bytes) is defined' /tmp/mutants.log || true)
+[ "$mut_defined" = 8 ] || { cat /tmp/mutants.log; fail "mutation controls: expected 8 mutants defined, observed $mut_defined"; }
+mut_got=$(grep -c 'The command has indeed failed' /tmp/mutants.log || true)
+[ "$mut_got" = 9 ] || { cat /tmp/mutants.log; fail "mutation controls: expected 9 rejected mutant laws, observed $mut_got — a mutant PROVED the law it neuters"; }
+mut_bad=$(awk 'BEGIN{RS="The command has indeed failed"} NR>1 && $0 !~ /Unable to unify|No such assumption|not convertible|Not an exact proof|cannot be applied/ {c++} END{print c+0}' /tmp/mutants.log)
+[ "$mut_bad" = 0 ] || { cat /tmp/mutants.log; fail "mutation controls: $mut_bad rejection(s) not by proof failure (a parse or typing error is not a semantic control)"; }
+echo "fido: mutation controls OK — arg-dropped and head-dropped ancestry, reordered and unary-only links, default failure as VNonconst, invalid/unmet collapse both ways, ASCII-only and no-replacement encoders each fail the law they neuter (9 Fail-wrapped laws, 8 mutants, 5 positive controls, one library load)"
 
 # The whole-certified-theory assumption audit + coverage + self-tests A-E run in the `prover` stage (NOT
 # duplicated here); this branch carries the e2e fixture audit and provenance guard above and the sink exercise below.
@@ -2691,8 +2710,23 @@ rm -rf "$MFRESH"
 #    (the formal side, executed through compile, compiled in the sibling emit-controls branch that the verified
 #    join and `sync` require).  Here the pinned Go toolchain judges that EXACT rendered
 #    source through the ONE fresh-build runner, and the two verdicts must AGREE: a reject-bucket tree MUST fail
-#    `go build ./...`, an accept-bucket tree (a Compiled or OutsideScope program — valid Go) MUST build.  A
+#    `go build ./...`, an accept-bucket tree (a Compiled or OutsideScope program — valid Go) MUST build, and a
+#    run-bucket tree (a proven-Compiled integer-to-string program) MUST build, run, and print Go's own string(z)
+#    bytes IDENTICAL to the Rocq-encoded literal it prints next (the bytes are also pinned per case below).  A
 #    disagreement is a hard red (a real Fido-vs-Go model disagreement); an infra failure stays fail-closed.
+diff_run() {  # <tree-dir> <label> <expected hex of Go's first println line, newline included>
+  fresh_go_build "$1" DFN || { require_go_ran "diff run $2"; cat "${DFN:-/dev/null}/.build.err" 2>/dev/null; echo "fido e2e diff: go build ./... REJECTED $2 — but its Syntax.Program is proven Compilable Compiled (a Fido-vs-Go disagreement)"; exit 1; }
+  _rexe=$(find "$DFN" -maxdepth 1 -type f -perm -u+x)
+  [ -n "$_rexe" ] && [ "$(printf '%s\n' "$_rexe" | wc -l)" = 1 ] || { echo "fido e2e diff: run $2 built no single executable"; exit 1; }
+  "$_rexe" > "$DFN/.run.out" 2> "$DFN/.run.err"; _rrc=$?
+  [ "$_rrc" = 0 ] || { cat "$DFN/.run.err"; echo "fido e2e diff: run $2 exited $_rrc"; exit 1; }
+  [ "$(wc -l < "$DFN/.run.err")" = 2 ] || { od -An -v -tx1 "$DFN/.run.err"; echo "fido e2e diff: run $2 did not print exactly two lines"; exit 1; }
+  # byte-exact line split (string(0) prints a NUL byte; BusyBox sed truncates a line at NUL, tail -c does not)
+  _go=$(head -n 1 "$DFN/.run.err" | od -An -v -tx1 | tr -dc '0-9a-f')
+  _lit=$(tail -c +$(( $(head -n 1 "$DFN/.run.err" | wc -c) + 1 )) "$DFN/.run.err" | od -An -v -tx1 | tr -dc '0-9a-f')
+  [ "$_go" = "$_lit" ] || { echo "fido e2e diff: pinned Go's string(z) bytes $_go differ from Fido's encoded literal $_lit for $2 (a Fido-vs-Go disagreement)"; exit 1; }
+  [ "$_go" = "$3" ] || { echo "fido e2e diff: run $2 printed $_go, the pinned expectation is $3"; exit 1; }
+  echo "fido e2e diff: run $2 — pinned Go's string(z) bytes $_go equal the Rocq-encoded literal and the pinned expectation"; }
 diff_reject() {  # <tree-dir> <label>
   fresh_go_build "$1" DFR; _drc=$?
   require_go_ran "diff reject $2"
@@ -2704,8 +2738,18 @@ diff_accept() {  # <tree-dir> <label>
 _dn=0
 for d in /e2e/diff/reject/*/; do [ -d "$d" ] || continue; diff_reject "$d" "reject/$(basename "$d")"; _dn=$((_dn+1)); done
 for d in /e2e/diff/compiled/*/; do [ -d "$d" ] || continue; diff_accept "$d" "compiled/$(basename "$d")"; _dn=$((_dn+1)); done
-[ "$_dn" -ge 15 ] || { echo "fido e2e diff: expected >=15 one-source differential trees, judged only $_dn"; exit 1; }
-echo "fido e2e diff: one-source formal-vs-Go differential OK — $_dn rendered trees judged by pinned Go, every verdict agreeing with its proven Compilable disposition"
+# the integer-to-string cases: every scalar-range endpoint, every non-scalar class (-> EF BF BD), and the identity;
+# the expected hex is Go's first println line (UTF-8 of the code point, then the newline)
+_rn=0
+for spec in str_0:000a str_7f:7f0a str_80:c2800a str_7ff:dfbf0a str_800:e0a0800a str_d7ff:ed9fbf0a str_e000:ee80800a str_ffff:efbfbf0a \
+            str_10000:f09080800a str_10ffff:f48fbfbf0a str_neg1:efbfbd0a str_d800:efbfbd0a str_dfff:efbfbd0a str_110000:efbfbd0a str_ident:780a; do
+  _rname=${spec%%:*}; _rhex=${spec##*:}
+  [ -d "/e2e/diff/run/$_rname" ] || { echo "fido e2e diff: run tree $_rname was not exported"; exit 1; }
+  diff_run "/e2e/diff/run/$_rname" "run/$_rname" "$_rhex"; _dn=$((_dn+1)); _rn=$((_rn+1))
+done
+[ "$(find /e2e/diff/run -mindepth 1 -maxdepth 1 -type d | wc -l)" = "$_rn" ] || { ls /e2e/diff/run; echo "fido e2e diff: a run tree exists that no pinned expectation names"; exit 1; }
+[ "$_dn" -ge 33 ] || { echo "fido e2e diff: expected >=33 one-source differential trees, judged only $_dn"; exit 1; }
+echo "fido e2e diff: one-source formal-vs-Go differential OK — $_dn rendered trees judged by pinned Go, every verdict agreeing with its proven Compilable disposition, $_rn integer-to-string programs run byte-identically"
 
 # ── COMPLEMENTARY pinned-Go BEHAVIOR PROBES (NOT a Fido comparison — the mechanical one-source Fido-vs-Go
 #    differential is the block above).  These hand-written trees pin how the pinned go1.23 toolchain behaves on

@@ -165,3 +165,53 @@ Definition dr_no_main     : Compilable.rejects dp_no_main.     Proof. reject. Qe
 Definition dr_short_count    : Compilable.rejects dp_short_count.    Proof. reject. Qed.
 
 Definition dr_short_nonvar   : Compilable.rejects dp_short_nonvar.   Proof. reject. Qed.
+
+(* O8 println(1) defaults its argument exactly once, at the true use: one exact typed row for the literal *)
+Definition uc_println_default_once : uc_obs (rres (prog [ PL [ ILIT 1 ] ])) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamValue ] [] [].
+Proof. obs_uc (prog [ PL [ ILIT 1 ] ]). Qed.
+
+(* O9 println(int8(1)): the literal is consumed by the conversion, the typed int8 is the one value, no child default *)
+Definition uc_println_int8_folded : uc_obs (rres (prog [ PL [ CONV Names.PInt8 (ILIT 1) ] ])) = mk_uc_obs Compilable.Compiled [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvOK AN.FamValue ] [] [].
+Proof. obs_uc (prog [ PL [ CONV Names.PInt8 (ILIT 1) ] ]). Qed.
+
+Definition uc_no_literal_row_under_fold : forallb (fun f => match f with AN.OFValue r _ => match Index.node_view r with Index.Model.VLiteral _ => false | _ => true end | _ => true end) (pfacts (prog [ PL [ CONV Names.PInt8 (ILIT 1) ] ])) = true.
+Proof. obs_direct (prog [ PL [ CONV Names.PInt8 (ILIT 1) ] ]). Qed.
+
+(* O12-O14 complex(1e309, 0) folds to one exact complex whose mandatory default fails: DefaultOverflow, not VNonconst *)
+Definition cx_direct : Syntax.Expr := CPLX (FLIT dec1e309) (ILIT 0).
+Definition cx_ovf (e : Syntax.Expr) : Syntax.Program := prog [ PL [ e ] ].
+Definition uc_complex_overflow_direct : uc_obs (rres (cx_ovf cx_direct)) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvOK AN.FamApplication; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow ] [ RP.CvDefaultOverflow ] [].
+Proof. obs_uc (cx_ovf cx_direct). Qed.
+
+Definition uc_complex_overflow_unary : uc_obs (rres (cx_ovf (NEG cx_direct))) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow; RP.FvOK AN.FamApplication ] [ RP.CvDefaultOverflow ] [].
+Proof. obs_uc (cx_ovf (NEG cx_direct)). Qed.
+
+Definition uc_complex_overflow_nested : uc_obs (rres (cx_ovf (NEG (NEG cx_direct)))) = mk_uc_obs Compilable.Rejected [ RP.FvOK AN.FamStatement; RP.FvOK AN.FamApplication; RP.FvNonconst AN.FamValue; RP.FvInvalid AN.FamValue RP.CvDefaultOverflow; RP.FvOK AN.FamApplication ] [ RP.CvDefaultOverflow ] [].
+Proof. obs_uc (cx_ovf (NEG (NEG cx_direct))). Qed.
+
+(* the exact overflowing constants, projected proof-free: nested retains the direct one, unary its negation *)
+Definition overflow_views (p : Syntax.Program) : list (option (Z * positive * Z * positive)) :=
+  flat_map (fun f => match f with
+                     | AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ (TR.CComplex cc))) =>
+                         [ Some (Float.numerator (Complex.exact_real cc), Float.denominator (Complex.exact_real cc),
+                                 Float.numerator (Complex.exact_imaginary cc), Float.denominator (Complex.exact_imaginary cc)) ]
+                     | AN.OFValue _ (AN.VInvalid (AN.DefaultOverflow _ _)) => [ None ]
+                     | _ => [] end) (pfacts p).
+Ltac obs_pair p1 p2 := unfold overflow_views, pfacts, rres, result_of_compile;
+  unfold AN.result_fact_list, AN.res_facts, AN.res_binds, AN.res_bind_data, AN.res_surface, AN.res_index;
+  rewrite (Compilable.compile_observe_data p1), (Compilable.compile_observe_data p2); vm_compute; reflexivity.
+Definition uc_complex_overflow_stable :
+  overflow_views (cx_ovf (NEG (NEG cx_direct))) = overflow_views (cx_ovf cx_direct)
+  /\ overflow_views (cx_ovf (NEG cx_direct))
+     = map (fun v => match v with Some (a, b, c, d) => Some (- a, b, - c, d)%Z | None => None end) (overflow_views (cx_ovf cx_direct)).
+Proof.
+  split; [ obs_pair (cx_ovf (NEG (NEG cx_direct))) (cx_ovf cx_direct) | obs_pair (cx_ovf (NEG cx_direct)) (cx_ovf cx_direct) ].
+Qed.
+
+(* O21 the boundary written before the diagnostic: both rows retained, the diagnostic still first, Rejected *)
+Definition p_unsupported_invalid : Syntax.Program :=
+  prog [ PL [ CPLX (CONV Names.PFloat32 (ILIT 1)) (CONV Names.PFloat32 (ILIT 2)) ] ; PL [ IOTA ] ].
+Definition d4_unsupported_invalid_coexist : map AN.issue_class (AN.result_issues (rres p_unsupported_invalid)) = [ AN.ClassDiagnostic ; AN.ClassBoundary ].
+Proof. obs_issue_classes p_unsupported_invalid. Qed.
+
+Definition r_unsupported_invalid : Compilable.rejects p_unsupported_invalid. Proof. reject. Qed.

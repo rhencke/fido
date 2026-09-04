@@ -139,6 +139,7 @@ Inductive ReqView : Type :=
 | RvTypedTargetIdentity : Names.PredeclaredName -> ReqView
 | RvConstNoDefault : ReqView
 | RvTypedTargetConstant : ReqView
+| RvConversionUnmet : ReqView
 | RvMainUse : ReqView
 | RvValueMeaning : ReqView.
 
@@ -224,10 +225,11 @@ Definition req_view {p} {idx : Index.ProgramIndex p} {s : PI.PackageSurface idx}
   | AN.ReqConstDecl _ _ => RvConstDecl
   | AN.ReqDeclMeaningV _ => RvDeclMeaningV
   | AN.ReqTypeMeaning _ _ _ => RvTypeMeaning
-  | AN.RInitializerIdentity _ pn _ _ => RvInitializerIdentity pn
-  | AN.RTypedTargetIdentity _ pn _ _ => RvTypedTargetIdentity pn
-  | AN.RConstNoDefault _ _ => RvConstNoDefault
+  | AN.RInitializerIdentity _ pn _ _ _ _ _ _ => RvInitializerIdentity pn
+  | AN.RTypedTargetIdentity _ pn _ _ _ _ _ _ => RvTypedTargetIdentity pn
+  | AN.RConstNoDefault _ _ _ _ _ _ => RvConstNoDefault
   | AN.RTypedTargetConstant _ _ => RvTypedTargetConstant
+  | AN.RConversionUnmet _ _ _ => RvConversionUnmet
   | AN.ReqMainUse _ _ _ => RvMainUse
   | AN.ReqValueMeaning _ _ _ => RvValueMeaning
   end.

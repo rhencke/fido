@@ -58,9 +58,12 @@ Qed.
 (* the Analysis applicability/fact kind of an occurrence; the displayed Family is a total projection of site+kind *)
 Inductive FactKind : Type := ValueKind | ApplicationKind | StatementKind | TypeUseKind.
 
-(* a value-producing literal or unary node: the exact subject of a default-int overflow *)
+(* a value-producing literal, unary or application node: the exact subject of a default overflow *)
 Definition is_value_default_node {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : bool :=
-  match Index.node_view site with Index.Model.VLiteral _ | Index.Model.VUnary _ => true | _ => false end.
+  match Index.node_view site with
+  | Index.Model.VLiteral _ | Index.Model.VUnary _ | Index.Model.VApplication => true
+  | _ => false
+  end.
 (* a var/type-spec declaration node: the exact subject of a deferred value-declaration meaning *)
 Definition is_value_decl_node {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : bool :=
   match Index.node_view site with Index.Model.VVarSpec _ | Index.Model.VTypeSpec _ => true | _ => false end.
@@ -70,6 +73,13 @@ Proof. intro H. unfold is_value_default_node. rewrite H. reflexivity. Qed.
 Lemma is_value_default_unary {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (u : Syntax.UnaryOp) :
   Index.node_view site = Index.Model.VUnary u -> is_value_default_node site = true.
 Proof. intro H. unfold is_value_default_node. rewrite H. reflexivity. Qed.
+Lemma is_value_default_app {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) :
+  Index.node_view site = Index.Model.VApplication -> is_value_default_node site = true.
+Proof. intro H. unfold is_value_default_node. rewrite H. reflexivity. Qed.
+(* an application occurrence is a live expression node, so its use path is available *)
+Lemma is_expr_node_app {p} {idx : Index.ProgramIndex p} {site : Index.NodeRef idx} :
+  Index.node_view site = Index.Model.VApplication -> Index.Edges.is_expr_node site = true.
+Proof. intro H. unfold Index.Edges.is_expr_node. rewrite H. reflexivity. Qed.
 Lemma is_value_decl_var {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) (v : Index.Model.VarShape) :
   Index.node_view site = Index.Model.VVarSpec v -> is_value_decl_node site = true.
 Proof. intro H. unfold is_value_decl_node. rewrite H. reflexivity. Qed.
@@ -170,6 +180,93 @@ Record ShortStructurallyValid {p} {idx : Index.ProgramIndex p} {s : BN.PI.Packag
 }.
 Arguments mkShortValid {p idx s bd bp st} _ _ _ _ _.
 
+(* one outward link of a use path: a unary operand, an application argument i, or an application head *)
+Inductive Link {p} {idx : Index.ProgramIndex p} : Type :=
+| LUnary : Index.Refs.UnaryRef idx -> Link
+| LArg   : Index.Refs.AppRef idx -> nat -> Link
+| LHead  : Index.Refs.AppRef idx -> Link.
+Arguments Link {p} idx.
+
+(* the exact ordered link sequence of a path, from the subject's own link outward to the root *)
+Fixpoint path_links {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  : list (Link idx) :=
+  match path with
+  | Index.Edges.EUPUnary u _ sub => LUnary u :: path_links sub
+  | Index.Edges.EUPArg a i _ sub => LArg a i :: path_links sub
+  | Index.Edges.EUPHead a _ sub => LHead a :: path_links sub
+  | _ => []
+  end.
+
+(* initializer ancestry: the path bottoms at the exact const value edge through any finite mixed link chain *)
+Inductive ConstRootOf {p} {idx : Index.ProgramIndex p}
+  : forall {r : Index.NodeRef idx}, Index.Edges.ExprUsePath r ->
+    forall (sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF) (j : nat), Index.Edges.SpecValueEdge sp j -> Prop :=
+| CRConst : forall sp j (e : Index.Edges.SpecValueEdge sp j), ConstRootOf (Index.Edges.EUPConst sp j e) sp j e
+| CRUnary : forall (u : Index.Refs.UnaryRef idx) (e : Index.Edges.UnaryOperandEdge u)
+    (sub : Index.Edges.ExprUsePath (Index.Refs.un_node u)) sp j se,
+    ConstRootOf sub sp j se -> ConstRootOf (Index.Edges.EUPUnary u e sub) sp j se
+| CRArg : forall (a : Index.Refs.AppRef idx) (i : nat) (e : Index.Edges.ApplicationArgEdge a i)
+    (sub : Index.Edges.ExprUsePath (Index.Refs.app_node a)) sp j se,
+    ConstRootOf sub sp j se -> ConstRootOf (Index.Edges.EUPArg a i e sub) sp j se
+| CRHead : forall (a : Index.Refs.AppRef idx) (e : Index.Edges.ApplicationHeadEdge a)
+    (sub : Index.Edges.ExprUsePath (Index.Refs.app_node a)) sp j se,
+    ConstRootOf sub sp j se -> ConstRootOf (Index.Edges.EUPHead a e sub) sp j se.
+
+(* the computed initializer root of a path: exactly the const value edge it bottoms at, None outside every ConstSpec *)
+Fixpoint path_const_root {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  : option { sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF & { j : nat & Index.Edges.SpecValueEdge sp j } } :=
+  match path with
+  | Index.Edges.EUPConst sp j e => Some (existT _ sp (existT _ j e))
+  | Index.Edges.EUPUnary _ _ sub => path_const_root sub
+  | Index.Edges.EUPArg _ _ _ sub => path_const_root sub
+  | Index.Edges.EUPHead _ _ sub => path_const_root sub
+  | _ => None
+  end.
+
+(* the computed root is the exact ancestry witness: every Some is a ConstRootOf, at any depth of mixed links *)
+Lemma path_const_root_sound {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) :
+  match path_const_root path with
+  | Some (existT _ sp (existT _ j e)) => ConstRootOf path sp j e
+  | None => True
+  end.
+Proof.
+  induction path as [s e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub IH | a i e sub IH | a e sub IH]; cbn [path_const_root];
+    try exact I; try (constructor; fail).
+  - destruct (path_const_root sub) as [[sp' [j' e']]|]; [ apply CRUnary; exact IH | exact I ].
+  - destruct (path_const_root sub) as [[sp' [j' e']]|]; [ apply CRArg; exact IH | exact I ].
+  - destruct (path_const_root sub) as [[sp' [j' e']]|]; [ apply CRHead; exact IH | exact I ].
+Qed.
+
+(* the exact-witness form of soundness: a computed root is the ancestry of the path it was read from *)
+Lemma path_const_root_at {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  sp j (e : Index.Edges.SpecValueEdge sp j) :
+  path_const_root path = Some (existT _ sp (existT _ j e)) -> ConstRootOf path sp j e.
+Proof. intro H. pose proof (path_const_root_sound path) as Hs. rewrite H in Hs. exact Hs. Qed.
+
+(* completeness: initializer ancestry is never lost by the computed root, through every link constructor *)
+Lemma path_const_root_complete {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  sp j (e : Index.Edges.SpecValueEdge sp j) :
+  ConstRootOf path sp j e -> path_const_root path = Some (existT _ sp (existT _ j e)).
+Proof.
+  intro H. induction H; cbn [path_const_root]; [ reflexivity | exact IHConstRootOf | exact IHConstRootOf | exact IHConstRootOf ].
+Qed.
+
+(* outside discrimination: a path whose terminal is not a const value edge manufactures no initializer witness *)
+Lemma path_const_root_outside {p} {idx : Index.ProgramIndex p} {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) :
+  path_const_root path = None -> forall sp j (e : Index.Edges.SpecValueEdge sp j), ~ ConstRootOf path sp j e.
+Proof. intros Hn sp j e Hc. rewrite (path_const_root_complete path sp j e Hc) in Hn. discriminate Hn. Qed.
+
+(* an explicit declaration target at the exact top of a path: a typed const value or an explicit-type var value *)
+Inductive ExplicitRoot {p} {idx : Index.ProgramIndex p} (site : Index.NodeRef idx) : Type :=
+| ERConst : forall (sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF) (j : nat) (e : Index.Edges.SpecValueEdge sp j),
+    site = Index.Edges.sv_child e -> Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) = true ->
+    ExplicitRoot site
+| ERVar : forall (sp : Index.Refs.SpecRef idx Index.Model.VarSpecF) (j : nat) (e : Index.Edges.SpecValueEdge sp j),
+    site = Index.Edges.sv_child e -> Index.Refs.shape_has_type Index.Model.VarSpecF (Index.Refs.sp_shape sp) = true ->
+    ExplicitRoot site.
+Arguments ERConst {p idx site} sp j e _ _.
+Arguments ERVar {p idx site} sp j e _ _.
+
 Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface idx} {bd : BN.PhaseData s}
   (bp : BN.BindingPhase s bd) (site : Index.NodeRef idx) : FactKind -> Type :=
 (* the residual value-meaning requirement of a DOBinder source use; a DOShort use is instead a lawful nonconstant *)
@@ -194,22 +291,28 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
 | ReqShortUsage : forall (st : Index.Refs.ShortStmtRef idx),
     site = Index.Refs.sh_node st -> Requirement bp site StatementKind
-(* §262 iota rooting at a const initializer value through unary links: the vm-safe context, exact path via §300 *)
+(* §262 iota rooted at a const initializer value: the exact path, its const value edge and the ancestry proof *)
 | RInitializerIdentity : forall (n : Names.OrdinaryIdentifier)
     (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
-    Index.Edges.rk_const_rooted (Index.Edges.root_const_var_b site) = true -> Requirement bp site ValueKind
-(* §264 nil as the direct value child of an explicit-type var: the vm-safe context, exact path via §300 *)
+    forall (path : Index.Edges.ExprUsePath site) (sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF) (j : nat)
+      (e : Index.Edges.SpecValueEdge sp j), ConstRootOf path sp j e -> Requirement bp site ValueKind
+(* §264 nil as the direct value child of an explicit-type var: the exact var value edge at the top of the path *)
 | RTypedTargetIdentity : forall (n : Names.OrdinaryIdentifier)
     (r0 : BN.ResolutionRef (BN.use_env bp site) n) (pn : Names.PredeclaredName),
     BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn) ->
-    Index.Edges.is_var_explicit_value site = true -> Requirement bp site ValueKind
-(* §250 a no-type const literal whose default overflows: the vm-safe context and the constant *)
-| RConstNoDefault :
-    Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind
-(* §250 an explicit-type const/var literal target pinning the constant: the vm-safe context *)
-| RTypedTargetConstant :
-    Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b site) = true -> TR.Constant -> Requirement bp site ValueKind
+    forall (sp : Index.Refs.SpecRef idx Index.Model.VarSpecF) (j : nat) (e : Index.Edges.SpecValueEdge sp j),
+      site = Index.Edges.sv_child e -> Index.Refs.shape_has_type Index.Model.VarSpecF (Index.Refs.sp_shape sp) = true ->
+      Requirement bp site ValueKind
+(* §250 an untyped constant at a no-type const value edge keeps its exact constant: the declaration makes no default *)
+| RConstNoDefault : forall (sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF) (j : nat) (e : Index.Edges.SpecValueEdge sp j),
+    site = Index.Edges.sv_child e -> Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) = false ->
+    TR.Constant -> Requirement bp site ValueKind
+(* §250 an untyped constant under an explicit declaration target: the exact root owns the (unmodelled) conversion *)
+| RTypedTargetConstant : ExplicitRoot site -> TR.Constant -> Requirement bp site ValueKind
+(* a represented, semantically valid conversion family whose rule is absent: an exact boundary, never an invalidity *)
+| RConversionUnmet : Index.node_view site = Index.Model.VApplication ->
+    TR.TypeForm -> Index.NodeRef idx -> Requirement bp site ValueKind
 (* §271 a type-spec binder application head: the source-type/conversion applicability is unmodelled, a boundary *)
 | ReqSourceTypeApp : forall (ar : Index.Refs.AppRef idx), site = Index.Refs.app_node ar ->
     forall (h : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp (Index.Edges.ah_child (Index.Edges.app_head ar))) h) (b : BN.BinderRef idx),
@@ -227,10 +330,11 @@ Inductive Requirement {p} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurface
 Arguments ReqSourceTypeApp {p idx s bd bp site} ar _ h _ b _ _.
 Arguments ReqSourceValueApp {p idx s bd bp site} ar _ h _ b _ _.
 Arguments ReqShortOriginApp {p idx s bd bp site} ar _ h _ sn _.
-Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _.
-Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _.
-Arguments RConstNoDefault {p idx s bd bp site} _ _.
+Arguments RInitializerIdentity {p idx s bd bp site n} _ _ _ _ _ _ _ _.
+Arguments RTypedTargetIdentity {p idx s bd bp site n} _ _ _ _ _ _ _ _.
+Arguments RConstNoDefault {p idx s bd bp site} sp j e _ _ _.
 Arguments RTypedTargetConstant {p idx s bd bp site} _ _.
+Arguments RConversionUnmet {p idx s bd bp site} _ _ _.
 Arguments ReqValueMeaning {p idx s bd bp site n} _ _ _. Arguments ReqComplexType {p idx s bd bp site} _.
 Arguments ReqMainUse {p idx s bd bp site n} _ _ _. Arguments ReqConstDecl {p idx s bd bp site cs} _ _.
 Arguments ReqDeclMeaningV {p idx s bd bp site} _. Arguments ReqApplication {p idx s bd bp site} _ _ _ _ _ _ _.
@@ -399,14 +503,23 @@ Definition nm_at (use : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) : opti
   | None => None
   end.
 
-Definition resolve_constant_info (ci : TR.ConstantInfo) : option TR.ResolvedConstant :=
-  match TR.ci_typed ci with
-  | TR.ExplicitlyTyped tf =>
-      match TR.convert_constant tf (TR.mk_cinfo (TR.ci_const ci) TR.Untyped) with
-      | TR.Converted tc => Some (TR.mk_rc tf tc)
-      | _ => None
-      end
-  | TR.Untyped => TR.default_constant (TR.ci_const ci)
+(* the exact intrinsic result formed at a node before any outer use acts: lossless where an option cell was not *)
+Inductive Intrinsic : Type :=
+| INonconst                                                (* no exact constant forms here *)
+| IUntyped : TR.Constant -> Intrinsic                      (* the exact untyped constant *)
+| ITyped : TR.ResolvedConstant -> Intrinsic                (* the exact explicitly typed constant, form and value *)
+| IUnaryMismatch : TR.ConstantInfo -> Intrinsic            (* unary minus over an exact non-numeric constant *)
+| IUnaryOverflow : TR.ConstantInfo -> Intrinsic            (* unary minus leaving the child's explicit form *)
+| IConvFail : forall (t : TR.TypeForm), TR.ConversionResult t -> Intrinsic   (* a conversion that did not convert *)
+| IComplexMismatch : TR.ConstantInfo -> TR.ConstantInfo -> Intrinsic
+| IComplexDefer : TR.ConstantInfo -> TR.ConstantInfo -> Intrinsic.
+
+(* the ConstantInfo view of an exact constant cell: the untyped constant, or the typed value with its explicit form *)
+Definition cell_info (c : Intrinsic) : option TR.ConstantInfo :=
+  match c with
+  | IUntyped k => Some (TR.mk_cinfo k TR.Untyped)
+  | ITyped rc => Some (TR.mk_cinfo (TR.resolved_constant_exact rc) (TR.ExplicitlyTyped (TR.rc_form rc)))
+  | _ => None
   end.
 
 (* a complex builtin component must be an untyped numeric or a typed float; the pair class decides the call *)
@@ -426,76 +539,127 @@ Definition complex_class (cre cim : TR.ConstantInfo) : ComplexClass :=
   | _, _ => CxDefer
   end.
 
-Definition mconst (m : Collections.NodeMap.t (option TR.ConstantInfo)) (rc : Index.NodeRef idx)
-  : option TR.ConstantInfo :=
-  match Collections.NodeMap.find (Index.nr_key rc) m with Some oc => oc | None => None end.
-Definition node_const (m : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
-  : option TR.ConstantInfo :=
-  match Index.node_view r as v return Index.node_view r = v -> option TR.ConstantInfo with
-  | Index.Model.VName n => fun _ =>
-      match nm_at r n with Some (TR.NMValueConstant c) => Some (TR.mk_cinfo c TR.Untyped) | _ => None end
-  | Index.Model.VLiteral (Syntax.IntegerLiteral k) => fun _ => Some (TR.mk_cinfo (TR.CInt (Z.of_N k)) TR.Untyped)
-  | Index.Model.VLiteral (Syntax.FloatLiteral d) => fun _ => Some (TR.mk_cinfo (TR.CFloat (Float.nnd_value d)) TR.Untyped)
-  | Index.Model.VLiteral (Syntax.StringLiteral str) => fun _ => Some (TR.mk_cinfo (TR.CString str) TR.Untyped)
-  | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst m (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))) with
-      | Some ci =>
-          match TR.constant_neg (TR.ci_const ci) with
-          | Some c' =>
-              match TR.ci_typed ci with
-              | TR.ExplicitlyTyped tf =>
-                  match TR.convert_constant tf (TR.mk_cinfo c' TR.Untyped) with
-                  | TR.Converted _ => Some (TR.mk_cinfo c' (TR.ExplicitlyTyped tf))
-                  | _ => None
-                  end
-              | TR.Untyped => Some (TR.mk_cinfo c' TR.Untyped)
+(* the exact cell of a node in the file's intrinsic table; a key the file never carries reads as no constant *)
+Definition mcell (m : Collections.NodeMap.t Intrinsic) (rc : Index.NodeRef idx) : Intrinsic :=
+  match Collections.NodeMap.find (Index.nr_key rc) m with Some c => c | None => INonconst end.
+
+(* unary minus consumes the exact operand cell and forms its own intrinsic: negation, then the child's form if typed *)
+Definition unary_intrinsic (child : Intrinsic) : Intrinsic :=
+  match cell_info child with
+  | Some ci =>
+      match TR.constant_neg (TR.ci_const ci) with
+      | Some c' =>
+          match TR.ci_typed ci with
+          | TR.ExplicitlyTyped tf =>
+              match TR.convert_constant tf (TR.mk_cinfo c' TR.Untyped) with
+              | TR.Converted tc => ITyped (TR.mk_rc tf tc)
+              | _ => IUnaryOverflow ci
               end
-          | None => None
+          | TR.Untyped => IUntyped c'
           end
-      | None => None
+      | None => IUnaryMismatch ci
       end
+  | None => INonconst
+  end.
+
+(* a conversion consumes the exact argument cell ONCE: the typed result, or the exact failure with its source *)
+Definition conversion_intrinsic (t : TR.TypeForm) (arg : Intrinsic) : Intrinsic :=
+  match cell_info arg with
+  | Some ci =>
+      match TR.convert_constant t ci with
+      | TR.Converted tc => ITyped (TR.mk_rc t tc)
+      | res => IConvFail t res
+      end
+  | None => INonconst
+  end.
+
+(* the complex builtin consumes both exact component cells once and forms one exact untyped complex constant *)
+Definition complex_intrinsic (re im : Intrinsic) : Intrinsic :=
+  match cell_info re, cell_info im with
+  | Some cre, Some cim =>
+      match complex_class cre cim with
+      | CxOk =>
+          match TR.complex_of_constants (TR.ci_const cre) (TR.ci_const cim) with
+          | Some c => IUntyped c
+          | None => IComplexMismatch cre cim
+          end
+      | CxDefer => IComplexDefer cre cim
+      | CxError => IComplexMismatch cre cim
+      end
+  | _, _ => INonconst
+  end.
+
+(* intrinsic formation at one node, child-first: literals and names are exact untyped, folds read child cells *)
+Definition node_intrinsic_body (m : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : Intrinsic :=
+  match nv as v return Index.node_view r = v -> Intrinsic with
+  | Index.Model.VName n => fun _ =>
+      match nm_at r n with Some (TR.NMValueConstant c) => IUntyped c | _ => INonconst end
+  | Index.Model.VLiteral (Syntax.IntegerLiteral k) => fun _ => IUntyped (TR.CInt (Z.of_N k))
+  | Index.Model.VLiteral (Syntax.FloatLiteral d) => fun _ => IUntyped (TR.CFloat (Float.nnd_value d))
+  | Index.Model.VLiteral (Syntax.StringLiteral str) => fun _ => IUntyped (TR.CString str)
+  | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
+      unary_intrinsic (mcell m (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))))
   | Index.Model.VApplication => fun Hv =>
       match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv))) with
       | Index.Model.VName h =>
           match map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
           | x :: nil =>
               match nm_at r h with
-              | Some (TR.NMConversionForm t) =>
-                  match mconst m x with
-                  | Some ci => match TR.convert_constant t ci with
-                               | TR.Converted tc => Some (TR.mk_cinfo (TR.typed_exact tc) (TR.ExplicitlyTyped t))
-                               | _ => None
-                               end
-                  | None => None
-                  end
-              | _ => None
+              | Some (TR.NMConversionForm t) => conversion_intrinsic t (mcell m x)
+              | _ => INonconst
               end
           | re :: im :: nil =>
               match BN.resolution_object_view (BN.resolve bp r h) with
-              | Some o =>
-                  match o, mconst m re, mconst m im with
-                  | BN.PredeclaredObject Names.PComplex, Some cre, Some cim =>
-                      match TR.constant_to_float (TR.ci_const cre), TR.constant_to_float (TR.ci_const cim) with
-                      | Some _, Some _ =>
-                          option_map (fun c => TR.mk_cinfo c TR.Untyped)
-                            (TR.complex_of_constants (TR.ci_const cre) (TR.ci_const cim))
-                      | _, _ => None
-                      end
-                  | _, _, _ => None
-                  end
-              | None => None
+              | Some (BN.PredeclaredObject Names.PComplex) => complex_intrinsic (mcell m re) (mcell m im)
+              | _ => INonconst
               end
-          | _ => None
+          | _ => INonconst
           end
-      | _ => None
+      | _ => INonconst
       end
-  | _ => fun _ => None
-  end eq_refl.
-(* the file's constants folded in descending position order — children before parents (file_nodes is trie order) *)
-Definition const_table (fr : Index.FileRef idx) : Collections.NodeMap.t (option TR.ConstantInfo) :=
+  | _ => fun _ => INonconst
+  end Hnv.
+Definition node_intrinsic (m : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : Intrinsic :=
+  node_intrinsic_body m r (Index.node_view r) eq_refl.
+(* the formation of a node reduces to its exact node_view branch — the convoy named so it is rewritable *)
+Lemma node_intrinsic_at (m : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (v : Index.Model.NodeView) (H : Index.node_view r = v) : node_intrinsic m r = node_intrinsic_body m r v H.
+Proof. unfold node_intrinsic. destruct H. reflexivity. Qed.
+(* W5 formation never defaults or types: a literal forms its exact untyped constant, a name at most one *)
+Lemma node_intrinsic_lit (m : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) (l : Syntax.Literal)
+  (Hv : Index.node_view r = Index.Model.VLiteral l) : exists c, node_intrinsic m r = IUntyped c.
+Proof. rewrite (node_intrinsic_at m r _ Hv). destruct l; eexists; reflexivity. Qed.
+Lemma node_intrinsic_name (m : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
+  (Hv : Index.node_view r = Index.Model.VName n) : node_intrinsic m r = INonconst \/ exists c, node_intrinsic m r = IUntyped c.
+Proof.
+  rewrite (node_intrinsic_at m r _ Hv). cbn [node_intrinsic_body].
+  destruct (nm_at r n) as [[t|c|]|]; [ left | right; eexists | left | left ]; reflexivity.
+Qed.
+(* W5 unary minus and a conversion consume the exact untyped child once, forming the parent's own intrinsic *)
+Lemma unary_intrinsic_untyped (c : TR.Constant) :
+  unary_intrinsic (IUntyped c)
+  = match TR.constant_neg c with Some c' => IUntyped c' | None => IUnaryMismatch (TR.mk_cinfo c TR.Untyped) end.
+Proof. reflexivity. Qed.
+Lemma conversion_intrinsic_untyped (t : TR.TypeForm) (c : TR.Constant) :
+  conversion_intrinsic t (IUntyped c)
+  = match TR.convert_constant t (TR.mk_cinfo c TR.Untyped) with TR.Converted tc => ITyped (TR.mk_rc t tc) | res => IConvFail t res end.
+Proof. reflexivity. Qed.
+(* W5 a typed cell keeps its explicit form beside its exact value: the TypedFlag survives until the use *)
+Lemma cell_info_typed (rc : TR.ResolvedConstant) :
+  cell_info (ITyped rc) = Some (TR.mk_cinfo (TR.resolved_constant_exact rc) (TR.ExplicitlyTyped (TR.rc_form rc))).
+Proof. reflexivity. Qed.
+(* W8 nested unary forms fold to one exact intrinsic: negation is an involution on every numeric constant *)
+Lemma unary_intrinsic_twice (c c' : TR.Constant) (Hn : TR.constant_neg c = Some c') :
+  unary_intrinsic (unary_intrinsic (IUntyped c)) = IUntyped c.
+Proof.
+  rewrite unary_intrinsic_untyped, Hn, unary_intrinsic_untyped, (TR.constant_neg_involutive c c' Hn). reflexivity.
+Qed.
+(* the file's intrinsic cells folded in descending position order, children before parents (file_nodes is trie order) *)
+Definition const_table (fr : Index.FileRef idx) : Collections.NodeMap.t Intrinsic :=
   fold_left (fun m pos =>
                match Index.mk_noderef fr (Pos.of_succ_nat pos) with
-               | Some r => Collections.NodeMap.add (Index.nr_key r) (node_const m r) m
+               | Some r => Collections.NodeMap.add (Index.nr_key r) (node_intrinsic m r) m
                | None => m
                end)
             (rev (seq 0 (Index.occ_count fr))) (Collections.NodeMap.empty _).
@@ -511,30 +675,39 @@ Definition value_ctx (r : Index.NodeRef idx) : bool :=
 (* §251 a zero-result result is consumed unless discarded as a bare statement; a non-name app head still consumes it *)
 Definition zero_result_consumed (r : Index.NodeRef idx) : bool := value_ctx r || is_app_head r.
 
-(* a conversion/complex head folds its argument, so a folded value's default-int type is never forced *)
-Definition head_folds (par : Index.NodeRef idx) : bool :=
-  match Index.node_view par as v return Index.node_view par = v -> bool with
-  | Index.Model.VApplication => fun Hv =>
-      match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef par Hv))) with
-      | Index.Model.VName h =>
-          match BN.resolution_object_view (BN.resolve bp par h) with
-          | Some o =>
-              match o with
-              | BN.PredeclaredObject pn =>
-                  match pmeaning pn with PMConvForm _ => true | PMComplex => true | _ => false end
-              | BN.SourceObject _ => false
-              end
-          | None => false
-          end
-      | _ => false
+(* the one selected use of an exact intrinsic result per judged occurrence, UADiscard the bare expression statement *)
+Inductive UseAction : Type :=
+| UADefault          (* a genuine defaulting use: the default type is applied once to the final untyped constant *)
+| UAPreserve         (* a no-type const value: the untyped constant is kept exact, the declaration makes no default *)
+| UAExplicitTarget   (* an explicit declaration target owns the conversion: an exact boundary today *)
+| UAFold             (* a unary operand or a folding application argument: consumed into the parent's intrinsic *)
+| UACallee           (* an application head: callability, never a value *)
+| UADiscard.
+
+(* an argument's use is fixed by its application head: a conversion or complex head folds it, any other head defaults *)
+Definition arg_use_action (a : Index.Refs.AppRef idx) : UseAction :=
+  match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head a)) with
+  | Index.Model.VName h =>
+      match BN.resolution_object_view (BN.resolve bp (Index.Refs.app_node a) h) with
+      | Some (BN.PredeclaredObject pn) =>
+          match pmeaning pn with PMConvForm _ => UAFold | PMComplex => UAFold | _ => UADefault end
+      | _ => UADefault
       end
-  | _ => fun _ => false
-  end eq_refl.
-Definition fold_consumed (r : Index.NodeRef idx) : bool :=
-  match Index.node_role r with
-  | Index.Model.RUnaryOperand => true
-  | Index.Model.RApplicationArg _ => match Index.node_parent r with Some par => head_folds par | None => false end
-  | _ => false
+  | _ => UADefault
+  end.
+
+(* the use action of a path is read from its exact top link: the immediate use-context selects it *)
+Definition use_action {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) : UseAction :=
+  match path with
+  | Index.Edges.EUPExprStmt _ _ => UADiscard
+  | Index.Edges.EUPConst sp _ _ =>
+      if Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) then UAExplicitTarget else UAPreserve
+  | Index.Edges.EUPVarExplicit _ _ _ _ => UAExplicitTarget
+  | Index.Edges.EUPVarImplicit _ _ _ _ => UADefault
+  | Index.Edges.EUPShort _ _ _ => UADefault
+  | Index.Edges.EUPUnary _ _ _ => UAFold
+  | Index.Edges.EUPArg a _ _ _ => arg_use_action a
+  | Index.Edges.EUPHead _ _ _ => UACallee
   end.
 
 
@@ -634,200 +807,309 @@ Definition own_app (ar : Index.Refs.AppRef idx) : AppOutcome bp (Index.Refs.app_
       | _ => AInvalid (NotCallableExpr Hv)
       end.
 
-(* §8/§251 a target-sensitive value defers to its containing app, as an arg or a non-name head *)
-Definition defer_to_app (r : Index.NodeRef idx) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
-  match Index.node_role r as ro return Index.node_role r = ro -> ValueOutcome bp r with
-  | Index.Model.RApplicationArg i => fun Hrole =>
-      match Index.node_parent r as pr return Index.node_parent r = pr -> ValueOutcome bp r with
-      | Some par => fun Hpar =>
-          match Index.node_view par as pv return Index.node_view par = pv -> ValueOutcome bp r with
-          | Index.Model.VApplication => fun Hv =>
-              if fold_consumed r then fallback
-              else match own_app (Index.Refs.mkAppRef par Hv) with
-                   | AOK => fallback
-                   | AInvalid c => VDependent (DepArgInvalid (Index.Refs.mkAppRef par Hv) i Hpar Hrole c)
-                   | AUnmet q => VDependent (DepArgUnmet (Index.Refs.mkAppRef par Hv) i Hpar Hrole q)
-                   | ADependent d => VDependent (DepArgDependent (Index.Refs.mkAppRef par Hv) i Hpar Hrole d)
-                   end
-          | _ => fun _ => fallback
-          end eq_refl
-      | None => fun _ => fallback
-      end eq_refl
-  | Index.Model.RApplicationHead => fun Hrole =>
-      match Index.node_parent r as pr return Index.node_parent r = pr -> ValueOutcome bp r with
-      | Some par => fun Hpar =>
-          match Index.node_view par as pv return Index.node_view par = pv -> ValueOutcome bp r with
-          | Index.Model.VApplication => fun Hv =>
-              match own_app (Index.Refs.mkAppRef par Hv) with
-              | AInvalid c => VDependent (DepHeadInvalid (Index.Refs.mkAppRef par Hv) Hpar Hrole c)
-              | _ => fallback
-              end
-          | _ => fun _ => fallback
-          end eq_refl
-      | None => fun _ => fallback
-      end eq_refl
-  | _ => fun _ => fallback
-  end eq_refl.
+(* §8/§251 an argument of a non-folding application reads that application's own outcome: the dependency wrap *)
+Definition arg_dependency (a : Index.Refs.AppRef idx) (i : nat) {r : Index.NodeRef idx}
+  (Hpar : Index.node_parent r = Some (Index.Refs.app_node a)) (Hrole : Index.node_role r = Index.Model.RApplicationArg i)
+  (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
+  match own_app a with
+  | AOK => fallback
+  | AInvalid c => VDependent (DepArgInvalid a i Hpar Hrole c)
+  | AUnmet q => VDependent (DepArgUnmet a i Hpar Hrole q)
+  | ADependent d => VDependent (DepArgDependent a i Hpar Hrole d)
+  end.
+
+(* a non-name application head reads its application's invalidity, else keeps its own outcome *)
+Definition head_dependency (a : Index.Refs.AppRef idx) {r : Index.NodeRef idx}
+  (Hpar : Index.node_parent r = Some (Index.Refs.app_node a)) (Hrole : Index.node_role r = Index.Model.RApplicationHead)
+  (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
+  match own_app a with
+  | AInvalid c => VDependent (DepHeadInvalid a Hpar Hrole c)
+  | _ => fallback
+  end.
+
+(* the one default application: the default form of the final untyped constant, or the exact default overflow *)
+Definition default_verdict (r : Index.NodeRef idx) (Hdef : is_value_default_node r = true) (c : TR.Constant)
+  : ValueOutcome bp r :=
+  match TR.default_constant c with Some rc => VOK rc | None => VInvalid (DefaultOverflow Hdef c) end.
+
+(* the untyped constant at a const value edge: an explicit target owns it, else the declaration makes no default *)
+Definition const_root_verdict (sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF) (j : nat)
+  (e : Index.Edges.SpecValueEdge sp j) (c : TR.Constant) (b : bool)
+  (H : Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) = b)
+  : option (ValueOutcome bp (Index.Edges.sv_child e)) :=
+  match b as b0 return Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) = b0
+                       -> option (ValueOutcome bp (Index.Edges.sv_child e)) with
+  | true => fun Ht => Some (VUnmet (RTypedTargetConstant (ERConst sp j e eq_refl Ht) c))
+  | false => fun Hf => Some (VUnmet (RConstNoDefault sp j e eq_refl Hf c))
+  end H.
+
+(* the value row of an exact UNTYPED constant by the path's top link: dflt is its one default, None an operand site *)
+Definition untyped_verdict {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  (dflt : ValueOutcome bp r) (wrap : bool) (c : TR.Constant) : option (ValueOutcome bp r) :=
+  match path in Index.Edges.ExprUsePath s return ValueOutcome bp s -> option (ValueOutcome bp s) with
+  | Index.Edges.EUPExprStmt _ _ => fun _ => None
+  | Index.Edges.EUPConst sp j e => fun _ =>
+      const_root_verdict sp j e c (Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp)) eq_refl
+  | Index.Edges.EUPVarExplicit sp j e Ht => fun _ => Some (VUnmet (RTypedTargetConstant (ERVar sp j e eq_refl Ht) c))
+  | Index.Edges.EUPVarImplicit _ _ _ _ => fun d => Some d
+  | Index.Edges.EUPShort _ _ _ => fun d => Some d
+  | Index.Edges.EUPUnary _ _ _ => fun _ => None
+  | Index.Edges.EUPArg a i e sub => fun d =>
+      match arg_use_action a with
+      | UAFold => None
+      | _ => Some (if wrap
+                   then arg_dependency a i (Index.Edges.up_iparent_ok (Index.Edges.EUPArg a i e sub))
+                          (Index.Edges.up_role_ok (Index.Edges.EUPArg a i e sub)) d
+                   else d)
+      end
+  | Index.Edges.EUPHead a e sub => fun _ =>
+      match own_app a with
+      | AInvalid c0 => Some (VDependent (DepHeadInvalid a (Index.Edges.up_iparent_ok (Index.Edges.EUPHead a e sub))
+                                          (Index.Edges.up_role_ok (Index.Edges.EUPHead a e sub)) c0))
+      | _ => None
+      end
+  end dflt.
+
+(* the value row of an exact TYPED constant: its own typed value everywhere, wrapped by a non-folding parent app *)
+Definition typed_verdict {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) (wrap : bool)
+  (rc : TR.ResolvedConstant) : option (ValueOutcome bp r) :=
+  match path in Index.Edges.ExprUsePath s return option (ValueOutcome bp s) with
+  | Index.Edges.EUPArg a i e sub =>
+      Some (if wrap
+            then match arg_use_action a with
+                 | UAFold => VOK rc
+                 | _ => arg_dependency a i (Index.Edges.up_iparent_ok (Index.Edges.EUPArg a i e sub))
+                          (Index.Edges.up_role_ok (Index.Edges.EUPArg a i e sub)) (VOK rc)
+                 end
+            else VOK rc)
+  | Index.Edges.EUPHead a e sub =>
+      Some (if wrap
+            then head_dependency a (Index.Edges.up_iparent_ok (Index.Edges.EUPHead a e sub))
+                   (Index.Edges.up_role_ok (Index.Edges.EUPHead a e sub)) (VOK rc)
+            else VOK rc)
+  | _ => Some (VOK rc)
+  end.
+
+(* the exact constant cells' rows; dflt is the site's one default application, failure cells the view arm's *)
+Definition exact_verdict {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  (dflt : TR.Constant -> ValueOutcome bp r) (wrap : bool) (cell : Intrinsic) : option (ValueOutcome bp r) :=
+  match cell with
+  | IUntyped c => untyped_verdict path (dflt c) wrap c
+  | ITyped rc => typed_verdict path wrap rc
+  | _ => Some VNonconst
+  end.
+
+(* §264 nil by its exact path: an explicit-type var value edge at the top, else the app-wrapped invalid identity *)
+Definition nil_verdict {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) (n : Names.OrdinaryIdentifier)
+  (pn : Names.PredeclaredName) (r0 : BN.ResolutionRef (BN.use_env bp r) n)
+  (Hpre : BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn)) : ValueOutcome bp r :=
+  match path in Index.Edges.ExprUsePath s
+        return forall (r1 : BN.ResolutionRef (BN.use_env bp s) n),
+               BN.resolution_object_view r1 = Some (BN.PredeclaredObject pn) -> ValueOutcome bp s with
+  | Index.Edges.EUPVarExplicit sp j e Ht => fun r1 H1 => VUnmet (RTypedTargetIdentity r1 pn H1 sp j e eq_refl Ht)
+  | Index.Edges.EUPArg a i e sub => fun r1 H1 =>
+      match arg_use_action a with
+      | UAFold => VInvalid (InvalidIdentity r1 pn H1)
+      | _ => arg_dependency a i (Index.Edges.up_iparent_ok (Index.Edges.EUPArg a i e sub))
+               (Index.Edges.up_role_ok (Index.Edges.EUPArg a i e sub)) (VInvalid (InvalidIdentity r1 pn H1))
+      end
+  | Index.Edges.EUPHead a e sub => fun r1 H1 =>
+      head_dependency a (Index.Edges.up_iparent_ok (Index.Edges.EUPHead a e sub))
+        (Index.Edges.up_role_ok (Index.Edges.EUPHead a e sub)) (VInvalid (InvalidIdentity r1 pn H1))
+  | _ => fun r1 H1 => VInvalid (InvalidIdentity r1 pn H1)
+  end r0 Hpre.
+
+(* §262 iota by its exact path: the retained initializer ancestry, or the invalid identity outside every ConstSpec *)
+Definition iota_verdict {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) (n : Names.OrdinaryIdentifier)
+  (pn : Names.PredeclaredName) (r0 : BN.ResolutionRef (BN.use_env bp r) n)
+  (Hpre : BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn))
+  (o0 : option { sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF & { j : nat & Index.Edges.SpecValueEdge sp j } })
+  (H : path_const_root path = o0) : ValueOutcome bp r :=
+  match o0 as o1 return path_const_root path = o1 -> ValueOutcome bp r with
+  | Some (existT _ sp (existT _ j e)) => fun Hcr =>
+      VUnmet (RInitializerIdentity r0 pn Hpre path sp j e (path_const_root_at path sp j e Hcr))
+  | None => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
+  end H.
 
 (* §6 the value-of-a-name decision, factored over the resolution so convoy_at reduces it at the known resolved object *)
 Definition own_value_res_body (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier)
-  (r0 : BN.ResolutionRef (BN.use_env bp r) n)
-  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov) : ValueOutcome bp r :=
-  match ov as ov' return BN.resolution_object_view r0 = ov' -> ValueOutcome bp r with
+  (r0 : BN.ResolutionRef (BN.use_env bp r) n) (path : Index.Edges.ExprUsePath r)
+  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view r0 = ov) : option (ValueOutcome bp r) :=
+  match ov as ov' return BN.resolution_object_view r0 = ov' -> option (ValueOutcome bp r) with
   | Some o => fun Hov =>
-      match o as o' return o = o' -> ValueOutcome bp r with
+      match o as o' return o = o' -> option (ValueOutcome bp r) with
       | BN.PredeclaredObject pn => fun Ho =>
           let Hpre := eq_trans Hov (f_equal (@Some _) Ho) in
           match pmeaning pn with
-          | PMValue c => match TR.default_constant c with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end
-          | PMIota =>
-              (match Index.Edges.rk_const_rooted (Index.Edges.root_const_var_b r) as b
-                 return Index.Edges.rk_const_rooted (Index.Edges.root_const_var_b r) = b -> ValueOutcome bp r with
-               | true => fun Hcr => VUnmet (RInitializerIdentity r0 pn Hpre Hcr)
-               | false => fun _ => VInvalid (InvalidIdentity r0 pn Hpre)
-               end) eq_refl
-          | PMNil =>
-              (match Index.Edges.is_var_explicit_value r as b
-                 return Index.Edges.is_var_explicit_value r = b -> ValueOutcome bp r with
-               | true => fun Hvt => VUnmet (RTypedTargetIdentity r0 pn Hpre Hvt)
-               | false => fun _ => defer_to_app r (VInvalid (InvalidIdentity r0 pn Hpre))
-               end) eq_refl
-          | _ => if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov)
+          | PMValue c =>
+              exact_verdict path
+                (fun c' => match TR.default_constant c' with Some rc => VOK rc | None => VInvalid (InvalidIdentity r0 pn Hpre) end)
+                true (IUntyped c)
+          | PMIota => Some (iota_verdict path n pn r0 Hpre (path_const_root path) eq_refl)
+          | PMNil => Some (nil_verdict path n pn r0 Hpre)
+          | _ => Some (if is_app_head r then VNonconst else VInvalid (TypeAsValue r0 o Hov))
           end
       | BN.SourceObject org => fun Ho =>
           let Hsrc := eq_trans Hov (f_equal (@Some _) Ho) in
-          match org as org' return org = org' -> ValueOutcome bp r with
-          | BN.DOBinder _ => fun _ => VUnmet (ReqValueMeaning r0 org Hsrc)
-          | BN.DOShort _ => fun _ => VNonconst
+          match org as org' return org = org' -> option (ValueOutcome bp r) with
+          | BN.DOBinder _ => fun _ => Some (VUnmet (ReqValueMeaning r0 org Hsrc))
+          | BN.DOShort _ => fun _ => Some VNonconst
           | BN.DOFunc f => fun Horg =>
-              if is_app_head r then VNonconst
-              else VUnmet (ReqMainUse r0 f (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg)))
+              Some (if is_app_head r then VNonconst
+                    else VUnmet (ReqMainUse r0 f (eq_trans Hsrc (f_equal (fun z => @Some _ (BN.SourceObject z)) Horg))))
           end eq_refl
       end eq_refl
   | None => fun Hov =>
-      match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
-      | Some root => fun Hrr => VDependent (DepRedeclaredNameV r0 root Hrr)
-      | None => fun Hrv => VInvalid (UnresolvedNameV r0 Hov Hrv)
+      match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> option (ValueOutcome bp r) with
+      | Some root => fun Hrr => Some (VDependent (DepRedeclaredNameV r0 root Hrr))
+      | None => fun Hrv => Some (VInvalid (UnresolvedNameV r0 Hov Hrv))
       end eq_refl
   end H.
-(* §250 overflowing untyped constant: const-no-default at a no-type const, typed-target at explicit const/var *)
-Definition literal_target_outcome (r : Index.NodeRef idx)
-  (c : TR.Constant) (fallback : ValueOutcome bp r) : ValueOutcome bp r :=
-  (match Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b r) as b
-     return Index.Edges.rk_const_no_type (Index.Edges.root_const_var_b r) = b -> ValueOutcome bp r with
-   | true => fun Hcn => VUnmet (RConstNoDefault Hcn c)
-   | false => fun _ =>
-       (match Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b r) as b2
-          return Index.Edges.rk_explicit_target (Index.Edges.root_const_var_b r) = b2 -> ValueOutcome bp r with
-        | true => fun Het => VUnmet (RTypedTargetConstant Het c)
-        | false => fun _ => if value_ctx r then fallback else VNonconst
-        end) eq_refl
-   end) eq_refl.
+(* a conversion that did not convert: the exact TR category projects directly onto the exact cause or boundary *)
+Definition conversion_failure_verdict {r : Index.NodeRef idx} (Hv : Index.node_view r = Index.Model.VApplication)
+  (t : TR.TypeForm) (x : Index.NodeRef idx) {t' : TR.TypeForm} (res : TR.ConversionResult t') : ValueOutcome bp r :=
+  match res with
+  | TR.Converted _ => VNonconst
+  | TR.Overflows _ => VInvalid (ConversionOverflow Hv t x)
+  | TR.NotRepresentable _ => VInvalid (ConversionNotRepresentable Hv t x)
+  | TR.InvalidForm _ => VInvalid (ConversionNotRepresentable Hv t x)
+  | TR.Unmet _ => VUnmet (RConversionUnmet Hv t x)
+  end.
 
-Definition own_value_body (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
-  (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : ValueOutcome bp r :=
-  match nv as v return Index.node_view r = v -> ValueOutcome bp r with
-  | Index.Model.VName n => fun Hv =>
-      let r0 := BN.resolve bp r n in
-      own_value_res_body r n r0 (BN.resolution_object_view r0) eq_refl
-  | Index.Model.VLiteral l => fun Hv =>
-      match mconst ctab r with
-      | Some ci => defer_to_app r (match resolve_constant_info ci with
-                   | Some rc => VOK rc
-                   | None => if fold_consumed r then VNonconst
-                             else literal_target_outcome r (TR.ci_const ci)
-                                    (VInvalid (DefaultOverflow (is_value_default_lit r l Hv) (TR.ci_const ci)))
-                   end)
-      | None => VNonconst
-      end
-  | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
-      match mconst ctab (Index.Edges.uo_child (Index.Edges.unary_operand (Index.Refs.mkUnaryRef r Syntax.UnaryMinus Hv))) with
-      | Some _ =>
-          match mconst ctab r with
-          | Some ci => defer_to_app r (match resolve_constant_info ci with
-                       | Some rc => VOK rc
-                       | None => if fold_consumed r then VNonconst
-                                 else literal_target_outcome r (TR.ci_const ci)
-                                        (VInvalid (DefaultOverflow (is_value_default_unary r Syntax.UnaryMinus Hv) (TR.ci_const ci)))
-                       end)
-          | None => VInvalid (UnaryMismatch Hv)
+(* the application value judgment over its exact path, factored over the head's resolution so convoy_at reduces it *)
+Definition app_judgment (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (Hv : Index.node_view r = Index.Model.VApplication) (path : Index.Edges.ExprUsePath r) (h : Names.OrdinaryIdentifier)
+  (ov : option (BN.ObjectRef idx)) (H : BN.resolution_object_view (BN.resolve bp r h) = ov) : option (ValueOutcome bp r) :=
+  match ov as ov' return BN.resolution_object_view (BN.resolve bp r h) = ov' -> option (ValueOutcome bp r) with
+  | Some o => fun _ =>
+      match o with
+      | BN.PredeclaredObject pn =>
+      match pmeaning pn, map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
+      | PMConvForm t, x :: nil =>
+          match mcell ctab r with
+          | IConvFail _ res => Some (conversion_failure_verdict Hv t x res)
+          | cell => exact_verdict path (default_verdict r (is_value_default_app r Hv)) false cell
           end
-      | None => VNonconst
+      | PMComplex, re :: im :: nil =>
+          match mcell ctab r with
+          | IComplexDefer _ _ => Some (VUnmet (ReqComplexType Hv))
+          | IComplexMismatch _ _ => Some (VInvalid (ComplexMismatch Hv re im))
+          | cell => exact_verdict path (default_verdict r (is_value_default_app r Hv)) false cell
+          end
+      | PMPrintln, _ => Some (if zero_result_consumed r then VInvalid (NoValueUsed Hv) else VNonconst)
+      | _, _ => Some VNonconst
+      end
+      | BN.SourceObject (BN.DOFunc _) =>
+          match Index.Edges.application_args (Index.Refs.mkAppRef r Hv) with
+          | nil => Some (if zero_result_consumed r then VInvalid (NoValueUsed Hv) else VNonconst)
+          | _ :: _ => Some VNonconst
+          end
+      | BN.SourceObject _ => Some VNonconst
+      end
+  | None => fun Hov =>
+      match BN.resolution_redecl_root (BN.resolve bp r h) as rv
+            return BN.resolution_redecl_root (BN.resolve bp r h) = rv -> option (ValueOutcome bp r) with
+      | Some root => fun Hrr => Some (VDependent (DepRedeclaredNameV (BN.resolve bp r h) root Hrr))
+      | None => fun Hrv => Some (VDependent (DepUnboundNameV (BN.resolve bp r h) Hov Hrv))
+      end eq_refl
+  end H.
+
+(* the value judgment of an expression node over an explicit path: path and cell select the row, None an operand *)
+Definition expr_judgment_body (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (path : Index.Edges.ExprUsePath r) (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : option (ValueOutcome bp r) :=
+  match nv as v return Index.node_view r = v -> option (ValueOutcome bp r) with
+  | Index.Model.VName n => fun _ =>
+      let r0 := BN.resolve bp r n in
+      own_value_res_body r n r0 path (BN.resolution_object_view r0) eq_refl
+  | Index.Model.VLiteral l => fun Hv => exact_verdict path (default_verdict r (is_value_default_lit r l Hv)) true (mcell ctab r)
+  | Index.Model.VUnary Syntax.UnaryMinus => fun Hv =>
+      match mcell ctab r with
+      | IUnaryMismatch _ => Some (VInvalid (UnaryMismatch Hv))
+      | IUnaryOverflow _ => Some (VInvalid (UnaryMismatch Hv))
+      | cell => exact_verdict path (default_verdict r (is_value_default_unary r Syntax.UnaryMinus Hv)) true cell
       end
   | Index.Model.VApplication => fun Hv =>
       match Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv))) with
-      | Index.Model.VName h =>
-          let r0 := BN.resolve bp r h in
-          match BN.resolution_object_view r0 as ov return BN.resolution_object_view r0 = ov -> ValueOutcome bp r with
-          | Some o => fun _ =>
-              match o with
-              | BN.PredeclaredObject pn =>
-              match pmeaning pn, map (fun x => Index.Edges.aa_child (projT2 x)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) with
-              | PMConvForm t, x :: nil =>
-                  match mconst ctab x with
-                  | Some ci => match TR.convert_constant t ci with
-                               | TR.Converted tc => VOK (TR.mk_rc t tc)
-                               | TR.Overflows _ => VInvalid (ConversionOverflow Hv t x)
-                               | TR.NotForm _ => VInvalid (ConversionNotRepresentable Hv t x)
-                               end
-                  | None => VNonconst
-                  end
-              | PMComplex, re :: im :: nil =>
-                  match mconst ctab re, mconst ctab im with
-                  | Some cre, Some cim =>
-                      match complex_class cre cim with
-                      | CxOk => match mconst ctab r with
-                                | Some ci => match resolve_constant_info ci with Some rc => VOK rc | None => VNonconst end
-                                | None => VNonconst end
-                      | CxDefer => VUnmet (ReqComplexType Hv)
-                      | CxError => VInvalid (ComplexMismatch Hv re im)
-                      end
-                  | _, _ => VNonconst
-                  end
-              | PMPrintln, _ => if zero_result_consumed r then VInvalid (NoValueUsed Hv) else VNonconst
-              | _, _ => VNonconst
-              end
-              | BN.SourceObject (BN.DOFunc _) =>
-                  match Index.Edges.application_args (Index.Refs.mkAppRef r Hv) with
-                  | nil => if zero_result_consumed r then VInvalid (NoValueUsed Hv) else VNonconst
-                  | _ :: _ => VNonconst
-                  end
-              | BN.SourceObject _ => VNonconst
-              end
-          | None => fun Hov =>
-              match BN.resolution_redecl_root r0 as rv return BN.resolution_redecl_root r0 = rv -> ValueOutcome bp r with
-              | Some root => fun Hrr => VDependent (DepRedeclaredNameV r0 root Hrr)
-              | None => fun Hrv => VDependent (DepUnboundNameV r0 Hov Hrv)
-              end eq_refl
-          end eq_refl
-      | _ => VNonconst
+      | Index.Model.VName h => app_judgment ctab r Hv path h (BN.resolution_object_view (BN.resolve bp r h)) eq_refl
+      | _ => Some VNonconst
       end
-  (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
-  | Index.Model.VConstSpec sh => fun Hv => const_spec_disposition (Index.Refs.mkSpecRef (fl := Index.Model.ConstSpecF) r sh Hv)
-  | Index.Model.VVarSpec v => fun Hv => VUnmet (ReqDeclMeaningV (is_value_decl_var r v Hv))
-  | Index.Model.VTypeSpec t => fun Hv => VUnmet (ReqDeclMeaningV (is_value_decl_type r t Hv))
-  | _ => fun _ => VNonconst
+  | _ => fun _ => None
   end Hnv.
-Definition own_value (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : ValueOutcome bp r :=
+Definition expr_judgment (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (path : Index.Edges.ExprUsePath r) : option (ValueOutcome bp r) :=
+  expr_judgment_body ctab r path (Index.node_view r) eq_refl.
+(* the judgment over a path reduces to its exact node_view branch — the convoy named so it is rewritable *)
+Lemma expr_judgment_at (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (path : Index.Edges.ExprUsePath r) (v : Index.Model.NodeView) (H : Index.node_view r = v) :
+  expr_judgment ctab r path = expr_judgment_body ctab r path v H.
+Proof. unfold expr_judgment. destruct H. reflexivity. Qed.
+
+(* the per-node value verdict: an expression node is judged over its canonical use path, None an operand-only site *)
+Definition own_value_body (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (nv : Index.Model.NodeView) (Hnv : Index.node_view r = nv) : option (ValueOutcome bp r) :=
+  match nv as v return Index.node_view r = v -> option (ValueOutcome bp r) with
+  | Index.Model.VName n => fun Hv => expr_judgment ctab r (Index.Edges.use_path r (Index.Edges.is_expr_node_name n Hv))
+  | Index.Model.VLiteral l => fun Hv => expr_judgment ctab r (Index.Edges.use_path r (Index.Edges.is_expr_node_lit l Hv))
+  | Index.Model.VUnary u => fun Hv => expr_judgment ctab r (Index.Edges.use_path r (Index.Edges.is_expr_node_unary u Hv))
+  | Index.Model.VApplication => fun Hv => expr_judgment ctab r (Index.Edges.use_path r (is_expr_node_app Hv))
+  (* declaration outcomes live on the declaration subject (spec / short statement), never on the binder *)
+  | Index.Model.VConstSpec sh => fun Hv => Some (const_spec_disposition (Index.Refs.mkSpecRef (fl := Index.Model.ConstSpecF) r sh Hv))
+  | Index.Model.VVarSpec v => fun Hv => Some (VUnmet (ReqDeclMeaningV (is_value_decl_var r v Hv)))
+  | Index.Model.VTypeSpec t => fun Hv => Some (VUnmet (ReqDeclMeaningV (is_value_decl_type r t Hv)))
+  | _ => fun _ => Some VNonconst
+  end Hnv.
+(* the one per-node verdict: computed once, it is both the retained row (when Some) and the operand-only bit *)
+Definition own_verdict (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : option (ValueOutcome bp r) :=
   own_value_body ctab r (Index.node_view r) eq_refl.
-(* the value fact of a node reduces to its exact node_view branch — the convoy named so it is rewritable *)
-Lemma own_value_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
-  (v : Index.Model.NodeView) (H : Index.node_view r = v) : own_value ctab r = own_value_body ctab r v H.
-Proof. unfold own_value. destruct H. reflexivity. Qed.
-(* §9.1 exact short-origin positive case: a name resolving to a DOShort source object is a lawful nonconstant value *)
-Lemma own_value_doshort (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+(* the verdict's value projection; an operand-only site projects the neutral VNonconst and retains no row *)
+Definition value_of_verdict {r : Index.NodeRef idx} (v : option (ValueOutcome bp r)) : ValueOutcome bp r :=
+  match v with Some o => o | None => VNonconst end.
+Definition own_value (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : ValueOutcome bp r :=
+  value_of_verdict (own_verdict ctab r).
+(* an operand-only site: an exact constant consumed by a fold, a callee, or a discarding statement — no value row *)
+Definition operand_only (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : bool :=
+  match own_verdict ctab r with None => true | Some _ => false end.
+(* a site that is not operand-only carries its projected value as its exact retained verdict *)
+Lemma verdict_of_not_operand (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (Hoo : operand_only ctab r = false) : own_verdict ctab r = Some (own_value ctab r).
+Proof. unfold operand_only in Hoo. unfold own_value, value_of_verdict. destruct (own_verdict ctab r); [ reflexivity | discriminate Hoo ]. Qed.
+(* the verdict of a node reduces to its exact node_view branch — the convoy named so it is rewritable *)
+Lemma own_verdict_at (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (v : Index.Model.NodeView) (H : Index.node_view r = v) : own_verdict ctab r = own_value_body ctab r v H.
+Proof. unfold own_verdict. destruct H. reflexivity. Qed.
+(* the value fact of a node is the projection of its exact node_view branch's verdict *)
+Lemma own_value_at (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (v : Index.Model.NodeView) (H : Index.node_view r = v) : own_value ctab r = value_of_verdict (own_value_body ctab r v H).
+Proof. unfold own_value. rewrite (own_verdict_at ctab r v H). reflexivity. Qed.
+(* a name's verdict is exactly the resolution decision over its exact path *)
+Lemma own_verdict_name (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) :
+  own_verdict ctab r = own_value_res_body r n (BN.resolve bp r n)
+                         (Index.Edges.use_path r (Index.Edges.is_expr_node_name n Hn))
+                         (BN.resolution_object_view (BN.resolve bp r n)) eq_refl.
+Proof.
+  rewrite (own_verdict_at ctab r (Index.Model.VName n) Hn). cbn [own_value_body].
+  rewrite (expr_judgment_at ctab r _ (Index.Model.VName n) Hn). reflexivity.
+Qed.
+(* §9.1 exact short-origin positive case: a name resolving to a DOShort source object is a retained nonconstant value *)
+Lemma own_verdict_doshort (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
   (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (sn : BN.ShortNewRef idx)
   (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOShort sn))) :
-  own_value ctab r = VNonconst.
+  own_verdict ctab r = Some VNonconst.
 Proof.
-  rewrite (own_value_at ctab r (Index.Model.VName n) Hn). cbn [own_value_body].
+  rewrite (own_verdict_name ctab r n Hn).
   rewrite (convoy_at (BN.resolution_object_view (BN.resolve bp r n))
-                     (own_value_res_body r n (BN.resolve bp r n))
+                     (own_value_res_body r n (BN.resolve bp r n) (Index.Edges.use_path r (Index.Edges.is_expr_node_name n Hn)))
                      (Some (BN.SourceObject (BN.DOShort sn))) Hres).
   reflexivity.
 Qed.
+Lemma own_value_doshort (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (sn : BN.ShortNewRef idx)
+  (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOShort sn))) :
+  own_value ctab r = VNonconst.
+Proof. unfold own_value. rewrite (own_verdict_doshort ctab r n Hn sn Hres). reflexivity. Qed.
 (* §9.2 no generic boundary: the exact same case cannot be the ReqValueMeaning source boundary *)
-Lemma own_value_doshort_not_boundary (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+Lemma own_value_doshort_not_boundary (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
   (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (sn : BN.ShortNewRef idx)
   (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOShort sn)))
   (n' : Names.OrdinaryIdentifier) (r' : BN.ResolutionRef (BN.use_env bp r) n') (org' : BN.DeclOrigin idx)
@@ -835,16 +1117,163 @@ Lemma own_value_doshort_not_boundary (ctab : Collections.NodeMap.t (option TR.Co
   own_value ctab r <> VUnmet (ReqValueMeaning r' org' H').
 Proof. rewrite (own_value_doshort ctab r n Hn sn Hres). discriminate. Qed.
 (* §9.3 discrimination: a DOBinder source object is exactly the ReqValueMeaning boundary, not the VNonconst case *)
-Lemma own_value_dobinder_boundary (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx)
+Lemma own_value_dobinder_boundary (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
   (n : Names.OrdinaryIdentifier) (Hn : Index.node_view r = Index.Model.VName n) (b : BN.BinderRef idx)
   (Hres : BN.resolution_object_view (BN.resolve bp r n) = Some (BN.SourceObject (BN.DOBinder b))) :
   own_value ctab r = VUnmet (ReqValueMeaning (BN.resolve bp r n) (BN.DOBinder b) Hres).
 Proof.
-  rewrite (own_value_at ctab r (Index.Model.VName n) Hn). cbn [own_value_body].
+  unfold own_value. rewrite (own_verdict_name ctab r n Hn). cbn [value_of_verdict].
   rewrite (convoy_at (BN.resolution_object_view (BN.resolve bp r n))
-                     (own_value_res_body r n (BN.resolve bp r n))
+                     (own_value_res_body r n (BN.resolve bp r n) (Index.Edges.use_path r (Index.Edges.is_expr_node_name n Hn)))
                      (Some (BN.SourceObject (BN.DOBinder b))) Hres).
   reflexivity.
+Qed.
+
+(* W1 the verdict of every live expression node is the judgment of its one canonical use path *)
+Lemma judgment_from_path (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (Hr : Index.Edges.is_expr_node r = true) : own_verdict ctab r = expr_judgment ctab r (Index.Edges.use_path r Hr).
+Proof.
+  assert (Hgen : forall v (H : Index.node_view r = v),
+            own_value_body ctab r v H = expr_judgment ctab r (Index.Edges.use_path r Hr)).
+  { intros v H. unfold Index.Edges.is_expr_node in Hr.
+    destruct v as [n|l|u| |nt|nb|nc|nvv|nts|nd|nst| |ntp|]; cbn [own_value_body];
+      try (f_equal; f_equal; apply (Eqdep_dec.UIP_dec Bool.bool_dec));
+      exfalso; rewrite H in Hr; cbn in Hr; discriminate Hr. }
+  exact (Hgen (Index.node_view r) eq_refl).
+Qed.
+(* W3 the link sequence is the path's exact constructor order: the subject's own link first, arg and head distinct *)
+Lemma path_links_order {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) :
+  match path with
+  | Index.Edges.EUPUnary u _ sub => path_links path = LUnary u :: path_links sub
+  | Index.Edges.EUPArg a i _ sub => path_links path = LArg a i :: path_links sub
+  | Index.Edges.EUPHead a _ sub => path_links path = LHead a :: path_links sub
+  | _ => path_links path = []
+  end.
+Proof. destruct path; reflexivity. Qed.
+Lemma link_arg_not_head (a a' : Index.Refs.AppRef idx) (i : nat) : LArg a i <> LHead a'.
+Proof. discriminate. Qed.
+(* W4 iota outside every ConstSpec is exactly the invalid identity; inside, exactly the retained initializer ancestry *)
+Lemma iota_verdict_outside {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) (n : Names.OrdinaryIdentifier)
+  (pn : Names.PredeclaredName) (r0 : BN.ResolutionRef (BN.use_env bp r) n)
+  (Hpre : BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn)) (Hn : path_const_root path = None) :
+  iota_verdict path n pn r0 Hpre (path_const_root path) eq_refl = VInvalid (InvalidIdentity r0 pn Hpre).
+Proof. rewrite (convoy_at (path_const_root path) (iota_verdict path n pn r0 Hpre) None Hn). reflexivity. Qed.
+Lemma iota_verdict_inside {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) (n : Names.OrdinaryIdentifier)
+  (pn : Names.PredeclaredName) (r0 : BN.ResolutionRef (BN.use_env bp r) n)
+  (Hpre : BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn))
+  (sp : Index.Refs.SpecRef idx Index.Model.ConstSpecF) (j : nat) (e : Index.Edges.SpecValueEdge sp j)
+  (Hc : path_const_root path = Some (existT _ sp (existT _ j e))) :
+  iota_verdict path n pn r0 Hpre (path_const_root path) eq_refl
+  = VUnmet (RInitializerIdentity r0 pn Hpre path sp j e (path_const_root_at path sp j e Hc)).
+Proof. rewrite (convoy_at (path_const_root path) (iota_verdict path n pn r0 Hpre) _ Hc). reflexivity. Qed.
+(* the name judgment at an iota resolution is exactly the path's iota verdict, no other reading of the identity *)
+Lemma res_body_iota (r : Index.NodeRef idx) (n : Names.OrdinaryIdentifier) (r0 : BN.ResolutionRef (BN.use_env bp r) n)
+  (path : Index.Edges.ExprUsePath r) (pn : Names.PredeclaredName)
+  (H : BN.resolution_object_view r0 = Some (BN.PredeclaredObject pn)) (Hpm : pmeaning pn = PMIota) :
+  exists Hpre, own_value_res_body r n r0 path (Some (BN.PredeclaredObject pn)) H
+               = Some (iota_verdict path n pn r0 Hpre (path_const_root path) eq_refl).
+Proof. eexists. cbn [own_value_res_body]. rewrite Hpm. reflexivity. Qed.
+(* an argument's use is one of exactly two actions: folded into a conversion or complex head, else defaulted *)
+Lemma arg_use_action_cases (a : Index.Refs.AppRef idx) : arg_use_action a = UAFold \/ arg_use_action a = UADefault.
+Proof.
+  unfold arg_use_action.
+  destruct (Index.node_view (Index.Edges.ah_child (Index.Edges.app_head a))) as [h|l|u| |nt|nb|nc|nvv|nts|nd|nst| |ntp|];
+    try (right; reflexivity).
+  destruct (BN.resolution_object_view (BN.resolve bp (Index.Refs.app_node a) h)) as [[pn|org]|]; try (right; reflexivity).
+  destruct (pmeaning pn); solve [ left; reflexivity | right; reflexivity ].
+Qed.
+(* W6 one action per path; the untyped constant is defaulted only under UADefault and kept exact under every other *)
+Lemma untyped_verdict_by_action {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  (dflt : ValueOutcome bp r) (wrap : bool) (c : TR.Constant) :
+  match use_action path with
+  | UADefault => exists v, untyped_verdict path dflt wrap c = Some v
+      /\ (v = dflt \/ exists a i Hpar Hrole, v = arg_dependency a i Hpar Hrole dflt)
+  | UAPreserve => exists sp j e Hs Hf, untyped_verdict path dflt wrap c = Some (VUnmet (RConstNoDefault sp j e Hs Hf c))
+  | UAExplicitTarget => exists root, untyped_verdict path dflt wrap c = Some (VUnmet (RTypedTargetConstant root c))
+  | UAFold => untyped_verdict path dflt wrap c = None
+  | UADiscard => untyped_verdict path dflt wrap c = None
+  | UACallee => untyped_verdict path dflt wrap c = None
+      \/ exists d, untyped_verdict path dflt wrap c = Some (VDependent d)
+  end.
+Proof.
+  destruct path as [es e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub];
+    cbn [use_action untyped_verdict].
+  - reflexivity.
+  - assert (Hs : Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) = true
+              \/ Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) = false)
+      by (destruct (Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp)); [ left | right ]; reflexivity).
+    destruct Hs as [Hs | Hs].
+    + replace (if Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) then UAExplicitTarget else UAPreserve)
+        with UAExplicitTarget by (rewrite Hs; reflexivity).
+      rewrite (convoy_at _ (const_root_verdict sp j e c) _ Hs). cbn [const_root_verdict]. eexists; reflexivity.
+    + replace (if Index.Refs.shape_has_type Index.Model.ConstSpecF (Index.Refs.sp_shape sp) then UAExplicitTarget else UAPreserve)
+        with UAPreserve by (rewrite Hs; reflexivity).
+      rewrite (convoy_at _ (const_root_verdict sp j e c) _ Hs). cbn [const_root_verdict]. do 5 eexists; reflexivity.
+  - eexists; reflexivity.
+  - eexists; split; [ reflexivity | left; reflexivity ].
+  - eexists; split; [ reflexivity | left; reflexivity ].
+  - reflexivity.
+  - destruct (arg_use_action_cases a) as [Hf | Hd]; (rewrite Hf || rewrite Hd).
+    + reflexivity.
+    + eexists; split; [ reflexivity | ]. destruct wrap; [ right; do 4 eexists; reflexivity | left; reflexivity ].
+  - destruct (own_app a); [ left; reflexivity | right; eexists; reflexivity | left; reflexivity | left; reflexivity ].
+Qed.
+(* W6 a typed constant is never defaulted or re-converted: its row is its own value, or its parent's dependency *)
+Lemma typed_verdict_exact {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r) (wrap : bool) (rc : TR.ResolvedConstant) :
+  exists v, typed_verdict path wrap rc = Some v /\ (v = VOK rc \/ exists d, v = VDependent d).
+Proof.
+  destruct path as [es e | sp j e | sp j e Ht | sp j e Ht | st j e | u e sub | a i e sub | a e sub]; cbn [typed_verdict];
+    try (eexists; split; [ reflexivity | left; reflexivity ]).
+  - eexists; split; [ reflexivity | ]. destruct wrap; [ | left; reflexivity ].
+    destruct (arg_use_action a); try (left; reflexivity);
+      unfold arg_dependency; destruct (own_app a); solve [ left; reflexivity | right; eexists; reflexivity ].
+  - eexists; split; [ reflexivity | ]. destruct wrap; [ | left; reflexivity ].
+    unfold head_dependency; destruct (own_app a); solve [ left; reflexivity | right; eexists; reflexivity ].
+Qed.
+(* W7 a failed mandatory default of a known constant is exactly its DefaultOverflow: never VNonconst, never absent *)
+Lemma default_verdict_failure (r : Index.NodeRef idx) (Hdef : is_value_default_node r = true) (c : TR.Constant)
+  (Hn : TR.default_constant c = None) : default_verdict r Hdef c = VInvalid (DefaultOverflow Hdef c).
+Proof. unfold default_verdict. rewrite Hn. reflexivity. Qed.
+Lemma default_verdict_never_nonconst (r : Index.NodeRef idx) (Hdef : is_value_default_node r = true) (c : TR.Constant) :
+  default_verdict r Hdef c <> VNonconst.
+Proof. unfold default_verdict. destruct (TR.default_constant c); discriminate. Qed.
+Lemma untyped_default_failure {r : Index.NodeRef idx} (path : Index.Edges.ExprUsePath r)
+  (Hdef : is_value_default_node r = true) (wrap : bool) (c : TR.Constant)
+  (Ha : use_action path = UADefault) (Hn : TR.default_constant c = None) :
+  exists v, untyped_verdict path (default_verdict r Hdef c) wrap c = Some v
+            /\ (v = VInvalid (DefaultOverflow Hdef c) \/ exists d, v = VDependent d).
+Proof.
+  pose proof (untyped_verdict_by_action path (default_verdict r Hdef c) wrap c) as Hb. rewrite Ha in Hb.
+  destruct Hb as [v [Hv Hcase]]. exists v. split; [ exact Hv | ].
+  destruct Hcase as [Hd | [a [i [Hpar [Hrole Hd]]]]]; subst v.
+  - left. apply default_verdict_failure. exact Hn.
+  - unfold arg_dependency. destruct (own_app a);
+      [ left; apply default_verdict_failure; exact Hn | right; eexists; reflexivity
+      | right; eexists; reflexivity | right; eexists; reflexivity ].
+Qed.
+(* W9 the conversion projection is category-exact: overflow and invalid forms are causes, the absent rule a boundary *)
+Lemma conversion_failure_exact {r : Index.NodeRef idx} (Hv : Index.node_view r = Index.Model.VApplication)
+  (t : TR.TypeForm) (x : Index.NodeRef idx) (ci : TR.ConstantInfo) :
+  conversion_failure_verdict Hv t x (@TR.Overflows t ci) = VInvalid (ConversionOverflow Hv t x)
+  /\ conversion_failure_verdict Hv t x (@TR.NotRepresentable t ci) = VInvalid (ConversionNotRepresentable Hv t x)
+  /\ conversion_failure_verdict Hv t x (@TR.InvalidForm t ci) = VInvalid (ConversionNotRepresentable Hv t x)
+  /\ conversion_failure_verdict Hv t x (@TR.Unmet t ci) = VUnmet (RConversionUnmet Hv t x).
+Proof. repeat split; reflexivity. Qed.
+(* L9/L10 a conversion that did not convert projects its retained cell exactly: the row is the cell's own category *)
+Lemma conversion_failure_row (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (Hv : Index.node_view r = Index.Model.VApplication) (h : Names.OrdinaryIdentifier)
+  (Hh : Index.node_view (Index.Edges.ah_child (Index.Edges.app_head (Index.Refs.mkAppRef r Hv))) = Index.Model.VName h)
+  (pn : Names.PredeclaredName)
+  (Hres : BN.resolution_object_view (BN.resolve bp r h) = Some (BN.PredeclaredObject pn))
+  (t : TR.TypeForm) (Hpm : pmeaning pn = PMConvForm t) (x : Index.NodeRef idx)
+  (Hargs : map (fun y => Index.Edges.aa_child (projT2 y)) (Index.Edges.application_args (Index.Refs.mkAppRef r Hv)) = [x])
+  (t' : TR.TypeForm) (res : TR.ConversionResult t') (Hcell : mcell ctab r = IConvFail t' res) :
+  own_verdict ctab r = Some (conversion_failure_verdict Hv t x res).
+Proof.
+  rewrite (own_verdict_at ctab r _ Hv). cbn [own_value_body].
+  rewrite (expr_judgment_at ctab r _ _ Hv). cbn [expr_judgment_body]. rewrite Hh.
+  rewrite (convoy_at _ (app_judgment ctab r Hv (Index.Edges.use_path r (is_expr_node_app Hv)) h) _ Hres).
+  cbn [app_judgment]. rewrite Hpm, Hargs, Hcell. reflexivity.
 Qed.
 
 (* the child-negativity bools an expr statement reads: whether its exact child value / application fact is negative *)
@@ -1002,19 +1431,19 @@ Proof.
 Qed.
 (* §5 the child-read negativity cell — the small vm-safe projection a parent needs of a child, keyed once *)
 Record NegCell : Type := mkNegCell { nc_val_neg : bool ; nc_app_neg : bool ; nc_val_nonconst : bool }.
-(* the one-per-node cell replicates exactly what the child-first find over va returned: value fields skip name heads *)
-Definition neg_cell_of (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : NegCell :=
+(* the one-per-node cell: value fields skip name heads, the nonconst bit reads the retained verdict (no operand) *)
+Definition neg_cell_of (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : NegCell :=
   mkNegCell
     (if is_name_head r then false else value_neg_b bp (own_value bp ctab r))
     (app_neg_at bp r)
-    (if is_name_head r then false else match own_value bp ctab r with VNonconst => true | _ => false end).
-Definition neg_map_step (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (m : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) : Collections.NodeMap.t NegCell :=
+    (if is_name_head r then false else match own_verdict bp ctab r with Some VNonconst => true | _ => false end).
+Definition neg_map_step (ctab : Collections.NodeMap.t Intrinsic) (m : Collections.NodeMap.t NegCell) (r : Index.NodeRef idx) : Collections.NodeMap.t NegCell :=
   Collections.NodeMap.add (Index.nr_key r) (neg_cell_of ctab r) m.
 (* §5 the ephemeral negativity carrier: one cell per node, keyed for a constant-event child read, no growing scan *)
-Definition neg_map (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : Collections.NodeMap.t NegCell :=
+Definition neg_map (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx)) : Collections.NodeMap.t NegCell :=
   fold_left (neg_map_step ctab) nodes (Collections.NodeMap.empty NegCell).
 (* a key no node in the pass carries reads straight through the fold to the accumulator — gso closure *)
-Lemma neg_map_skip (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (k : positive)
+Lemma neg_map_skip (ctab : Collections.NodeMap.t Intrinsic) (k : positive)
   (nodes : list (Index.NodeRef idx)) (acc : Collections.NodeMap.t NegCell) :
   (forall r, In r nodes -> Index.nr_key r <> k) ->
   Collections.NodeMap.find k (fold_left (neg_map_step ctab) nodes acc) = Collections.NodeMap.find k acc.
@@ -1024,7 +1453,7 @@ Proof.
   unfold neg_map_step. apply Collections.NodeMap.gso, not_eq_sym, (Hne n (or_introl eq_refl)).
 Qed.
 (* §5 the cell-read law: the carrier reads back each node's exact once-computed cell — a constant-event lookup *)
-Lemma neg_map_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (e : Index.NodeRef idx)
+Lemma neg_map_at (ctab : Collections.NodeMap.t Intrinsic) (e : Index.NodeRef idx)
   (nodes : list (Index.NodeRef idx)) :
   In e nodes -> NoDup nodes ->
   (forall a b, In a nodes -> In b nodes -> Index.nr_key a = Index.nr_key b -> a = b) ->
@@ -1973,16 +2402,16 @@ Proof.
   destruct nst; cbn; intro Hin; try (exfalso; exact Hin);
     (destruct Hin as [Hin|Hin]; [ subst o; split; [ eexists; reflexivity | eexists; exact H ] | exfalso; exact Hin ]).
 Qed.
-(* the node's own value row, direct at the node — a name head carries none *)
-Definition va_value_row (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
-  if is_name_head r then [] else [OFValue r (own_value bp ctab r)].
+(* the node's own value row, direct at the node — a name head and an operand-only site carry none *)
+Definition va_value_row (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : list (OccFact bp) :=
+  if is_name_head r || operand_only bp ctab r then [] else [OFValue r (own_value bp ctab r)].
 (* the node's own application row — the canonical app_fact_app, one own_app construction *)
 Definition va_app_row (r : Index.NodeRef idx) : list (OccFact bp) := app_fact_app r.
 (* the Value row is retained exactly when the shared policy admits the site's view — the one retention gate *)
-Definition retained_value_row (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (site : Index.NodeRef idx) : list (OccFact bp) :=
+Definition retained_value_row (ctab : Collections.NodeMap.t Intrinsic) (site : Index.NodeRef idx) : list (OccFact bp) :=
   if retains_value_fact site then va_value_row ctab site else [].
 (* §11 raw_facts projects each node's own outcome directly; a statement reads its child via the carrier *)
-Definition occ_facts_va (va : Collections.NodeMap.t NegCell) (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) : list (OccFact bp) :=
+Definition occ_facts_va (va : Collections.NodeMap.t NegCell) (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) : list (OccFact bp) :=
   match Index.node_view r with
   | Index.Model.VApplication => va_app_row r ++ retained_value_row ctab r
   | Index.Model.VStmt _ => stmt_fact r (expr_sx_va va r) va
@@ -1991,7 +2420,7 @@ Definition occ_facts_va (va : Collections.NodeMap.t NegCell) (ctab : Collections
   end.
 
 (* the carrier read at a file node is the exact once-computed cell — In + NoDup + key-injectivity are file facts *)
-Lemma neg_map_cell (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma neg_map_cell (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
   Collections.NodeMap.find (Index.nr_key e) (neg_map ctab (Index.file_nodes fr)) = Some (neg_cell_of ctab e).
 Proof.
@@ -2002,11 +2431,11 @@ Proof.
     rewrite (file_nodes_file fr a Ha), (file_nodes_file fr b Hb); reflexivity.
 Qed.
 (* §7 a name head's value read is false — its cell carries a false value field (name heads skip the value row) *)
-Lemma va_value_negative_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma va_value_negative_name_head (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = true) (Hf : Index.nr_file e = fr) :
   va_value_negative (neg_map ctab (Index.file_nodes fr)) e = false.
 Proof. unfold va_value_negative. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_neg neg_cell_of]. rewrite Hnh. reflexivity. Qed.
-Lemma va_value_nonconst_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma va_value_nonconst_name_head (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = true) (Hf : Index.nr_file e = fr) :
   va_value_nonconst (neg_map ctab (Index.file_nodes fr)) e = false.
 Proof.
@@ -2014,7 +2443,7 @@ Proof.
   destruct (retains_value_fact e); reflexivity.
 Qed.
 (* §7 a name application head contributes no canonical fact: its value row is skipped and it holds no app row *)
-Lemma occ_facts_va_name_head (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma occ_facts_va_name_head (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hnh : is_name_head r = true) :
   occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab r = [].
 Proof.
@@ -2027,57 +2456,68 @@ Proof.
 Qed.
 
 (* the node's own value / application row content at a file node — computed directly, the sole builder's row *)
-Lemma va_value_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (r : Index.NodeRef idx) (Hnh : is_name_head r = false) (Hf : Index.nr_file r = fr) :
+Lemma va_value_row_at (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
+  (r : Index.NodeRef idx) (Hnh : is_name_head r = false) (Hoo : operand_only bp ctab r = false) (Hf : Index.nr_file r = fr) :
   va_value_row ctab r = [OFValue r (own_value bp ctab r)].
-Proof. unfold va_value_row. rewrite Hnh. reflexivity. Qed.
-Lemma va_app_row_at (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Proof. unfold va_value_row. rewrite Hnh, Hoo. reflexivity. Qed.
+(* an operand-only site retains no value row: the exact constant it carries is consumed by its use, never reported *)
+Lemma va_value_row_operand (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (Hoo : operand_only bp ctab r = true) : va_value_row ctab r = [].
+Proof. unfold va_value_row. rewrite Hoo, orb_true_r. reflexivity. Qed.
+(* an operand-only site's projected value is the neutral VNonconst, so it is never negative *)
+Lemma operand_only_not_negative (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx)
+  (Hoo : operand_only bp ctab r = true) : value_neg_b bp (own_value bp ctab r) = false.
+Proof. unfold operand_only in Hoo. unfold own_value, value_of_verdict. destruct (own_verdict bp ctab r); [ discriminate Hoo | reflexivity ]. Qed.
+Lemma va_app_row_at (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (Hva : Index.node_view r = Index.Model.VApplication) :
   va_app_row r = [OFApp r (own_app bp (Index.Refs.mkAppRef r Hva))].
 Proof. unfold va_app_row. exact (app_fact_app_at r Hva). Qed.
-Lemma va_app_row_none (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma va_app_row_none (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hne : Index.node_view r <> Index.Model.VApplication) :
   va_app_row r = [].
 Proof. unfold va_app_row. exact (app_fact_app_none r (Index.node_view r) eq_refl Hne). Qed.
 (* the carrier child-read equals the canonical own_value / own_app negativity at a file node — the exact same fact *)
-Lemma va_value_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma va_value_negative_correct (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   va_value_negative (neg_map ctab (Index.file_nodes fr)) e = value_neg_b bp (own_value bp ctab e).
 Proof. unfold va_value_negative. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_neg neg_cell_of]. rewrite Hnh. reflexivity. Qed.
-Lemma va_value_nonconst_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma va_value_nonconst_correct (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   va_value_nonconst (neg_map ctab (Index.file_nodes fr)) e
-  = retains_value_fact e && match own_value bp ctab e with VNonconst => true | _ => false end.
+  = retains_value_fact e && match own_verdict bp ctab e with Some VNonconst => true | _ => false end.
 Proof. unfold va_value_nonconst. rewrite (neg_map_cell ctab fr e Hf). cbn [nc_val_nonconst neg_cell_of]. rewrite Hnh. reflexivity. Qed.
-Lemma va_app_negative_correct (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma va_app_negative_correct (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) :
   va_app_negative (neg_map ctab (Index.file_nodes fr)) e = app_neg_at bp e.
 Proof. unfold va_app_negative. rewrite (neg_map_cell ctab fr e Hf). reflexivity. Qed.
 
 (* §19.4 a negative value fact sits only on a value-emitting node, so it is one of that node's canonical facts *)
-Lemma occ_value_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma occ_value_mem (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
   value_neg_b bp (own_value bp ctab e) = true ->
   In (OFValue e (own_value bp ctab e)) (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
-  intro Hneg. unfold occ_facts_va, retained_value_row, retains_value_fact.
+  intro Hneg.
+  assert (Hoo : operand_only bp ctab e = false).
+  { destruct (operand_only bp ctab e) eqn:Eoo; [ rewrite (operand_only_not_negative ctab e Eoo) in Hneg; discriminate Hneg | reflexivity ]. }
+  unfold occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
-    try (rewrite (va_value_row_at ctab fr e Hnh Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
+    try (rewrite (va_value_row_at ctab fr e Hnh Hoo Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ]);
     exfalso; rewrite (own_value_at bp ctab e _ E) in Hneg; cbn in Hneg; discriminate Hneg.
 Qed.
-(* the retained Value row of a policy-applicable site is one of its canonical facts, whatever the value outcome *)
-Lemma occ_value_mem_retained (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
-  (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hf : Index.nr_file e = fr) :
+(* the retained Value row of a policy-applicable, non-operand-only site is one of its canonical facts, any outcome *)
+Lemma occ_value_mem_retained (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
+  (e : Index.NodeRef idx) (Hnh : is_name_head e = false) (Hoo : operand_only bp ctab e = false) (Hf : Index.nr_file e = fr) :
   retains_value_fact e = true ->
   In (OFValue e (own_value bp ctab e)) (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
   unfold retains_value_fact, occ_facts_va, retained_value_row, retains_value_fact.
   destruct (Index.node_view e) as [na|nl|nu| |nt|nb|nc|nvv|nts|nd|nst| |ntp|] eqn:E; cbn [retains_value_fact_view];
     intro Hret; try discriminate Hret;
-    rewrite (va_value_row_at ctab fr e Hnh Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ].
+    rewrite (va_value_row_at ctab fr e Hnh Hoo Hf); solve [ apply in_eq | apply in_or_app; right; apply in_eq ].
 Qed.
 (* §19.4 the application fact of an application node is one of its canonical facts *)
-Lemma occ_app_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma occ_app_mem (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (He : Index.node_view e = Index.Model.VApplication) :
   In (OFApp e (own_app bp (Index.Refs.mkAppRef e He))) (occ_facts_va (neg_map ctab (Index.file_nodes fr)) ctab e).
 Proof.
@@ -2087,7 +2527,7 @@ Proof.
   rewrite Hocc, (va_app_row_at ctab fr e Hf He). apply in_or_app. left. apply in_eq.
 Qed.
 (* the short-declaration decision of a short statement node is that node's one canonical fact *)
-Lemma occ_stmt_mem (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma occ_stmt_mem (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (e : Index.NodeRef idx) (Hf : Index.nr_file e = fr) (nn nv : nat)
   (Hv : Index.node_view e = Index.Model.VStmt (Index.Model.SSShort nn nv)) :
   In (OFStmt e (short_decl_decision (neg_map ctab (Index.file_nodes fr)) e nn nv Hv))
@@ -2099,28 +2539,29 @@ Proof.
   rewrite Hocc, (stmt_fact_ssshort e (expr_sx_va (neg_map ctab (Index.file_nodes fr)) e)
     (neg_map ctab (Index.file_nodes fr)) nn nv Hv). apply in_eq.
 Qed.
-(* §5 fused pieces: own_value/own_app computed once per node, feeding the rows AND the cell *)
-Definition node_rows_of (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : list (OccFact bp)) : list (OccFact bp) :=
+(* §5 fused pieces: own_verdict/own_app computed once per node, feeding the rows AND the cell *)
+Definition node_rows_of (r : Index.NodeRef idx) (v : option (ValueOutcome bp r)) (oa : list (OccFact bp)) : list (OccFact bp) :=
+  let row := if is_name_head r || match v with None => true | Some _ => false end then [] else [OFValue r (value_of_verdict bp v)] in
   match Index.node_view r with
-  | Index.Model.VApplication => oa ++ (if retains_value_fact r then (if is_name_head r then [] else [OFValue r ov]) else [])
+  | Index.Model.VApplication => oa ++ (if retains_value_fact r then row else [])
   | Index.Model.VStmt _ => []
   | Index.Model.VTypeExpr _ => type_fact r
-  | _ => if retains_value_fact r then (if is_name_head r then [] else [OFValue r ov]) else []
+  | _ => if retains_value_fact r then row else []
   end.
-Definition cell_of' (r : Index.NodeRef idx) (ov : ValueOutcome bp r) (oa : list (OccFact bp)) : NegCell :=
-  mkNegCell (if is_name_head r then false else value_neg_b bp ov)
+Definition cell_of' (r : Index.NodeRef idx) (v : option (ValueOutcome bp r)) (oa : list (OccFact bp)) : NegCell :=
+  mkNegCell (if is_name_head r then false else value_neg_b bp (value_of_verdict bp v))
             (match oa with OFApp _ o :: _ => app_neg_b bp o | _ => false end)
-            (if is_name_head r then false else match ov with VNonconst => true | _ => false end).
-(* the fused per-file pass: ONE fold; own_value/own_app (via the let) computed once per node, fed to both outputs *)
-Definition file_pass (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx))
+            (if is_name_head r then false else match v with Some VNonconst => true | _ => false end).
+(* the fused per-file pass: ONE fold; own_verdict/own_app (via the let) computed once per node, fed to both outputs *)
+Definition file_pass (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx))
   : list (list (OccFact bp)) * Collections.NodeMap.t NegCell :=
   fold_left (fun st r =>
-       let ov := own_value bp ctab r in
+       let v := own_verdict bp ctab r in
        let oa := app_fact_app r in
-       (node_rows_of r ov oa :: fst st, Collections.NodeMap.add (Index.nr_key r) (cell_of' r ov oa) (snd st)))
+       (node_rows_of r v oa :: fst st, Collections.NodeMap.add (Index.nr_key r) (cell_of' r v oa) (snd st)))
      nodes ([], Collections.NodeMap.empty NegCell).
 (* the fused fact list: the pass's own rows, each statement's row assembled from the complete carrier *)
-Definition file_facts (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
+Definition file_facts (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx)) : list (OccFact bp) :=
   let pass := file_pass ctab nodes in
   List.concat (map (fun ro => match Index.node_view (fst ro) with
                          | Index.Model.VStmt _ => stmt_fact (fst ro) (expr_sx_va (snd pass) (fst ro)) (snd pass)
@@ -2134,17 +2575,17 @@ Proof.
     try (rewrite (app_fact_app_none r _ E ltac:(discriminate)); rewrite (app_neg_at_off r _ E ltac:(discriminate)); reflexivity).
   rewrite (app_fact_app_at r E). cbn [app_neg_b]. rewrite (app_neg_at_app r E). reflexivity.
 Qed.
-(* the fused cell equals the canonical neg_cell_of — value fields share own_value, app shares own_app *)
-Lemma cell_of'_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (r : Index.NodeRef idx) :
-  cell_of' r (own_value bp ctab r) (app_fact_app r) = neg_cell_of ctab r.
-Proof. unfold cell_of', neg_cell_of. rewrite app_row_neg_eq. reflexivity. Qed.
+(* the fused cell equals the canonical neg_cell_of — value fields share own_verdict, app shares own_app *)
+Lemma cell_of'_eq (ctab : Collections.NodeMap.t Intrinsic) (r : Index.NodeRef idx) :
+  cell_of' r (own_verdict bp ctab r) (app_fact_app r) = neg_cell_of ctab r.
+Proof. unfold cell_of', neg_cell_of, own_value. rewrite app_row_neg_eq. reflexivity. Qed.
 (* the fold decomposition: the rows accumulate reversed, the carrier is exactly the canonical neg_map fold *)
-Lemma file_pass_spec (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx))
+Lemma file_pass_spec (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx))
   (ar : list (list (OccFact bp))) (ac : Collections.NodeMap.t NegCell) :
-  fold_left (fun st r => let ov := own_value bp ctab r in let oa := app_fact_app r in
-                (node_rows_of r ov oa :: fst st, Collections.NodeMap.add (Index.nr_key r) (cell_of' r ov oa) (snd st)))
+  fold_left (fun st r => let v := own_verdict bp ctab r in let oa := app_fact_app r in
+                (node_rows_of r v oa :: fst st, Collections.NodeMap.add (Index.nr_key r) (cell_of' r v oa) (snd st)))
             nodes (ar, ac)
-  = (rev (map (fun r => node_rows_of r (own_value bp ctab r) (app_fact_app r)) nodes) ++ ar,
+  = (rev (map (fun r => node_rows_of r (own_verdict bp ctab r) (app_fact_app r)) nodes) ++ ar,
      fold_left (fun c r => Collections.NodeMap.add (Index.nr_key r) (neg_cell_of ctab r) c) nodes ac).
 Proof.
   revert ar ac. induction nodes as [|n rest IH]; intros ar ac; [ reflexivity | ].
@@ -2152,13 +2593,13 @@ Proof.
   rewrite <- app_assoc. reflexivity.
 Qed.
 (* the assembled contribution of a node is exactly its occ_facts_va contribution over the complete carrier *)
-Lemma assembly_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) (r : Index.NodeRef idx) :
+Lemma assembly_eq (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx)) (r : Index.NodeRef idx) :
   (match Index.node_view r with
    | Index.Model.VStmt _ => stmt_fact r (expr_sx_va (neg_map ctab nodes) r) (neg_map ctab nodes)
-   | _ => node_rows_of r (own_value bp ctab r) (app_fact_app r) end)
+   | _ => node_rows_of r (own_verdict bp ctab r) (app_fact_app r) end)
   = occ_facts_va (neg_map ctab nodes) ctab r.
 Proof.
-  unfold occ_facts_va, node_rows_of, va_app_row, retained_value_row, va_value_row.
+  unfold occ_facts_va, node_rows_of, va_app_row, retained_value_row, va_value_row, own_value, operand_only.
   destruct (Index.node_view r); reflexivity.
 Qed.
 (* combine with the mapped self-rows collapses to a pointwise map — the plumbing lemma for the assembly *)
@@ -2166,14 +2607,14 @@ Lemma combine_map_self {A B C} (f : A * B -> C) (h : A -> B) (l : list A) :
   map f (combine l (map h l)) = map (fun x => f (x, h x)) l.
 Proof. induction l as [|a l IH]; [ reflexivity | cbn; f_equal; exact IH ]. Qed.
 (* the pass evaluates to the reversed self-rows and exactly the canonical neg_map carrier *)
-Lemma file_pass_val (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) :
+Lemma file_pass_val (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx)) :
   file_pass ctab nodes
-  = (rev (map (fun r => node_rows_of r (own_value bp ctab r) (app_fact_app r)) nodes), neg_map ctab nodes).
+  = (rev (map (fun r => node_rows_of r (own_verdict bp ctab r) (app_fact_app r)) nodes), neg_map ctab nodes).
 Proof.
   unfold file_pass. rewrite file_pass_spec, app_nil_r. reflexivity.
 Qed.
 (* the fused fact list equals the canonical raw projection over the complete carrier — the byte-identity bridge *)
-Lemma file_facts_eq (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (nodes : list (Index.NodeRef idx)) :
+Lemma file_facts_eq (ctab : Collections.NodeMap.t Intrinsic) (nodes : list (Index.NodeRef idx)) :
   file_facts ctab nodes = flat_map (occ_facts_va (neg_map ctab nodes) ctab) nodes.
 Proof.
   unfold file_facts. cbv zeta. unfold file_pass. rewrite !file_pass_spec. cbn [fst snd].
@@ -2181,7 +2622,7 @@ Proof.
   rewrite combine_map_self. rewrite flat_map_concat_map. f_equal. apply map_ext. intro r. cbn [fst snd]. apply assembly_eq.
 Qed.
 (* uc_own_app_once: the app node's own_app is ONE construction — its OFApp is the fact row, its projection the cell *)
-Lemma own_app_once (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma own_app_once (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (Hv : Index.node_view r = Index.Model.VApplication) :
   In (OFApp r (own_app bp (Index.Refs.mkAppRef r Hv))) (file_facts ctab (Index.file_nodes fr))
   /\ va_app_negative (neg_map ctab (Index.file_nodes fr)) r = app_neg_b bp (own_app bp (Index.Refs.mkAppRef r Hv)).
@@ -2381,15 +2822,17 @@ Context {p : Syntax.Program} {idx : Index.ProgramIndex p} {s : BN.PI.PackageSurf
         {bp : BN.BindingPhase s bd}.
 
 (* every fact the one canonical builder retains at a node carries that exact node as its site *)
-Lemma occ_facts_va_site (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma occ_facts_va_site (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) (o : OccFact bp) :
   In o (occ_facts_va bp (neg_map bp ctab (Index.file_nodes fr)) ctab r) -> fact_site o = r.
 Proof.
   intro Hin. destruct (is_name_head r) eqn:Hnh.
   { rewrite (occ_facts_va_name_head bp ctab fr r Hnh) in Hin. inversion Hin. }
-  unfold occ_facts_va, retained_value_row, retains_value_fact in Hin.
+  destruct (operand_only bp ctab r) eqn:Hoo;
+  unfold occ_facts_va, retained_value_row, retains_value_fact in Hin;
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view] in Hin;
-    try (rewrite (va_value_row_at bp ctab fr r Hnh Hf) in Hin);
+    try (rewrite (va_value_row_at bp ctab fr r Hnh Hoo Hf) in Hin);
+    try (rewrite (va_value_row_operand bp ctab r Hoo) in Hin);
     try (rewrite (va_app_row_at bp ctab fr r Hf E) in Hin);
     try (rewrite (type_fact_at bp r nt E) in Hin);
     try (destruct (stmt_fact_content bp r _ _ _ (Index.node_view r) eq_refl Hin) as [[os Hos] _]; subst o; reflexivity);
@@ -2408,15 +2851,17 @@ Proof.
 Qed.
 
 (* the facts the one canonical builder retains at a node have duplicate-free keys: one per family, app's two distinct *)
-Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t (option TR.ConstantInfo)) (fr : Index.FileRef idx)
+Lemma occ_facts_va_key_nodup (ctab : Collections.NodeMap.t Intrinsic) (fr : Index.FileRef idx)
   (r : Index.NodeRef idx) (Hf : Index.nr_file r = fr) :
   NoDup (map fact_key (occ_facts_va bp (neg_map bp ctab (Index.file_nodes fr)) ctab r)).
 Proof.
   destruct (is_name_head r) eqn:Hnh.
   { rewrite (occ_facts_va_name_head bp ctab fr r Hnh). apply NoDup_nil. }
-  unfold occ_facts_va, retained_value_row, retains_value_fact.
+  destruct (operand_only bp ctab r) eqn:Hoo;
+  unfold occ_facts_va, retained_value_row, retains_value_fact;
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view];
-    try (rewrite (va_value_row_at bp ctab fr r Hnh Hf)); try (rewrite (va_app_row_at bp ctab fr r Hf E));
+    try (rewrite (va_value_row_at bp ctab fr r Hnh Hoo Hf)); try (rewrite (va_value_row_operand bp ctab r Hoo));
+    try (rewrite (va_app_row_at bp ctab fr r Hf E));
     try (rewrite (type_fact_at bp r nt E));
     try (exact (stmt_fact_key_nodup r (expr_sx_va bp (neg_map bp ctab (Index.file_nodes fr)) r) (neg_map bp ctab (Index.file_nodes fr)) (Index.node_view r) eq_refl));
     cbn [map fact_key fact_site fact_kind app];
@@ -2528,7 +2973,7 @@ Qed.
 Lemma raw_fact_is_own (o : OccFact bp) :
   In o (raw_facts bp) ->
   match o with
-  | OFValue r ov => ov = own_value bp (const_table bp (Index.nr_file r)) r
+  | OFValue r ov => own_verdict bp (const_table bp (Index.nr_file r)) r = Some ov
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app bp (Index.Refs.mkAppRef r H)
   | OFStmt r os => In (OFStmt r os)
       (stmt_fact bp r (expr_sx_va bp (neg_map bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r) (neg_map bp (const_table bp (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))))
@@ -2540,16 +2985,17 @@ Proof.
   destruct (raw_facts_node o Hin) as [fr [r [Hr Ho]]]. pose proof (Index.file_nodes_file fr r Hr) as Hfile.
   destruct (is_name_head r) eqn:Hnh.
   { rewrite (occ_facts_va_name_head bp (const_table bp fr) fr r Hnh) in Ho. inversion Ho. }
-  unfold occ_facts_va, retained_value_row, retains_value_fact in Ho.
+  destruct (operand_only bp (const_table bp fr) r) eqn:Hoo;
+  unfold occ_facts_va, retained_value_row, retains_value_fact in Ho;
   destruct (Index.node_view r) as [n|l|u| |[nt]|b|c|v|ts|d|st| |tp| ] eqn:E; cbn [retains_value_fact_view] in Ho;
-    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hnh Hfile) in Ho);
+    try (rewrite (va_value_row_at bp (const_table bp fr) fr r Hnh Hoo Hfile) in Ho);
+    try (rewrite (va_value_row_operand bp (const_table bp fr) r Hoo) in Ho);
     try (rewrite (va_app_row_at bp (const_table bp fr) fr r Hfile E) in Ho);
     try (rewrite (type_fact_at bp r nt E) in Ho);
     try (destruct (stmt_fact_content bp r _ _ _ (Index.node_view r) eq_refl Ho) as [[os Hos] _]; subst o; rewrite Hfile; exact Ho);
     cbn in Ho; repeat (destruct Ho as [Ho|Ho]); try (exfalso; exact Ho);
     subst o; cbn; rewrite ?Hfile; try reflexivity.
-  - exists E; reflexivity.
-  - exists nt, E; reflexivity.
+  all: solve [ exists E; reflexivity | exists nt, E; reflexivity | exact (verdict_of_not_operand bp _ r Hoo) ].
 Qed.
 
 End FactBuilderLaws.
@@ -2881,7 +3327,7 @@ Qed.
 (* §12 canonical-row truth: a retained row's exact outcome is the own_* result the one canonical builder selected *)
 Lemma fact_row_is_own (ref : FactRowRef res) :
   match frr_row ref with
-  | OFValue r ov => ov = own_value (res_binds res) (const_table (res_binds res) (Index.nr_file r)) r
+  | OFValue r ov => own_verdict (res_binds res) (const_table (res_binds res) (Index.nr_file r)) r = Some ov
   | OFApp r oa => exists H : Index.node_view r = Index.Model.VApplication, oa = own_app (res_binds res) (Index.Refs.mkAppRef r H)
   | OFStmt r os => In (OFStmt r os)
       (stmt_fact (res_binds res) r (expr_sx_va (res_binds res) (neg_map (res_binds res) (const_table (res_binds res) (Index.nr_file r)) (Index.file_nodes (Index.nr_file r))) r)
@@ -3143,17 +3589,19 @@ Proof.
   destruct (fact_rows_complete k o Hk) as [ref [Hnth [_ Hrow]]].
   exists ref. split; [ exact (nth_error_In _ _ Hnth) | exact Hrow ].
 Qed.
-(* §10 a policy-applicable node whose value is nonconstant has its exact VNonconst Value row retained in the Result *)
+(* §10 a policy-applicable node whose retained verdict is nonconstant has its exact VNonconst Value row in the Result *)
 Lemma nonconst_value_fact_retained (fr : Index.FileRef (res_index res))
   (Hfr : In fr (flat_map BN.PI.pkg_members (BN.PI.packages (res_surface res))))
   (e : Index.NodeRef (res_index res)) (Hnh : is_name_head e = false) (He : Index.nr_file e = fr)
   (Hret : retains_value_fact e = true)
-  (Hnc : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst) :
+  (Hnc : own_verdict (res_binds res) (const_table (res_binds res) fr) e = Some VNonconst) :
   In (OFValue e VNonconst) (result_fact_list res).
 Proof.
+  assert (Hoo : operand_only (res_binds res) (const_table (res_binds res) fr) e = false) by (unfold operand_only; rewrite Hnc; reflexivity).
+  assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst) by (unfold own_value; rewrite Hnc; reflexivity).
   unfold result_fact_list; rewrite fact_once; rewrite raw_facts_flat; cbv zeta. apply in_flat_map. exists fr. split; [exact Hfr|].
   apply in_flat_map. exists e. split; [ exact (file_nodes_complete fr e He) | ].
-  rewrite <- Hnc. apply (occ_value_mem_retained (res_binds res) (const_table (res_binds res) fr) fr e Hnh He Hret).
+  rewrite <- Hown. apply (occ_value_mem_retained (res_binds res) (const_table (res_binds res) fr) fr e Hnh Hoo He Hret).
 Qed.
 (* §10/§11 the retention bridge: a canonical nonconstant child value is retrievable as its exact retained Result row *)
 Lemma nonconst_child_retained (fr : Index.FileRef (res_index res))
@@ -3171,8 +3619,9 @@ Proof.
     rewrite (va_value_nonconst_name_head (res_binds res) (const_table (res_binds res) fr) fr child Enh Hf) in Hva; discriminate Hva. }
   rewrite (va_value_nonconst_correct (res_binds res) (const_table (res_binds res) fr) fr child Hnh Hf) in Hva.
   apply andb_prop in Hva. destruct Hva as [Hret Hnc].
-  assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) child = VNonconst)
-    by (destruct (own_value (res_binds res) (const_table (res_binds res) fr) child); try discriminate Hnc; reflexivity).
+  assert (Hown : own_verdict (res_binds res) (const_table (res_binds res) fr) child = Some VNonconst)
+    by (destruct (own_verdict (res_binds res) (const_table (res_binds res) fr) child) as [ov|];
+        [ destruct ov; try discriminate Hnc; reflexivity | discriminate Hnc ]).
   destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr child Hnh Hf Hret Hown)) as [child_row [Hcin Hcrow]].
   exists child_row. split.
   - apply fact_row_for_complete;
@@ -3538,8 +3987,8 @@ Lemma short_origin_value_construct (fr : Index.FileRef (res_index res))
   (Hres : BN.resolution_object_view (BN.resolve (res_binds res) e n) = Some (BN.SourceObject (BN.DOShort sn))) :
   exists sovr : ShortOriginValueRef, sovr_site sovr = e /\ sovr_name sovr = n /\ sovr_sn sovr = sn.
 Proof.
-  assert (Hown : own_value (res_binds res) (const_table (res_binds res) fr) e = VNonconst)
-    by exact (own_value_doshort (res_binds res) (const_table (res_binds res) fr) e n Hview sn Hres).
+  assert (Hown : own_verdict (res_binds res) (const_table (res_binds res) fr) e = Some VNonconst)
+    by exact (own_verdict_doshort (res_binds res) (const_table (res_binds res) fr) e n Hview sn Hres).
   assert (Hret : retains_value_fact e = true) by (unfold retains_value_fact; rewrite Hview; reflexivity).
   destruct (fact_list_row _ (nonconst_value_fact_retained fr Hfr e Hnh He Hret Hown)) as [row [Hin Hrow]].
   assert (Hlk : fact_row_for e ValueKind = Some row)
